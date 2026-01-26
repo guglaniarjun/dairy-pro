@@ -95,3 +95,44 @@ Preferred communication style: Simple, everyday language.
 - **Nodemailer**: Email notifications
 - **OpenAI/Google Generative AI**: AI capabilities
 - **xlsx**: Excel file processing for reports/exports
+
+## Recent Changes
+
+### January 26, 2026
+- **Master Data Seeding**: Added seed script (server/seed.ts) to populate:
+  - 10 cattle breeds (Holstein, Jersey, Gir, Sahiwal, etc.)
+  - 10 vaccines (FMD, HS, BQ, Brucellosis, etc.)
+  - 14 feed items (roughage, concentrates, supplements)
+  - 10 expense heads and 7 income heads
+  - 5 inventory categories
+
+- **Master Data API Endpoints** (no auth required):
+  - GET /api/breeds - cattle breeds
+  - GET /api/vaccines - vaccination types
+  - GET /api/feed-items - feed ingredients
+  - GET /api/expense-heads - expense categories
+  - GET /api/income-heads - income categories
+  - GET /api/inventory-categories - inventory types
+
+- **Authentication Integration**:
+  - Fixed AuthProvider export for proper React context
+  - Updated withTenant middleware to use Replit Auth claims format (req.user.claims.sub)
+  - Automatic tenant creation for new authenticated users
+
+- **End-to-End Testing**: Verified all user journeys including:
+  - Landing page and authentication flow
+  - Dashboard with stats
+  - Cattle management (list, add, edit)
+  - Milk recording
+  - Health tracking
+  - Breeding management
+  - Feed management
+  - Inventory control
+  - Financial tracking
+  - Reports and alerts
+
+## Running Commands
+
+- `npm run dev` - Start development server
+- `npm run db:push` - Push schema changes to database
+- `npx tsx server/seed.ts` - Seed master data (run once after db:push)
