@@ -1,0 +1,337 @@
+You are Replit’s Elite End-to-End Product Engineering Org (CTO + Staff Backend + Staff Frontend/PWA + Mobile UX + QA + DevOps).
+
+Your task is to BUILD, TEST, FIX, and DELIVER a PRODUCTION-READY, MULTI-TENANT Dairy Farm ERP exactly as defined in **“THE DAIRY SAAS BIBLE”** (this document is the single source of truth). You must MISS NOTHING.
+
+==============================
+ABSOLUTE GOVERNING RULES
+==============================
+
+1) Treat the Dairy SaaS Bible as a CONSTITUTION.
+   - Every module, rule, workflow, master data, alert, KPI, report, constraint, phase rule must be implemented.
+   - No shortcuts, no simplifications, no omissions.
+
+2) If ANY requirement is unclear or ambiguous, ASK ME CLARIFYING QUESTIONS FIRST.
+   - Ask in ONE batch only (max 20 questions).
+   - After answers, BUILD WITHOUT STOPPING.
+
+3) After building:
+   - Run tests
+   - Fix errors
+   - Re-test
+   - Deliver a WORKING production app.
+
+==============================
+TARGET PRODUCT
+==============================
+
+• Multi-tenant SaaS Dairy ERP
+• India-ready
+• Herd size: 1 to 500 cattle
+• Android + Web (Android via installable PWA)
+• Offline-first for field operations
+• Farmer-first, labour-proof UX
+• ERP-grade finance, inventory, and auditability
+• Free + Demo + Paid plans enforced server-side
+
+==============================
+ACCESS TIERS (MANDATORY)
+==============================
+
+FREE PLAN:
+• Max 2 cows
+• Unlimited duration
+• Rolling 30-day history only
+• NO exports (CSV/PDF/Excel disabled)
+• NO marketplace orders
+• Media cap enforced
+• Offline allowed
+• Upgrade blocked only when limits exceeded
+
+DEMO PLAN:
+• Time-limited (7–14 days)
+• Cow limit configurable (default 20)
+• All features visible
+• NO exports
+• NO bulk import
+• Expiry → READ-ONLY (data visible, no writes)
+
+PAID PLAN:
+• Full features as per Bible
+• Exports enabled per phase
+• Marketplace enabled
+• Accounting Mode B enabled
+• No artificial limits except plan quotas
+
+==============================
+NON-NEGOTIABLE SYSTEM LAWS
+==============================
+
+• Strict multi-tenant isolation (tenant_id everywhere)
+• Server-side RBAC (screen/action/field)
+• No hard deletes – only reversals
+• Audit logs for all critical actions
+• Offline-first with queued events + idempotent sync
+• Media-first (photos/audio mandatory where required)
+• Multilingual system-level support
+• KPI → Report → Transaction → Source drill-down must work
+
+==============================
+TECH STACK (USE EXACTLY THIS)
+==============================
+
+Monorepo:
+ /server  (Node.js + TypeScript + Fastify)
+ /web     (React + Vite + TypeScript + Tailwind)
+
+Backend:
+• PostgreSQL + Prisma ORM
+• Redis + BullMQ (alerts, reports, media jobs)
+• JWT + Refresh Tokens
+• Role & permission middleware
+• Signed URLs for media (S3-compatible)
+
+Frontend:
+• PWA with Service Worker
+• IndexedDB (Dexie) for offline
+• Background sync
+• Android-first UX
+
+Testing:
+• Unit tests
+• API tests
+• E2E smoke tests
+• Tenant isolation tests
+• Plan gating tests
+• FIFO inventory tests
+• Offline sync idempotency tests
+
+==============================
+MODULES – ALL MUST BE BUILT
+==============================
+
+1) TENANCY & GOVERNANCE
+• SuperAdmin → Tenant → Location → Sub-units → Users
+• Subscription plans & usage metering
+• Read-only lock on expiry
+• Feature flags per phase
+
+2) RBAC & AUDIT
+• Role-based permissions
+• Field-level restrictions
+• Audit logs
+• Reversal workflows
+• Period locks (finance)
+
+3) MULTILINGUAL SYSTEM
+• Language-agnostic data (codes)
+• UI language packs
+• User-level language switching
+• Hinglish default for labour
+
+4) MEDIA & EVIDENCE ENGINE
+• Mandatory photos for:
+  injury, disease, abortion, death, equipment damage
+• Voice notes supported
+• Tenant-isolated storage
+• Thumbnails + async upload
+• Searchable & auditable
+
+5) CATTLE DIGITAL TWIN
+• Lifelong cow identity
+• Face photo + tag + nickname
+• Multiple lactations
+• Stage derived, not editable
+• Edge cases handled
+
+6) BREEDING & REPRODUCTION
+• Heats, AI, pregnancy tests
+• Gestation & calving logic
+• Alerts & task automation
+• KPIs & reports
+
+7) MILKING, SALES & PROCESSING
+• Cow-wise milk entry
+• Milk pool
+• Sales
+• Internal milk cost engine
+• Processing batches
+• Reconciliation:
+  Produced = Sold + Processed + Wastage
+
+8) FEED & DIET ENGINE
+• Feed masters
+• Formulations
+• Stage/group/individual assignment
+• Planned vs actual
+• Variance
+• Feed-to-milk economics
+
+9) HEALTH & TREATMENT
+• Treatments with inventory linkage
+• Withdrawal logic
+• Vaccination & deworming schedules
+• Expense auto-posting
+• Health analytics
+
+10) INVENTORY ENGINE (ERP-GRADE)
+• Categories: feed, medicine, supplements, packaging, equipment
+• Batch tracking
+• FIFO valuation
+• Expiry enforcement
+• Wastage, return, transfer
+• Inventory → Accounting linkage
+
+11) ACCOUNTING
+Mode A:
+• Income & expenses
+
+Mode B:
+• Chart of Accounts
+• Ledgers
+• GST (India)
+• P&L
+• Balance Sheet
+• Cost allocation
+• Period locks & reversals
+
+12) TASKS, CALENDAR & WHATSAPP
+• Task lifecycle with strict status rules
+• Recurring tasks
+• Automation triggers
+• WhatsApp templates
+• Delivery logs
+• Daily caps
+
+13) REPORTS, EXPORTS & KPIs
+• Global report registry
+• KPI framework (locked formulas)
+• Drill-down traceability
+• CSV exports (paid only)
+• PDF/Excel per phase rules
+
+14) MARKETPLACE
+• SuperAdmin-controlled catalog
+• Suppliers
+• Trigger-based recommendations
+• Ads ON/OFF per farm
+• Orders, commissions, payouts
+• Safeguards & audit logs
+
+==============================
+SEED DATA (MANDATORY)
+==============================
+
+Load ALL masters exactly as defined in the Bible, including:
+• Breeds (Indian + Exotic)
+• Biological constants
+• Feed ingredients
+• Medicines
+• Vaccines
+• Expense heads
+• Income heads
+• Task statuses
+• Alert severities
+• KPI definitions
+• Report registry
+
+Seed scripts must run automatically.
+
+==============================
+OFFLINE-FIRST REQUIREMENTS
+==============================
+
+• IndexedDB outbox for:
+  milk entry, cow sick, feed issue, task updates, media
+• /sync/events endpoint
+• Idempotent processing using client_event_id
+• Server authoritative conflict resolution
+• Offline save confirmation shown to user
+
+==============================
+ANDROID UX (LABOUR-PROOF)
+==============================
+
+Home Screen ONLY:
+• Today
+• Quick Actions
+• Alerts
+• My Work
+
+Quick Actions:
+• Milk Entry
+• Cow Sick (photo mandatory)
+• Feed Given
+• Photo/Voice Note
+
+Minimal typing.
+Defaults everywhere.
+“Same as yesterday” buttons.
+
+==============================
+DELIVERABLES
+==============================
+
+1) Full monorepo with working backend + PWA
+2) Database migrations
+3) Seed data
+4) Demo accounts:
+   • SuperAdmin
+   • Free tenant
+   • Demo tenant
+   • Paid tenant
+5) Tests (all green)
+6) README with:
+   • Setup
+   • Env vars
+   • Deployment
+   • Assumptions (if any)
+
+==============================
+WORKFLOW (DO NOT DEVIATE)
+==============================
+
+STEP 0:
+• Parse the Dairy SaaS Bible
+• Create a checklist of ALL requirements
+
+STEP 1:
+• Ask clarifying questions IF REQUIRED
+• Otherwise proceed
+
+STEP 2:
+• Build Phase 1 completely
+• Test
+• Fix
+
+STEP 3:
+• Build Phase 2
+• Test
+• Fix
+
+STEP 4:
+• Build Phase 3
+• Test
+• Fix
+
+STEP 5:
+• Build Phase 4
+• Test
+• Fix
+
+STEP 6:
+• Build Phase 5
+• Test
+• Fix
+
+STEP 7:
+• Final end-to-end verification on:
+  Free, Demo, Paid tenants
+  Android PWA + Web
+
+==============================
+FINAL COMMAND
+==============================
+
+START NOW.
+DO NOT SKIP ANY FEATURE, MODULE, SEED DATA, OR RULE DEFINED IN THE DAIRY SAAS BIBLE.
+BUILD UNTIL THE APP IS PRODUCTION-READY.
