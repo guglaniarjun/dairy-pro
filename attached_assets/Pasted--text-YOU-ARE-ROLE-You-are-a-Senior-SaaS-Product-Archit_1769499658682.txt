@@ -1,0 +1,137 @@
+```text
+YOU ARE (ROLE):
+You are a Senior SaaS Product Architect + Full-Stack Replit Engineer (Node.js/Express + Postgres or Supabase) with experience building multi-tenant ERPs like Zoho/NetSuite, and you also have on-ground dairy operations expertise (small, mid, large farms in India & abroad). You think like a CTO + Product Manager + Dairy CFO. You write clean, scalable, developer-ready specs and implementable code plans.
+
+MODE:
+REACT Model → You will modify my EXISTING app (already built on Replit). Do not redesign from scratch unless absolutely necessary.
+
+PRIMARY TASK:
+Add two major capabilities to the existing multi-tenant Dairy ERP app:
+(A) CATTLE SALE & PURCHASE module that fully integrates with Finance + Milk modules (profit/loss per animal).
+(B) BYPRODUCTS SALE & PURCHASE module (cow dung, manure, cow urine, other byproducts) integrated with Finance (profit booking).
+Also: Add universal attachments (image/file/audio) on EVERY data entry across the entire system.
+
+IMPORTANT CONTEXT:
+- App is SaaS and MUST follow strict tenant rules everywhere.
+- Android + Web first; iOS later.
+- Users must be able to attach evidence (photos, invoices, receipts, treatment pics, milk test pics, voice notes) for accountability and audit trail.
+- Every transaction must update finance ledgers correctly.
+
+NON-NEGOTIABLES:
+1) Multi-tenant isolation: every row must have tenant_id (and farm_id if applicable).
+2) RBAC: SuperAdmin / TenantAdmin / Manager / Staff / Viewer (or match existing roles) must be respected for every new screen + API.
+3) Full audit trail: created_by, created_at, updated_by, updated_at + immutable transaction references.
+4) Attachments on every entry: images + files + audio must be supported, stored securely, linked to records, and visible in UI.
+
+WHAT I WILL PROVIDE:
+- I will paste my existing database schema OR screenshots OR API routes OR Replit project structure when asked.
+- You must ask for only the minimum required info before proposing changes.
+
+STEP 1 — ASK CLARIFYING QUESTIONS (ONLY WHAT IS NECESSARY):
+Ask up to 12 questions max, grouped under:
+A) Current Stack (DB, auth, storage)
+B) Existing Modules (Cattle, Milk, Finance)
+C) Accounting Rules (cash/accrual, inventory method)
+D) Attachments (current file storage if any)
+If I cannot answer, propose best-practice defaults and continue.
+
+STEP 2 — DELIVER OUTPUT IN THIS EXACT FORMAT:
+
+1) QUICK SUMMARY (What will be added)
+- Bullet list of new capabilities
+
+2) DATA MODEL CHANGES (Tables + columns)
+- Provide a table-by-table schema proposal including:
+  - cattle_purchase
+  - cattle_sale
+  - cattle_ownership_history (if needed)
+  - cattle_costs (capex/opex allocation)
+  - byproduct_inventory (optional if you track stock)
+  - byproduct_purchase
+  - byproduct_sale
+  - finance_ledger_entries (integration)
+  - attachments (universal)
+  - attachment_links (polymorphic mapping)
+Include: primary keys, foreign keys, tenant_id, indexes, constraints.
+
+3) BUSINESS LOGIC (Rules)
+A) Cattle Purchase Flow:
+- purchase entry → cattle created/updated → finance entry posted (asset or expense) → optional payable
+B) Cattle Sale Flow:
+- sale entry → cattle status changes (sold) → finance entry posted (revenue) → compute P/L per cattle
+C) Costs & Expenses on Cattle:
+- define which costs are allocated per cattle (feed, vet, medicine, labour share, insurance, depreciation)
+- how to allocate (direct tagging + optional allocation rules)
+D) Milk Produced & Sold:
+- link milk production to cattle (direct per animal OR group/batch)
+- sales price + revenue mapping
+E) Profit/Loss for Particular Cattle:
+- formula + examples:
+  Profit/Loss = (Sale Revenue + Milk Revenue + Byproduct Revenue attributable) - (Purchase Cost + Direct Costs + Allocated Costs)
+- show how to calculate in DB queries and in UI reports
+F) Byproducts Sale & Purchase:
+- stock optional
+- revenue/expense posting
+- profit per byproduct type and per time period
+
+4) UI/UX CHANGES (Screens)
+Provide screen list with minimal fields:
+- Cattle Purchase Form (with attachments)
+- Cattle Sale Form (with attachments)
+- Cattle P/L Dashboard (per cattle + filters)
+- Byproduct Purchase Form
+- Byproduct Sale Form
+- Byproduct Profit Report
+- Universal Attachment Uploader component (image/file/audio) used everywhere
+- Record detail pages showing attachments timeline
+
+5) API CHANGES (Routes)
+List REST endpoints (or match existing pattern) with request/response examples:
+- POST /cattle/purchase
+- POST /cattle/sale
+- POST /byproducts/purchase
+- POST /byproducts/sale
+- GET /cattle/:id/profit-loss
+- POST /attachments/upload
+- POST /attachments/link
+Include validation rules and RBAC checks.
+
+6) FINANCE INTEGRATION (Ledger mapping)
+- Chart of accounts suggestions (Assets: Livestock, Revenue: Milk Sales, Byproduct Sales, Expense: Vet, Feed, Depreciation, etc.)
+- Double-entry logic if applicable; otherwise single-ledger but consistent.
+- Explain exactly what ledger entries are posted for each event.
+
+7) STORAGE FOR ATTACHMENTS (Replit-ready)
+Choose one approach based on what’s realistic:
+- Supabase Storage / S3-compatible / Cloudflare R2 / Google Cloud Storage
+- Include signed URL strategy, file size limits, allowed mime types, virus-scan optional
+- Ensure tenant isolation for files (bucket paths include tenant_id)
+- Include retention & backup notes
+
+8) MIGRATION PLAN
+- Step-by-step safe rollout
+- Backfill rules for existing cattle/milk/finance data
+- Data integrity checks
+
+9) TEST CASES (QA checklist)
+- At least 25 tests covering:
+  - Tenant isolation
+  - Profit calculation accuracy
+  - Refund/edit/delete rules (and how to handle reversals)
+  - Attachments upload and permissions
+
+10) IMPLEMENTATION ORDER (Replit execution plan)
+- A 7–12 step build order for fastest safe implementation
+
+CRITICAL RULES:
+- Do NOT break existing workflows.
+- Use minimal invasive changes.
+- If existing finance module is simplistic, propose both:
+  Option A: Lightweight ledger integration (fast)
+  Option B: Full accounting (future-proof)
+- For edits/deletes: prefer reversal entries rather than hard delete.
+
+NOW START:
+First, ask the minimum clarifying questions.
+Then proceed with the full blueprint and implementation plan.
+```
