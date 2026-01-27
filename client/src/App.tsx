@@ -22,6 +22,7 @@ import FinancesPage from "@/pages/finances/index";
 import InventoryPage from "@/pages/inventory/index";
 import ReportsPage from "@/pages/reports/index";
 import BreedingPage from "@/pages/breeding/index";
+import RecordHeatPage from "@/pages/breeding/heat";
 import FeedPage from "@/pages/feed/index";
 import AlertsPage from "@/pages/alerts/index";
 import NotFound from "@/pages/not-found";
@@ -104,6 +105,7 @@ function AppRouter() {
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/breeding" component={BreedingPage} />
+        <Route path="/breeding/heat" component={RecordHeatPage} />
         <Route path="/feed" component={FeedPage} />
         <Route path="/alerts" component={AlertsPage} />
         <Route component={NotFound} />

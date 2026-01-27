@@ -3,16 +3,18 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
 
-// Extend Express Request to include user
+// Extend Express Request to include user with Replit Auth claims
 declare global {
   namespace Express {
     interface Request {
       user?: {
-        id: string;
-        email?: string | null;
-        firstName?: string | null;
-        lastName?: string | null;
-        profileImageUrl?: string | null;
+        claims: {
+          sub: string;
+          email?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+          profile_image_url?: string | null;
+        };
       };
       tenantId?: string;
     }
@@ -226,7 +228,7 @@ export async function registerRoutes(
       const entry = await storage.createMilkEntry({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.id,
+        recordedBy: req.user!.claims.sub,
       });
       res.status(201).json(entry);
     } catch (error) {
@@ -352,7 +354,7 @@ export async function registerRoutes(
       const expense = await storage.createExpense({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.id,
+        recordedBy: req.user!.claims.sub,
       });
       res.status(201).json(expense);
     } catch (error) {
@@ -376,7 +378,7 @@ export async function registerRoutes(
       const income = await storage.createIncome({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.id,
+        recordedBy: req.user!.claims.sub,
       });
       res.status(201).json(income);
     } catch (error) {
@@ -451,7 +453,7 @@ export async function registerRoutes(
       const record = await storage.createFeedingRecord({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.id,
+        recordedBy: req.user!.claims.sub,
       });
       res.status(201).json(record);
     } catch (error) {
@@ -479,7 +481,8 @@ export async function registerRoutes(
       const heat = await storage.createHeat({
         ...req.body,
         tenantId: req.tenantId,
-        detectedBy: req.user!.id,
+        detectedBy: req.user!.claims.sub,
+        detectedAt: new Date(req.body.detectedAt),
       });
       res.status(201).json(heat);
     } catch (error) {
