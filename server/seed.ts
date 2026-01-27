@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { breeds, vaccines, feedItems, expenseHeads, incomeHeads, inventoryCategories } from "@shared/schema";
+import { breeds, vaccines, feedItems, expenseHeads, incomeHeads, inventoryCategories, byproductTypes } from "@shared/schema";
 
 async function seed() {
   console.log("Seeding master data...");
@@ -113,6 +113,25 @@ async function seed() {
     await db.insert(inventoryCategories).values(cat).onConflictDoNothing({ target: inventoryCategories.code });
   }
   console.log(`✓ Seeded ${inventoryCategoriesData.length} inventory categories`);
+
+  // Seed byproduct types
+  const byproductTypesData = [
+    { code: "cow-dung", name: "Cow Dung (Fresh)", unit: "kg", description: "Fresh cow dung for direct sale or composting" },
+    { code: "dry-dung", name: "Dry Cow Dung", unit: "kg", description: "Dried cow dung cakes/patties" },
+    { code: "cow-urine", name: "Cow Urine (Gomutra)", unit: "liters", description: "Fresh cow urine for medicinal/agricultural use" },
+    { code: "vermicompost", name: "Vermicompost", unit: "kg", description: "Organic fertilizer produced using earthworms" },
+    { code: "compost-manure", name: "Compost Manure", unit: "kg", description: "Decomposed organic matter for soil enrichment" },
+    { code: "biogas-slurry", name: "Biogas Slurry", unit: "kg", description: "Nutrient-rich byproduct from biogas production" },
+    { code: "biogas", name: "Biogas", unit: "cubic_meters", description: "Methane-rich gas produced from dung" },
+    { code: "dung-cakes", name: "Dung Cakes (Upla)", unit: "units", description: "Dried cow dung cakes for fuel" },
+    { code: "organic-fertilizer", name: "Organic Fertilizer Mix", unit: "kg", description: "Mixed organic fertilizer from farm waste" },
+    { code: "panchgavya", name: "Panchgavya", unit: "liters", description: "Traditional preparation from cow products" },
+  ];
+
+  for (const type of byproductTypesData) {
+    await db.insert(byproductTypes).values(type).onConflictDoNothing({ target: byproductTypes.code });
+  }
+  console.log(`✓ Seeded ${byproductTypesData.length} byproduct types`);
 
   console.log("\n✅ Seeding completed successfully!");
 }

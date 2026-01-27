@@ -425,6 +425,185 @@ export const alerts = pgTable("alerts", {
 });
 
 // =====================================================
+// SYSTEM SETTINGS (Super Admin - Global Storage Config)
+// =====================================================
+
+export const systemSettings = pgTable("system_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  value: text("value"),
+  isSecret: boolean("is_secret").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================================
+// TENANT SETTINGS (for accounting mode, etc.)
+// =====================================================
+
+export const tenantSettings = pgTable("tenant_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id).unique(),
+  // Accounting Mode
+  accountingMode: text("accounting_mode").notNull().default("simple"), // simple, full
+  // Byproduct Settings
+  byproductInventoryEnabled: boolean("byproduct_inventory_enabled").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================================
+// CATTLE TRANSACTIONS (Purchase & Sale)
+// =====================================================
+
+export const cattleTransactions = pgTable("cattle_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  cattleId: varchar("cattle_id").notNull().references(() => cattle.id),
+  type: text("type").notNull(), // purchase, sale
+  date: date("date").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  // Party details
+  partyName: text("party_name"),
+  partyPhone: text("party_phone"),
+  partyAddress: text("party_address"),
+  // Payment details
+  paymentStatus: text("payment_status").notNull().default("pending"), // pending, partial, paid
+  paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }).default("0"),
+  paymentMethod: text("payment_method").default("cash"), // cash, bank, upi, cheque
+  // For sale - P/L calculation
+  purchaseCostAtSale: decimal("purchase_cost_at_sale", { precision: 12, scale: 2 }),
+  totalCostsAtSale: decimal("total_costs_at_sale", { precision: 12, scale: 2 }),
+  milkRevenueAtSale: decimal("milk_revenue_at_sale", { precision: 12, scale: 2 }),
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  // Audit
+  invoiceNumber: text("invoice_number"),
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("cattle_tx_tenant_idx").on(table.tenantId),
+  index("cattle_tx_cattle_idx").on(table.cattleId),
+]);
+
+export const cattlePayments = pgTable("cattle_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  transactionId: varchar("transaction_id").notNull().references(() => cattleTransactions.id),
+  date: date("date").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").default("cash"),
+  referenceNumber: text("reference_number"),
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Cost allocation to cattle (for P/L calculation)
+export const cattleCosts = pgTable("cattle_costs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  cattleId: varchar("cattle_id").notNull().references(() => cattle.id),
+  date: date("date").notNull(),
+  category: text("category").notNull(), // feed, medicine, vet, labor, insurance, other
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  description: text("description"),
+  allocationMethod: text("allocation_method").default("direct"), // direct, proportional
+  sourceType: text("source_type"), // expense, treatment, feeding
+  sourceId: varchar("source_id"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("cattle_costs_tenant_idx").on(table.tenantId),
+  index("cattle_costs_cattle_idx").on(table.cattleId),
+]);
+
+// =====================================================
+// BYPRODUCTS MODULE
+// =====================================================
+
+export const byproductTypes = pgTable("byproduct_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  unit: text("unit").notNull().default("kg"), // kg, liters, units, bags
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+export const byproductTransactions = pgTable("byproduct_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  byproductTypeId: varchar("byproduct_type_id").notNull().references(() => byproductTypes.id),
+  type: text("type").notNull(), // purchase, sale
+  date: date("date").notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  pricePerUnit: decimal("price_per_unit", { precision: 10, scale: 2 }).notNull(),
+  totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
+  // Party details
+  partyName: text("party_name"),
+  partyPhone: text("party_phone"),
+  // Payment
+  paymentStatus: text("payment_status").notNull().default("paid"), // pending, partial, paid
+  paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }),
+  paymentMethod: text("payment_method").default("cash"),
+  // Inventory update (optional)
+  updateInventory: boolean("update_inventory").default(false),
+  // Audit
+  invoiceNumber: text("invoice_number"),
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("byproduct_tx_tenant_idx").on(table.tenantId),
+  index("byproduct_tx_type_idx").on(table.byproductTypeId),
+]);
+
+export const byproductInventory = pgTable("byproduct_inventory", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  byproductTypeId: varchar("byproduct_type_id").notNull().references(() => byproductTypes.id),
+  currentStock: decimal("current_stock", { precision: 12, scale: 2 }).notNull().default("0"),
+  avgCost: decimal("avg_cost", { precision: 10, scale: 2 }),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+}, (table) => [
+  index("byproduct_inv_tenant_idx").on(table.tenantId),
+  index("byproduct_inv_unique_idx").on(table.tenantId, table.byproductTypeId),
+]);
+
+// =====================================================
+// UNIVERSAL ATTACHMENTS
+// =====================================================
+
+export const attachments = pgTable("attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  fileName: text("file_name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(), // bytes
+  storageKey: text("storage_key").notNull(), // S3/Supabase path
+  fileType: text("file_type").notNull(), // image, document, audio
+  uploadedBy: varchar("uploaded_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("attachments_tenant_idx").on(table.tenantId),
+]);
+
+// Polymorphic link table for attachments
+export const attachmentLinks = pgTable("attachment_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  attachmentId: varchar("attachment_id").notNull().references(() => attachments.id),
+  entityType: text("entity_type").notNull(), // cattle, health_event, treatment, milk_entry, expense, income, cattle_transaction, byproduct_transaction, etc.
+  entityId: varchar("entity_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("attachment_links_entity_idx").on(table.entityType, table.entityId),
+]);
+
+// =====================================================
 // AUDIT LOG
 // =====================================================
 
@@ -510,6 +689,17 @@ export const insertPregnancyTestSchema = createInsertSchema(pregnancyTests).omit
 export const insertCalvingSchema = createInsertSchema(calvings).omit({ id: true, createdAt: true });
 export const insertMilkSaleSchema = createInsertSchema(milkSales).omit({ id: true, createdAt: true });
 
+// New module schemas
+export const insertSystemSettingsSchema = createInsertSchema(systemSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTenantSettingsSchema = createInsertSchema(tenantSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCattleTransactionSchema = createInsertSchema(cattleTransactions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCattlePaymentSchema = createInsertSchema(cattlePayments).omit({ id: true, createdAt: true });
+export const insertCattleCostSchema = createInsertSchema(cattleCosts).omit({ id: true, createdAt: true });
+export const insertByproductTransactionSchema = createInsertSchema(byproductTransactions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertByproductInventorySchema = createInsertSchema(byproductInventory).omit({ id: true });
+export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
+export const insertAttachmentLinkSchema = createInsertSchema(attachmentLinks).omit({ id: true, createdAt: true });
+
 // Types
 export type Tenant = typeof tenants.$inferSelect;
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
@@ -557,3 +747,24 @@ export type Calving = typeof calvings.$inferSelect;
 export type InsertCalving = z.infer<typeof insertCalvingSchema>;
 export type TenantMember = typeof tenantMembers.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+// New module types
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
+export type TenantSettings = typeof tenantSettings.$inferSelect;
+export type InsertTenantSettings = z.infer<typeof insertTenantSettingsSchema>;
+export type CattleTransaction = typeof cattleTransactions.$inferSelect;
+export type InsertCattleTransaction = z.infer<typeof insertCattleTransactionSchema>;
+export type CattlePayment = typeof cattlePayments.$inferSelect;
+export type InsertCattlePayment = z.infer<typeof insertCattlePaymentSchema>;
+export type CattleCost = typeof cattleCosts.$inferSelect;
+export type InsertCattleCost = z.infer<typeof insertCattleCostSchema>;
+export type ByproductType = typeof byproductTypes.$inferSelect;
+export type ByproductTransaction = typeof byproductTransactions.$inferSelect;
+export type InsertByproductTransaction = z.infer<typeof insertByproductTransactionSchema>;
+export type ByproductInventory = typeof byproductInventory.$inferSelect;
+export type InsertByproductInventory = z.infer<typeof insertByproductInventorySchema>;
+export type Attachment = typeof attachments.$inferSelect;
+export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
+export type AttachmentLink = typeof attachmentLinks.$inferSelect;
+export type InsertAttachmentLink = z.infer<typeof insertAttachmentLinkSchema>;
