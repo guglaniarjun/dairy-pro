@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ShoppingCart, DollarSign, Package, TrendingUp, TrendingDown, Loader2, Recycle } from "lucide-react";
+import { Plus, ShoppingCart, DollarSign, Package, TrendingUp, TrendingDown, Loader2, Recycle, BarChart3, Calendar, Users } from "lucide-react";
 import { AttachmentUploader } from "@/components/attachments/attachment-uploader";
 
 interface ByproductType {
@@ -150,6 +150,93 @@ export default function ByproductsPage() {
   const totalSales = transactions?.filter(t => t.type === "sale").reduce((sum, t) => sum + Number(t.totalAmount || 0), 0) || 0;
   const totalPurchases = transactions?.filter(t => t.type === "purchase").reduce((sum, t) => sum + Number(t.totalAmount || 0), 0) || 0;
   const netRevenue = totalSales - totalPurchases;
+
+  // Analytics data for reports
+  const getByproductBreakdown = () => {
+    if (!transactions || !byproductTypes) return [];
+    const breakdown: Record<string, { name: string; sales: number; purchases: number; quantity: number; unit: string }> = {};
+    
+    transactions.forEach(tx => {
+      const typeId = tx.byproductTypeId;
+      if (!breakdown[typeId]) {
+        const type = byproductTypes.find(t => t.id === typeId);
+        breakdown[typeId] = { 
+          name: type?.name || "Unknown", 
+          sales: 0, 
+          purchases: 0, 
+          quantity: 0,
+          unit: type?.unit || "units"
+        };
+      }
+      if (tx.type === "sale") {
+        breakdown[typeId].sales += Number(tx.totalAmount || 0);
+      } else {
+        breakdown[typeId].purchases += Number(tx.totalAmount || 0);
+      }
+      breakdown[typeId].quantity += Number(tx.quantity || 0);
+    });
+    
+    return Object.values(breakdown).sort((a, b) => (b.sales - b.purchases) - (a.sales - a.purchases));
+  };
+
+  const getMonthlyTrends = () => {
+    if (!transactions) return [];
+    const monthlyData: Record<string, { month: string; sales: number; purchases: number }> = {};
+    
+    transactions.forEach(tx => {
+      const date = new Date(tx.date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const monthName = date.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+      
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { month: monthName, sales: 0, purchases: 0 };
+      }
+      if (tx.type === "sale") {
+        monthlyData[monthKey].sales += Number(tx.totalAmount || 0);
+      } else {
+        monthlyData[monthKey].purchases += Number(tx.totalAmount || 0);
+      }
+    });
+    
+    return Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([, data]) => data);
+  };
+
+  const getTopParties = () => {
+    if (!transactions) return { customers: [], suppliers: [] };
+    const customers: Record<string, { name: string; amount: number; count: number }> = {};
+    const suppliers: Record<string, { name: string; amount: number; count: number }> = {};
+    
+    transactions.forEach(tx => {
+      if (!tx.partyName) return;
+      const partyName = tx.partyName;
+      
+      if (tx.type === "sale") {
+        if (!customers[partyName]) {
+          customers[partyName] = { name: partyName, amount: 0, count: 0 };
+        }
+        customers[partyName].amount += Number(tx.totalAmount || 0);
+        customers[partyName].count += 1;
+      } else {
+        if (!suppliers[partyName]) {
+          suppliers[partyName] = { name: partyName, amount: 0, count: 0 };
+        }
+        suppliers[partyName].amount += Number(tx.totalAmount || 0);
+        suppliers[partyName].count += 1;
+      }
+    });
+    
+    return {
+      customers: Object.values(customers).sort((a, b) => b.amount - a.amount).slice(0, 5),
+      suppliers: Object.values(suppliers).sort((a, b) => b.amount - a.amount).slice(0, 5),
+    };
+  };
+
+  const byproductBreakdown = getByproductBreakdown();
+  const monthlyTrends = getMonthlyTrends();
+  const topParties = getTopParties();
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
@@ -430,6 +517,7 @@ export default function ByproductsPage() {
       <Tabs value={selectedTab} onValueChange={setSelectedTab}>
         <TabsList>
           <TabsTrigger value="transactions" data-testid="tab-transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="reports" data-testid="tab-reports">Reports</TabsTrigger>
           {tenantSettings?.byproductInventoryEnabled && (
             <TabsTrigger value="inventory" data-testid="tab-inventory">Inventory</TabsTrigger>
           )}
@@ -498,6 +586,240 @@ export default function ByproductsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <div className="space-y-6">
+            {/* Summary Stats */}
+            <div className="grid sm:grid-cols-3 gap-4">
+              <Card data-testid="card-report-total-sales">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                      <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Sales</p>
+                      <p className="text-xl font-bold">{formatCurrency(totalSales)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-report-total-purchases">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
+                      <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Purchases</p>
+                      <p className="text-xl font-bold">{formatCurrency(totalPurchases)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-report-net-revenue">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${netRevenue >= 0 ? "bg-green-100 dark:bg-green-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
+                      <DollarSign className={`w-5 h-5 ${netRevenue >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Net Revenue</p>
+                      <p className={`text-xl font-bold ${netRevenue >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {formatCurrency(netRevenue)}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Breakdown by Byproduct Type */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" />
+                  Breakdown by Byproduct Type
+                </CardTitle>
+                <CardDescription>Sales and purchases by each byproduct type</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {byproductBreakdown.length > 0 ? (
+                  <div className="space-y-4">
+                    {byproductBreakdown.map((item, idx) => {
+                      const profit = item.sales - item.purchases;
+                      const maxAmount = Math.max(...byproductBreakdown.map(b => Math.max(b.sales, b.purchases))) || 1;
+                      return (
+                        <div key={idx} className="space-y-2" data-testid={`breakdown-item-${idx}`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.quantity.toLocaleString()} {item.unit} transacted
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`font-semibold ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                {profit >= 0 ? "+" : ""}{formatCurrency(profit)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Sales: {formatCurrency(item.sales)} | Purchases: {formatCurrency(item.purchases)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 h-2">
+                            <div 
+                              className="bg-green-500 rounded-l" 
+                              style={{ width: `${(item.sales / maxAmount) * 50}%` }} 
+                            />
+                            <div 
+                              className="bg-red-500 rounded-r" 
+                              style={{ width: `${(item.purchases / maxAmount) * 50}%` }} 
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">No transaction data for analysis</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Monthly Trends */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5" />
+                  Monthly Trends
+                </CardTitle>
+                <CardDescription>Sales and purchases over the last 6 months</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {monthlyTrends.length > 0 ? (
+                  <div className="space-y-3">
+                    {monthlyTrends.map((month, idx) => {
+                      const profit = month.sales - month.purchases;
+                      const maxMonthly = Math.max(...monthlyTrends.map(m => Math.max(m.sales, m.purchases))) || 1;
+                      return (
+                        <div key={idx} className="space-y-1" data-testid={`monthly-item-${idx}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium w-16">{month.month}</span>
+                            <div className="flex-1 mx-4 flex gap-1 h-4">
+                              <div 
+                                className="bg-green-500 rounded-l" 
+                                style={{ width: `${(month.sales / maxMonthly) * 50}%` }} 
+                              />
+                              <div 
+                                className="bg-red-500 rounded-r" 
+                                style={{ width: `${(month.purchases / maxMonthly) * 50}%` }} 
+                              />
+                            </div>
+                            <span className={`text-sm font-medium w-24 text-right ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {profit >= 0 ? "+" : ""}{formatCurrency(profit)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center gap-4 justify-center pt-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-green-500 rounded" />
+                        <span>Sales</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-red-500 rounded" />
+                        <span>Purchases</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Calendar className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">No monthly data available</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Top Customers & Suppliers */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Top Customers
+                  </CardTitle>
+                  <CardDescription>Your highest value byproduct buyers</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {topParties.customers.length > 0 ? (
+                    <div className="space-y-3">
+                      {topParties.customers.map((customer, idx) => (
+                        <div key={idx} className="flex items-center justify-between" data-testid={`customer-item-${idx}`}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-sm font-medium text-green-700 dark:text-green-300">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="font-medium">{customer.name}</p>
+                              <p className="text-xs text-muted-foreground">{customer.count} transactions</p>
+                            </div>
+                          </div>
+                          <p className="font-semibold text-green-600">{formatCurrency(customer.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                      <p className="text-muted-foreground">No customer data yet</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShoppingCart className="w-5 h-5" />
+                    Top Suppliers
+                  </CardTitle>
+                  <CardDescription>Your main byproduct suppliers</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {topParties.suppliers.length > 0 ? (
+                    <div className="space-y-3">
+                      {topParties.suppliers.map((supplier, idx) => (
+                        <div key={idx} className="flex items-center justify-between" data-testid={`supplier-item-${idx}`}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-sm font-medium text-blue-700 dark:text-blue-300">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="font-medium">{supplier.name}</p>
+                              <p className="text-xs text-muted-foreground">{supplier.count} transactions</p>
+                            </div>
+                          </div>
+                          <p className="font-semibold text-blue-600">{formatCurrency(supplier.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <ShoppingCart className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                      <p className="text-muted-foreground">No supplier data yet</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
 
         {tenantSettings?.byproductInventoryEnabled && (
