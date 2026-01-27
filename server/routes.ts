@@ -1,7 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
+import { upload, uploadFile, deleteFile, getFileType } from "./upload";
 
 // Extend Express Request to include user with Replit Auth claims
 declare global {
@@ -776,6 +778,121 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Byproduct inventory fetch error:", error);
       res.status(500).json({ error: "Failed to fetch byproduct inventory" });
+    }
+  });
+
+  // =====================================================
+  // ATTACHMENTS
+  // =====================================================
+
+  // Upload attachment
+  app.post("/api/attachments", isAuthenticated, withTenant, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { entityType, entityId } = req.body;
+      
+      if (!entityType || !entityId) {
+        return res.status(400).json({ error: "entityType and entityId are required" });
+      }
+      
+      // Validate entityType
+      const validEntityTypes = ["cattle", "milk_record", "health_record", "breeding_record", "cattle_transaction", "byproduct_transaction"];
+      if (!validEntityTypes.includes(entityType)) {
+        return res.status(400).json({ error: "Invalid entity type" });
+      }
+
+      const { url, storageKey } = await uploadFile(req.file, req.tenantId!);
+      
+      const attachment = await storage.createAttachment({
+        id: crypto.randomUUID(),
+        tenantId: req.tenantId,
+        fileName: req.file.originalname,
+        fileType: getFileType(req.file.mimetype),
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        storageUrl: url,
+        storageKey: storageKey,
+        uploadedBy: (req as any).user.claims.sub,
+      });
+
+      // Create link to entity
+      await storage.createAttachmentLink({
+        attachmentId: attachment.id,
+        entityType,
+        entityId,
+      });
+
+      res.status(201).json(attachment);
+    } catch (error: any) {
+      console.error("Attachment upload error:", error);
+      res.status(500).json({ error: error.message || "Failed to upload attachment" });
+    }
+  });
+
+  // Get attachments for entity
+  app.get("/api/attachments/:entityType/:entityId", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.params;
+      
+      // Validate entityType
+      const validEntityTypes = ["cattle", "milk_record", "health_record", "breeding_record", "cattle_transaction", "byproduct_transaction"];
+      if (!validEntityTypes.includes(entityType)) {
+        return res.status(400).json({ error: "Invalid entity type" });
+      }
+      
+      const attachments = await storage.getAttachmentsByEntity(entityType, entityId);
+      // Filter to only return attachments belonging to this tenant
+      const tenantAttachments = attachments.filter(a => a.tenantId === req.tenantId);
+      res.json(tenantAttachments);
+    } catch (error) {
+      console.error("Attachments fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch attachments" });
+    }
+  });
+
+  // Delete attachment
+  app.delete("/api/attachments/:id", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const attachment = await storage.getAttachmentById(req.params.id);
+      if (!attachment) {
+        return res.status(404).json({ error: "Attachment not found" });
+      }
+
+      // Verify tenant ownership
+      if (attachment.tenantId !== req.tenantId) {
+        return res.status(403).json({ error: "Not authorized to delete this attachment" });
+      }
+
+      // Delete from storage
+      if (attachment.storageKey) {
+        await deleteFile(attachment.storageKey);
+      }
+
+      await storage.deleteAttachment(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Attachment delete error:", error);
+      res.status(500).json({ error: "Failed to delete attachment" });
+    }
+  });
+
+  // Check storage configuration
+  app.get("/api/storage/status", isAuthenticated, async (req, res) => {
+    try {
+      const settings = await storage.getAllSystemSettings();
+      const provider = settings.find(s => s.key === "storage_provider")?.value;
+      const bucket = settings.find(s => s.key === "storage_bucket")?.value;
+      
+      res.json({
+        configured: provider && provider !== "none" && bucket,
+        provider: provider || "none",
+      });
+    } catch (error) {
+      console.error("Storage status error:", error);
+      res.status(500).json({ error: "Failed to check storage status" });
     }
   });
 
