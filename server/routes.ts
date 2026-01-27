@@ -696,8 +696,56 @@ export async function registerRoutes(
   });
 
   // =====================================================
-  // CATTLE COSTS
+  // CATTLE COSTS AND P/L
   // =====================================================
+
+  // Get P/L data for all cattle (for P/L dashboard)
+  app.get("/api/cattle-pl", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const cattle = await storage.getCattleByTenant(req.tenantId!);
+      const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
+      
+      const plData = await Promise.all(cattle.map(async (cow) => {
+        const purchaseTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "purchase");
+        const purchaseCost = Number(purchaseTransaction?.amount || 0);
+        
+        const saleTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "sale");
+        const saleAmount = Number(saleTransaction?.amount || 0);
+        
+        const costs = await storage.getCattleCostsByCattle(cow.id);
+        const totalCosts = costs.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        
+        const milkRevenue = 0;
+        
+        const totalInvestment = purchaseCost + totalCosts;
+        const totalReturns = saleAmount + milkRevenue;
+        const profitLoss = cow.status === "sold" ? totalReturns - totalInvestment : null;
+        const unrealizedPL = cow.status !== "sold" ? milkRevenue - totalInvestment : null;
+        
+        return {
+          id: cow.id,
+          tagNumber: cow.tagNumber,
+          name: cow.name,
+          status: cow.status,
+          stage: cow.stage,
+          purchaseCost,
+          totalCosts,
+          milkRevenue,
+          saleAmount,
+          totalInvestment,
+          profitLoss,
+          unrealizedPL,
+          purchaseDate: purchaseTransaction?.date,
+          saleDate: saleTransaction?.date,
+        };
+      }));
+      
+      res.json(plData);
+    } catch (error) {
+      console.error("Cattle P/L fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch cattle P/L data" });
+    }
+  });
 
   // Get P/L summary for a cattle (for sale form)
   app.get("/api/cattle/:id/pl-summary", isAuthenticated, withTenant, async (req, res) => {

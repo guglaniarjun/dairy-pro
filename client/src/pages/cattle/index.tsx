@@ -24,6 +24,7 @@ import {
   Heart,
   Stethoscope,
   ChevronRight,
+  TrendingUp,
 } from "lucide-react";
 import type { Cattle, Breed } from "@shared/schema";
 
@@ -95,12 +96,20 @@ export default function CattleListPage() {
             {cattle?.length || 0} total cattle registered
           </p>
         </div>
-        <Link href="/cattle/new">
-          <Button className="gap-2" data-testid="button-add-cattle">
-            <Plus className="w-4 h-4" />
-            Add Cattle
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/cattle/pl">
+            <Button variant="outline" className="gap-2" data-testid="button-pl-dashboard">
+              <TrendingUp className="w-4 h-4" />
+              P/L Dashboard
+            </Button>
+          </Link>
+          <Link href="/cattle/new">
+            <Button className="gap-2" data-testid="button-add-cattle">
+              <Plus className="w-4 h-4" />
+              Add Cattle
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
