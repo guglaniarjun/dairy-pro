@@ -28,6 +28,16 @@ import {
   pregnancyTests,
   calvings,
   medicines,
+  systemSettings,
+  tenantSettings,
+  cattleTransactions,
+  cattlePayments,
+  cattleCosts,
+  byproductTypes,
+  byproductTransactions,
+  byproductInventory,
+  attachments,
+  attachmentLinks,
   type User,
   type InsertUser,
   type Tenant,
@@ -46,6 +56,16 @@ import {
   type FeedItem,
   type FeedInventory,
   type PregnancyTest,
+  type SystemSettings,
+  type TenantSettings,
+  type CattleTransaction,
+  type CattlePayment,
+  type CattleCost,
+  type ByproductType,
+  type ByproductTransaction,
+  type ByproductInventory,
+  type Attachment,
+  type AttachmentLink,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -138,6 +158,48 @@ export interface IStorage {
     healthIssues: number;
     upcomingCalvings: number;
   }>;
+
+  // System Settings (Super Admin)
+  getSystemSetting(key: string): Promise<SystemSettings | undefined>;
+  setSystemSetting(key: string, value: string, isSecret?: boolean): Promise<SystemSettings>;
+  getAllSystemSettings(): Promise<SystemSettings[]>;
+
+  // Tenant Settings
+  getTenantSettings(tenantId: string): Promise<TenantSettings | undefined>;
+  upsertTenantSettings(data: Partial<TenantSettings>): Promise<TenantSettings>;
+
+  // Cattle Transactions
+  getCattleTransactionsByTenant(tenantId: string): Promise<CattleTransaction[]>;
+  getCattleTransactionById(id: string): Promise<CattleTransaction | undefined>;
+  createCattleTransaction(data: Partial<CattleTransaction>): Promise<CattleTransaction>;
+  updateCattleTransaction(id: string, data: Partial<CattleTransaction>): Promise<CattleTransaction | undefined>;
+
+  // Cattle Payments
+  getCattlePaymentsByTransaction(transactionId: string): Promise<CattlePayment[]>;
+  createCattlePayment(data: Partial<CattlePayment>): Promise<CattlePayment>;
+
+  // Cattle Costs
+  getCattleCostsByCattle(cattleId: string): Promise<CattleCost[]>;
+  getCattleCostsByTenant(tenantId: string): Promise<CattleCost[]>;
+  createCattleCost(data: Partial<CattleCost>): Promise<CattleCost>;
+
+  // Byproduct Types (Master Data)
+  getAllByproductTypes(): Promise<ByproductType[]>;
+
+  // Byproduct Transactions
+  getByproductTransactionsByTenant(tenantId: string): Promise<ByproductTransaction[]>;
+  createByproductTransaction(data: Partial<ByproductTransaction>): Promise<ByproductTransaction>;
+
+  // Byproduct Inventory
+  getByproductInventoryByTenant(tenantId: string): Promise<ByproductInventory[]>;
+  upsertByproductInventory(data: Partial<ByproductInventory>): Promise<ByproductInventory>;
+
+  // Attachments
+  createAttachment(data: Partial<Attachment>): Promise<Attachment>;
+  getAttachmentById(id: string): Promise<Attachment | undefined>;
+  getAttachmentsByEntity(entityType: string, entityId: string): Promise<Attachment[]>;
+  createAttachmentLink(data: Partial<AttachmentLink>): Promise<AttachmentLink>;
+  deleteAttachment(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -404,8 +466,168 @@ export class DatabaseStorage implements IStorage {
       pendingTasks: pendingTasksResult.length,
       activeAlerts: activeAlertsResult.length,
       healthIssues: healthIssuesResult.length,
-      upcomingCalvings: 0, // Would need calving predictions
+      upcomingCalvings: 0,
     };
+  }
+
+  // System Settings
+  async getSystemSetting(key: string): Promise<SystemSettings | undefined> {
+    const result = await db.select().from(systemSettings).where(eq(systemSettings.key, key)).limit(1);
+    return result[0];
+  }
+
+  async setSystemSetting(key: string, value: string, isSecret = false): Promise<SystemSettings> {
+    const existing = await this.getSystemSetting(key);
+    if (existing) {
+      const [updated] = await db
+        .update(systemSettings)
+        .set({ value, isSecret, updatedAt: new Date() })
+        .where(eq(systemSettings.key, key))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(systemSettings).values({ key, value, isSecret }).returning();
+    return created;
+  }
+
+  async getAllSystemSettings(): Promise<SystemSettings[]> {
+    return db.select().from(systemSettings);
+  }
+
+  // Tenant Settings
+  async getTenantSettings(tenantId: string): Promise<TenantSettings | undefined> {
+    const result = await db.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenantId)).limit(1);
+    return result[0];
+  }
+
+  async upsertTenantSettings(data: Partial<TenantSettings>): Promise<TenantSettings> {
+    if (!data.tenantId) throw new Error("tenantId required");
+    const existing = await this.getTenantSettings(data.tenantId);
+    if (existing) {
+      const [updated] = await db
+        .update(tenantSettings)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(tenantSettings.tenantId, data.tenantId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(tenantSettings).values(data as any).returning();
+    return created;
+  }
+
+  // Cattle Transactions
+  async getCattleTransactionsByTenant(tenantId: string): Promise<CattleTransaction[]> {
+    return db.select().from(cattleTransactions).where(eq(cattleTransactions.tenantId, tenantId)).orderBy(desc(cattleTransactions.date));
+  }
+
+  async getCattleTransactionById(id: string): Promise<CattleTransaction | undefined> {
+    const result = await db.select().from(cattleTransactions).where(eq(cattleTransactions.id, id)).limit(1);
+    return result[0];
+  }
+
+  async createCattleTransaction(data: Partial<CattleTransaction>): Promise<CattleTransaction> {
+    const [created] = await db.insert(cattleTransactions).values(data as any).returning();
+    return created;
+  }
+
+  async updateCattleTransaction(id: string, data: Partial<CattleTransaction>): Promise<CattleTransaction | undefined> {
+    const [updated] = await db.update(cattleTransactions).set({ ...data, updatedAt: new Date() }).where(eq(cattleTransactions.id, id)).returning();
+    return updated;
+  }
+
+  // Cattle Payments
+  async getCattlePaymentsByTransaction(transactionId: string): Promise<CattlePayment[]> {
+    return db.select().from(cattlePayments).where(eq(cattlePayments.transactionId, transactionId)).orderBy(desc(cattlePayments.date));
+  }
+
+  async createCattlePayment(data: Partial<CattlePayment>): Promise<CattlePayment> {
+    const [created] = await db.insert(cattlePayments).values(data as any).returning();
+    return created;
+  }
+
+  // Cattle Costs
+  async getCattleCostsByCattle(cattleId: string): Promise<CattleCost[]> {
+    return db.select().from(cattleCosts).where(eq(cattleCosts.cattleId, cattleId)).orderBy(desc(cattleCosts.date));
+  }
+
+  async getCattleCostsByTenant(tenantId: string): Promise<CattleCost[]> {
+    return db.select().from(cattleCosts).where(eq(cattleCosts.tenantId, tenantId)).orderBy(desc(cattleCosts.date));
+  }
+
+  async createCattleCost(data: Partial<CattleCost>): Promise<CattleCost> {
+    const [created] = await db.insert(cattleCosts).values(data as any).returning();
+    return created;
+  }
+
+  // Byproduct Types
+  async getAllByproductTypes(): Promise<ByproductType[]> {
+    return db.select().from(byproductTypes).where(eq(byproductTypes.isActive, true));
+  }
+
+  // Byproduct Transactions
+  async getByproductTransactionsByTenant(tenantId: string): Promise<ByproductTransaction[]> {
+    return db.select().from(byproductTransactions).where(eq(byproductTransactions.tenantId, tenantId)).orderBy(desc(byproductTransactions.date));
+  }
+
+  async createByproductTransaction(data: Partial<ByproductTransaction>): Promise<ByproductTransaction> {
+    const [created] = await db.insert(byproductTransactions).values(data as any).returning();
+    return created;
+  }
+
+  // Byproduct Inventory
+  async getByproductInventoryByTenant(tenantId: string): Promise<ByproductInventory[]> {
+    return db.select().from(byproductInventory).where(eq(byproductInventory.tenantId, tenantId));
+  }
+
+  async upsertByproductInventory(data: Partial<ByproductInventory>): Promise<ByproductInventory> {
+    if (!data.tenantId || !data.byproductTypeId) throw new Error("tenantId and byproductTypeId required");
+    const existing = await db.select().from(byproductInventory)
+      .where(and(eq(byproductInventory.tenantId, data.tenantId), eq(byproductInventory.byproductTypeId, data.byproductTypeId)))
+      .limit(1);
+    if (existing[0]) {
+      const [updated] = await db
+        .update(byproductInventory)
+        .set({ ...data, lastUpdated: new Date() })
+        .where(eq(byproductInventory.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(byproductInventory).values(data as any).returning();
+    return created;
+  }
+
+  // Attachments
+  async createAttachment(data: Partial<Attachment>): Promise<Attachment> {
+    const [created] = await db.insert(attachments).values(data as any).returning();
+    return created;
+  }
+
+  async getAttachmentById(id: string): Promise<Attachment | undefined> {
+    const result = await db.select().from(attachments).where(eq(attachments.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getAttachmentsByEntity(entityType: string, entityId: string): Promise<Attachment[]> {
+    const links = await db.select().from(attachmentLinks)
+      .where(and(eq(attachmentLinks.entityType, entityType), eq(attachmentLinks.entityId, entityId)));
+    if (links.length === 0) return [];
+    const attachmentIds = links.map(l => l.attachmentId);
+    const results: Attachment[] = [];
+    for (const id of attachmentIds) {
+      const att = await this.getAttachmentById(id);
+      if (att) results.push(att);
+    }
+    return results;
+  }
+
+  async createAttachmentLink(data: Partial<AttachmentLink>): Promise<AttachmentLink> {
+    const [created] = await db.insert(attachmentLinks).values(data as any).returning();
+    return created;
+  }
+
+  async deleteAttachment(id: string): Promise<void> {
+    await db.delete(attachmentLinks).where(eq(attachmentLinks.attachmentId, id));
+    await db.delete(attachments).where(eq(attachments.id, id));
   }
 }
 

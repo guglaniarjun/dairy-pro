@@ -25,6 +25,7 @@ import BreedingPage from "@/pages/breeding/index";
 import RecordHeatPage from "@/pages/breeding/heat";
 import FeedPage from "@/pages/feed/index";
 import AlertsPage from "@/pages/alerts/index";
+import SettingsPage from "@/pages/settings/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -108,6 +109,7 @@ function AppRouter() {
         <Route path="/breeding/heat" component={RecordHeatPage} />
         <Route path="/feed" component={FeedPage} />
         <Route path="/alerts" component={AlertsPage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>

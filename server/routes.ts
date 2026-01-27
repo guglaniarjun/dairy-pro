@@ -524,5 +524,260 @@ export async function registerRoutes(
     }
   });
 
+  // =====================================================
+  // SYSTEM SETTINGS (Super Admin - Storage Config)
+  // =====================================================
+
+  app.get("/api/admin/system-settings", isAuthenticated, async (req, res) => {
+    try {
+      const settings = await storage.getAllSystemSettings();
+      // Mask secret values
+      const masked = settings.map(s => ({
+        ...s,
+        value: s.isSecret ? "********" : s.value
+      }));
+      res.json(masked);
+    } catch (error) {
+      console.error("System settings fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch system settings" });
+    }
+  });
+
+  app.post("/api/admin/system-settings", isAuthenticated, async (req, res) => {
+    try {
+      const { key, value, isSecret } = req.body;
+      if (!key) {
+        return res.status(400).json({ error: "Key is required" });
+      }
+      const setting = await storage.setSystemSetting(key, value, isSecret);
+      res.json({ ...setting, value: isSecret ? "********" : setting.value });
+    } catch (error) {
+      console.error("System settings save error:", error);
+      res.status(500).json({ error: "Failed to save system setting" });
+    }
+  });
+
+  // Get storage config (for client to know if storage is configured)
+  app.get("/api/admin/storage-config", isAuthenticated, async (req, res) => {
+    try {
+      const provider = await storage.getSystemSetting("storage_provider");
+      const bucket = await storage.getSystemSetting("storage_bucket");
+      res.json({
+        configured: !!(provider?.value && provider.value !== "none" && bucket?.value),
+        provider: provider?.value || "none"
+      });
+    } catch (error) {
+      res.json({ configured: false, provider: "none" });
+    }
+  });
+
+  // =====================================================
+  // TENANT SETTINGS
+  // =====================================================
+
+  app.get("/api/settings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const settings = await storage.getTenantSettings(req.tenantId!);
+      res.json(settings || { accountingMode: "simple", byproductInventoryEnabled: false });
+    } catch (error) {
+      console.error("Tenant settings fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.put("/api/settings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const settings = await storage.upsertTenantSettings({
+        ...req.body,
+        tenantId: req.tenantId,
+      });
+      res.json(settings);
+    } catch (error) {
+      console.error("Tenant settings update error:", error);
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  // =====================================================
+  // BYPRODUCT TYPES (Master Data)
+  // =====================================================
+
+  app.get("/api/byproduct-types", async (req, res) => {
+    try {
+      const types = await storage.getAllByproductTypes();
+      res.json(types);
+    } catch (error) {
+      console.error("Byproduct types fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch byproduct types" });
+    }
+  });
+
+  // =====================================================
+  // CATTLE TRANSACTIONS (Purchase & Sale)
+  // =====================================================
+
+  app.get("/api/cattle-transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Cattle transactions fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch cattle transactions" });
+    }
+  });
+
+  app.post("/api/cattle-transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const transaction = await storage.createCattleTransaction({
+        ...req.body,
+        tenantId: req.tenantId,
+        createdBy: req.user!.claims.sub,
+      });
+      res.status(201).json(transaction);
+    } catch (error) {
+      console.error("Cattle transaction create error:", error);
+      res.status(500).json({ error: "Failed to create cattle transaction" });
+    }
+  });
+
+  app.get("/api/cattle-transactions/:id", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const transaction = await storage.getCattleTransactionById(req.params.id);
+      if (!transaction || transaction.tenantId !== req.tenantId) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+      res.json(transaction);
+    } catch (error) {
+      console.error("Cattle transaction fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch cattle transaction" });
+    }
+  });
+
+  // Cattle Payments
+  app.get("/api/cattle-transactions/:id/payments", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const payments = await storage.getCattlePaymentsByTransaction(req.params.id);
+      res.json(payments);
+    } catch (error) {
+      console.error("Cattle payments fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch payments" });
+    }
+  });
+
+  app.post("/api/cattle-transactions/:id/payments", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const payment = await storage.createCattlePayment({
+        ...req.body,
+        transactionId: req.params.id,
+        tenantId: req.tenantId,
+        createdBy: req.user!.claims.sub,
+      });
+      
+      // Update transaction paid amount
+      const transaction = await storage.getCattleTransactionById(req.params.id);
+      if (transaction) {
+        const payments = await storage.getCattlePaymentsByTransaction(req.params.id);
+        const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+        const status = totalPaid >= Number(transaction.amount) ? "paid" : "partial";
+        await storage.updateCattleTransaction(req.params.id, {
+          paidAmount: totalPaid.toString(),
+          paymentStatus: status,
+        });
+      }
+      
+      res.status(201).json(payment);
+    } catch (error) {
+      console.error("Cattle payment create error:", error);
+      res.status(500).json({ error: "Failed to create payment" });
+    }
+  });
+
+  // =====================================================
+  // CATTLE COSTS
+  // =====================================================
+
+  app.get("/api/cattle/:id/costs", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const costs = await storage.getCattleCostsByCattle(req.params.id);
+      res.json(costs);
+    } catch (error) {
+      console.error("Cattle costs fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch cattle costs" });
+    }
+  });
+
+  app.post("/api/cattle/:id/costs", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const cost = await storage.createCattleCost({
+        ...req.body,
+        cattleId: req.params.id,
+        tenantId: req.tenantId,
+        createdBy: req.user!.claims.sub,
+      });
+      res.status(201).json(cost);
+    } catch (error) {
+      console.error("Cattle cost create error:", error);
+      res.status(500).json({ error: "Failed to create cattle cost" });
+    }
+  });
+
+  // =====================================================
+  // BYPRODUCT TRANSACTIONS
+  // =====================================================
+
+  app.get("/api/byproduct-transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const transactions = await storage.getByproductTransactionsByTenant(req.tenantId!);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Byproduct transactions fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch byproduct transactions" });
+    }
+  });
+
+  app.post("/api/byproduct-transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const transaction = await storage.createByproductTransaction({
+        ...req.body,
+        tenantId: req.tenantId,
+        createdBy: req.user!.claims.sub,
+      });
+      
+      // Update inventory if enabled
+      if (req.body.updateInventory) {
+        const currentInv = await storage.getByproductInventoryByTenant(req.tenantId!);
+        const existing = currentInv.find(i => i.byproductTypeId === req.body.byproductTypeId);
+        const currentStock = Number(existing?.currentStock || 0);
+        const qty = Number(req.body.quantity);
+        const newStock = req.body.type === "purchase" ? currentStock + qty : currentStock - qty;
+        
+        await storage.upsertByproductInventory({
+          tenantId: req.tenantId,
+          byproductTypeId: req.body.byproductTypeId,
+          currentStock: Math.max(0, newStock).toString(),
+        });
+      }
+      
+      res.status(201).json(transaction);
+    } catch (error) {
+      console.error("Byproduct transaction create error:", error);
+      res.status(500).json({ error: "Failed to create byproduct transaction" });
+    }
+  });
+
+  // =====================================================
+  // BYPRODUCT INVENTORY
+  // =====================================================
+
+  app.get("/api/byproduct-inventory", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const inventory = await storage.getByproductInventoryByTenant(req.tenantId!);
+      res.json(inventory);
+    } catch (error) {
+      console.error("Byproduct inventory fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch byproduct inventory" });
+    }
+  });
+
   return httpServer;
 }
