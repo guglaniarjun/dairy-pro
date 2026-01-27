@@ -35,6 +35,7 @@ import {
   ChevronUp,
   LogOut,
   User,
+  Recycle,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -47,6 +48,7 @@ const mainNavItems = [
 ];
 
 const managementNavItems = [
+  { title: "Byproducts", url: "/byproducts", icon: Recycle },
   { title: "Inventory", url: "/inventory", icon: Package },
   { title: "Finances", url: "/finances", icon: Wallet },
   { title: "Tasks", url: "/tasks", icon: ClipboardList },

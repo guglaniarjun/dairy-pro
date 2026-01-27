@@ -29,6 +29,7 @@ import SettingsPage from "@/pages/settings/index";
 import CattlePurchasePage from "@/pages/cattle-transactions/purchase";
 import CattleSalePage from "@/pages/cattle-transactions/sale";
 import CattlePLDashboard from "@/pages/cattle/pl-dashboard";
+import ByproductsPage from "@/pages/byproducts/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -103,6 +104,7 @@ function AppRouter() {
         <Route path="/cattle/purchase" component={CattlePurchasePage} />
         <Route path="/cattle/sale" component={CattleSalePage} />
         <Route path="/cattle/pl" component={CattlePLDashboard} />
+        <Route path="/byproducts" component={ByproductsPage} />
         <Route path="/milk" component={MilkRecordsPage} />
         <Route path="/milk/new" component={AddMilkEntryPage} />
         <Route path="/health" component={HealthPage} />
