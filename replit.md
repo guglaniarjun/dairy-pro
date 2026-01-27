@@ -98,6 +98,45 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+### January 27, 2026
+- **Cattle Sale & Purchase Module**:
+  - Purchase form with partial/complete payment options
+  - Sale form with P/L calculation based on purchase costs, expenses, and milk revenue
+  - P/L Dashboard showing profit/loss per animal with filtering and search
+  - Routes: /cattle/purchase, /cattle/sale, /cattle/pl
+
+- **Byproducts Management Module**:
+  - Transaction recording for all byproduct types (cow dung, manure, biogas, vermicompost, etc.)
+  - Optional inventory tracking based on tenant settings
+  - Reports tab with analytics: breakdown by type, monthly trends, top customers/suppliers
+  - Route: /byproducts
+
+- **Universal Attachments System**:
+  - S3/Supabase storage configuration in Settings > Storage
+  - AttachmentUploader component added to: cattle, milk, breeding heat, cattle purchase/sale, byproduct transactions
+  - 10MB max file size limit
+  - Supports images, PDFs, and audio files
+
+- **Tenant Settings**:
+  - Accounting mode toggle (simple/full)
+  - Byproduct inventory tracking toggle
+  - Storage provider configuration (local/s3/supabase)
+
+- **Database Schema Additions**:
+  - cattle_transactions (purchase/sale records)
+  - byproduct_types, byproduct_transactions, byproduct_inventory
+  - attachments, attachment_links
+  - tenant_settings, system_settings
+
+- **API Endpoints Added**:
+  - POST/GET /api/cattle-transactions - cattle purchase/sale
+  - GET /api/cattle-transactions/pl - profit/loss data
+  - GET /api/byproduct-types - byproduct master data
+  - POST/GET /api/byproduct-transactions - byproduct sales/purchases
+  - GET /api/byproduct-inventory - inventory levels
+  - POST /api/attachments/upload - file upload
+  - GET/POST /api/tenant-settings - tenant configuration
+
 ### January 26, 2026
 - **Master Data Seeding**: Added seed script (server/seed.ts) to populate:
   - 10 cattle breeds (Holstein, Jersey, Gir, Sahiwal, etc.)
