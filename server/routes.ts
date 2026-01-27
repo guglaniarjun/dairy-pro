@@ -699,6 +699,35 @@ export async function registerRoutes(
   // CATTLE COSTS
   // =====================================================
 
+  // Get P/L summary for a cattle (for sale form)
+  app.get("/api/cattle/:id/pl-summary", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const cattleId = req.params.id;
+      
+      // Get purchase cost from cattle transactions
+      const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
+      const purchaseTransaction = transactions.find(t => t.cattleId === cattleId && t.type === "purchase");
+      const purchaseCost = purchaseTransaction?.amount || "0";
+      
+      // Get total costs from cattle_costs table
+      const costs = await storage.getCattleCostsByCattle(cattleId);
+      const totalCosts = costs.reduce((sum, c) => sum + Number(c.amount || 0), 0).toString();
+      
+      // For now, milk revenue is 0 as we don't have per-cow milk price tracking
+      // In future, can be calculated as sum of (quantity * price per liter)
+      const milkRevenue = "0";
+      
+      res.json({
+        purchaseCost,
+        totalCosts,
+        milkRevenue,
+      });
+    } catch (error) {
+      console.error("Cattle P/L summary error:", error);
+      res.status(500).json({ error: "Failed to fetch P/L summary" });
+    }
+  });
+
   app.get("/api/cattle/:id/costs", isAuthenticated, withTenant, async (req, res) => {
     try {
       const costs = await storage.getCattleCostsByCattle(req.params.id);
