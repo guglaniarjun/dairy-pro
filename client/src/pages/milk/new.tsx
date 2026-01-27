@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Loader2, Milk, Copy } from "lucide-react";
+import { ArrowLeft, Loader2, Milk, Copy, Paperclip } from "lucide-react";
+import { AttachmentUploader } from "@/components/attachments/attachment-uploader";
 import type { Cattle } from "@shared/schema";
 
 const milkFormSchema = z.object({
@@ -45,6 +46,8 @@ export default function AddMilkEntryPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [quickEntry, setQuickEntry] = useState<boolean>(false);
+  const [createdEntryId, setCreatedEntryId] = useState<string | null>(null);
+  const [showAttachments, setShowAttachments] = useState(false);
 
   const { data: cattle } = useQuery<Cattle[]>({
     queryKey: ["/api/cattle"],
@@ -75,25 +78,15 @@ export default function AddMilkEntryPage() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/milk"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      setCreatedEntryId(result.id);
+      setShowAttachments(true);
       toast({
         title: "Milk recorded",
-        description: "The milk entry has been saved.",
+        description: "The milk entry has been saved. You can now add attachments.",
       });
-      if (quickEntry) {
-        form.reset({
-          ...form.getValues(),
-          cattleId: "",
-          quantity: "",
-          fat: "",
-          snf: "",
-          notes: "",
-        });
-      } else {
-        navigate("/milk");
-      }
     },
     onError: (error) => {
       toast({
@@ -304,29 +297,77 @@ export default function AddMilkEntryPage() {
                 )}
               />
 
-              <div className="flex gap-4 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate("/milk")}
-                  data-testid="button-cancel"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="flex-1"
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending && (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  )}
-                  {quickEntry ? "Save & Add Another" : "Save Entry"}
-                </Button>
-              </div>
+              {!showAttachments && (
+                <div className="flex gap-4 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate("/milk")}
+                    data-testid="button-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    className="flex-1"
+                    data-testid="button-submit"
+                  >
+                    {createMutation.isPending && (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    )}
+                    {quickEntry ? "Save & Add Another" : "Save Entry"}
+                  </Button>
+                </div>
+              )}
             </form>
           </Form>
+
+          {showAttachments && createdEntryId && (
+            <div className="mt-6 pt-6 border-t">
+              <div className="flex items-center gap-2 mb-4">
+                <Paperclip className="w-5 h-5 text-muted-foreground" />
+                <h3 className="font-semibold">Add Attachments (Optional)</h3>
+              </div>
+              <AttachmentUploader 
+                entityType="milk_entry" 
+                entityId={createdEntryId} 
+              />
+              <div className="flex gap-4 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (quickEntry) {
+                      setShowAttachments(false);
+                      setCreatedEntryId(null);
+                      form.reset({
+                        ...form.getValues(),
+                        cattleId: "",
+                        quantity: "",
+                        fat: "",
+                        snf: "",
+                        notes: "",
+                      });
+                    } else {
+                      navigate("/milk");
+                    }
+                  }}
+                  data-testid="button-done"
+                >
+                  {quickEntry ? "Add Another Entry" : "Done"}
+                </Button>
+                {!quickEntry && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigate("/milk")}
+                    data-testid="button-skip-attachments"
+                  >
+                    Skip & Go Back
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

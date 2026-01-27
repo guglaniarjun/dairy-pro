@@ -25,7 +25,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Paperclip } from "lucide-react";
+import { AttachmentUploader } from "@/components/attachments/attachment-uploader";
 import type { Breed } from "@shared/schema";
 
 const cattleFormSchema = z.object({
@@ -46,6 +47,8 @@ type CattleFormData = z.infer<typeof cattleFormSchema>;
 export default function AddCattlePage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [createdCattleId, setCreatedCattleId] = useState<string | null>(null);
+  const [showAttachments, setShowAttachments] = useState(false);
 
   const { data: breeds } = useQuery<Breed[]>({
     queryKey: ["/api/breeds"],
@@ -72,13 +75,14 @@ export default function AddCattlePage() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cattle"] });
+      setCreatedCattleId(result.id);
+      setShowAttachments(true);
       toast({
         title: "Cattle added",
-        description: "The cattle has been successfully registered.",
+        description: "The cattle has been successfully registered. You can add attachments.",
       });
-      navigate("/cattle");
     },
     onError: (error) => {
       toast({
@@ -311,29 +315,62 @@ export default function AddCattlePage() {
                 )}
               />
 
-              <div className="flex gap-4 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate("/cattle")}
-                  data-testid="button-cancel"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="flex-1"
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending && (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  )}
-                  Add Cattle
-                </Button>
-              </div>
+              {!showAttachments && (
+                <div className="flex gap-4 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate("/cattle")}
+                    data-testid="button-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    className="flex-1"
+                    data-testid="button-submit"
+                  >
+                    {createMutation.isPending && (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    )}
+                    Add Cattle
+                  </Button>
+                </div>
+              )}
             </form>
           </Form>
+
+          {showAttachments && createdCattleId && (
+            <div className="mt-6 pt-6 border-t">
+              <div className="flex items-center gap-2 mb-4">
+                <Paperclip className="w-5 h-5 text-muted-foreground" />
+                <h3 className="font-semibold">Add Attachments (Optional)</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Upload photos, health certificates, or other documents for this cattle
+              </p>
+              <AttachmentUploader 
+                entityType="cattle" 
+                entityId={createdCattleId} 
+              />
+              <div className="flex gap-4 mt-6">
+                <Button
+                  onClick={() => navigate("/cattle")}
+                  data-testid="button-done"
+                >
+                  Done
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/cattle")}
+                  data-testid="button-skip-attachments"
+                >
+                  Skip & Go Back
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

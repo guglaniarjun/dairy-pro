@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Paperclip } from "lucide-react";
+import { useState } from "react";
+import { AttachmentUploader } from "@/components/attachments/attachment-uploader";
 import type { Cattle } from "@shared/schema";
 
 const heatFormSchema = z.object({
@@ -39,6 +41,8 @@ type HeatFormData = z.infer<typeof heatFormSchema>;
 export default function RecordHeatPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [createdRecordId, setCreatedRecordId] = useState<string | null>(null);
+  const [showAttachments, setShowAttachments] = useState(false);
 
   const { data: cattle, isLoading: cattleLoading } = useQuery<Cattle[]>({
     queryKey: ["/api/cattle"],
@@ -64,13 +68,14 @@ export default function RecordHeatPage() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/breeding/heats"] });
+      setCreatedRecordId(result.id);
+      setShowAttachments(true);
       toast({
         title: "Heat recorded",
-        description: "The heat observation has been saved.",
+        description: "The heat observation has been saved. You can add attachments.",
       });
-      navigate("/breeding");
     },
     onError: () => {
       toast({
@@ -196,29 +201,59 @@ export default function RecordHeatPage() {
                 )}
               />
 
-              <div className="flex gap-4 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate("/breeding")}
-                  data-testid="button-cancel"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || !femaleCattle?.length}
-                  className="flex-1"
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending && (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  )}
-                  Record Heat
-                </Button>
-              </div>
+              {!showAttachments && (
+                <div className="flex gap-4 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate("/breeding")}
+                    data-testid="button-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isPending || !femaleCattle?.length}
+                    className="flex-1"
+                    data-testid="button-submit"
+                  >
+                    {createMutation.isPending && (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    )}
+                    Record Heat
+                  </Button>
+                </div>
+              )}
             </form>
           </Form>
+
+          {showAttachments && createdRecordId && (
+            <div className="mt-6 pt-6 border-t">
+              <div className="flex items-center gap-2 mb-4">
+                <Paperclip className="w-5 h-5 text-muted-foreground" />
+                <h3 className="font-semibold">Add Attachments (Optional)</h3>
+              </div>
+              <AttachmentUploader 
+                entityType="heat_record" 
+                entityId={createdRecordId} 
+              />
+              <div className="flex gap-4 mt-6">
+                <Button
+                  onClick={() => navigate("/breeding")}
+                  data-testid="button-done"
+                >
+                  Done
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/breeding")}
+                  data-testid="button-skip-attachments"
+                >
+                  Skip & Go Back
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
