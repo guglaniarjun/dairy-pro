@@ -36,9 +36,10 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
     if (!tenant) {
       // Create default tenant for new user
       const firstName = req.user.claims.first_name || "My";
+      const slugSuffix = `${userId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6)}-${Date.now().toString(36)}`;
       tenant = await storage.createTenant({
         name: `${firstName}'s Farm`,
-        slug: `farm-${userId.substring(0, 8)}`,
+        slug: `farm-${slugSuffix}`,
         ownerId: userId,
         plan: "free",
         maxCattle: 2,
