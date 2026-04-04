@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { breeds, vaccines, feedItems, expenseHeads, incomeHeads, inventoryCategories, byproductTypes } from "@shared/schema";
+import { breeds, vaccines, feedItems, expenseHeads, incomeHeads, inventoryCategories, byproductTypes, subscriptionPlans } from "@shared/schema";
 
 async function seed() {
   console.log("Seeding master data...");
@@ -132,6 +132,19 @@ async function seed() {
     await db.insert(byproductTypes).values(type).onConflictDoNothing({ target: byproductTypes.code });
   }
   console.log(`✓ Seeded ${byproductTypesData.length} byproduct types`);
+
+  // Seed subscription plans
+  const plansData = [
+    { code: "free", name: "Free", maxCattle: 5, maxUsers: 2, priceMonthly: "0.00", priceYearly: "0.00", sortOrder: 0, features: ["5 cattle", "2 users", "Basic milk tracking", "Health records"] },
+    { code: "starter", name: "Starter", maxCattle: 25, maxUsers: 5, priceMonthly: "499.00", priceYearly: "4999.00", sortOrder: 1, features: ["25 cattle", "5 users", "All basic features", "Breeding tracking", "Reports"] },
+    { code: "basic", name: "Basic", maxCattle: 100, maxUsers: 10, priceMonthly: "999.00", priceYearly: "9999.00", sortOrder: 2, features: ["100 cattle", "10 users", "All Starter features", "Finance module", "Byproducts", "WhatsApp"] },
+    { code: "pro", name: "Pro", maxCattle: 250, maxUsers: 25, priceMonthly: "2499.00", priceYearly: "24999.00", sortOrder: 3, features: ["250 cattle", "25 users", "All Basic features", "Advanced analytics", "P&L dashboard", "Priority support"] },
+    { code: "enterprise", name: "Enterprise", maxCattle: 500, maxUsers: 100, priceMonthly: "4999.00", priceYearly: "49999.00", sortOrder: 4, features: ["500 cattle", "Unlimited users", "All Pro features", "Custom integrations", "Dedicated support"] },
+  ];
+  for (const plan of plansData) {
+    await db.insert(subscriptionPlans).values(plan as any).onConflictDoNothing({ target: subscriptionPlans.code });
+  }
+  console.log(`✓ Seeded ${plansData.length} subscription plans`);
 
   console.log("\n✅ Seeding completed successfully!");
 }

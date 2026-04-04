@@ -604,6 +604,146 @@ export const attachmentLinks = pgTable("attachment_links", {
 ]);
 
 // =====================================================
+// SUBSCRIPTION PLANS & BILLING
+// =====================================================
+
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  maxCattle: integer("max_cattle").notNull(),
+  maxUsers: integer("max_users").notNull().default(5),
+  priceMonthly: decimal("price_monthly", { precision: 10, scale: 2 }).notNull(),
+  priceYearly: decimal("price_yearly", { precision: 10, scale: 2 }),
+  features: jsonb("features").$type<string[]>().default([]),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const tenantSubscriptions = pgTable("tenant_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  planId: varchar("plan_id").notNull().references(() => subscriptionPlans.id),
+  status: text("status").notNull().default("active"), // active, expired, grace, cancelled
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  gracePeriodDays: integer("grace_period_days").default(7),
+  billingCycle: text("billing_cycle").notNull().default("monthly"), // monthly, yearly
+  amount: decimal("amount", { precision: 10, scale: 2 }),
+  paymentGateway: text("payment_gateway"), // razorpay, stripe
+  externalSubscriptionId: text("external_subscription_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("tenant_sub_tenant_idx").on(table.tenantId),
+]);
+
+// =====================================================
+// WHATSAPP CONFIG & LOGS
+// =====================================================
+
+export const whatsappConfigs = pgTable("whatsapp_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id).unique(),
+  mode: text("mode").notNull().default("disabled"), // disabled, web, api
+  // Web mode
+  webSessionStatus: text("web_session_status").default("disconnected"), // connected, disconnected, qr_pending
+  webQrCode: text("web_qr_code"),
+  webPhoneNumber: text("web_phone_number"),
+  webLastConnected: timestamp("web_last_connected"),
+  // API mode
+  apiProvider: text("api_provider"), // 360dialog, twilio, wati, meta
+  apiKey: text("api_key"),
+  apiPhoneNumberId: text("api_phone_number_id"),
+  apiBusinessAccountId: text("api_business_account_id"),
+  apiWebhookSecret: text("api_webhook_secret"),
+  // Common
+  fromPhoneNumber: text("from_phone_number"),
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const whatsappLogs = pgTable("whatsapp_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  toPhone: text("to_phone").notNull(),
+  messageType: text("message_type").notNull(), // text, template
+  templateName: text("template_name"),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("pending"), // pending, sent, delivered, failed, read
+  externalMessageId: text("external_message_id"),
+  errorMessage: text("error_message"),
+  triggerType: text("trigger_type"), // heat_due, pregnancy_due, vaccination_due, payment_reminder, test
+  referenceType: text("reference_type"),
+  referenceId: varchar("reference_id"),
+  sentAt: timestamp("sent_at"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("whatsapp_logs_tenant_idx").on(table.tenantId),
+]);
+
+// =====================================================
+// NOTIFICATION RULES
+// =====================================================
+
+export const notificationRules = pgTable("notification_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
+  ruleType: text("rule_type").notNull(), // heat_due, pregnancy_test_due, calving_due, dry_due, vaccination_due, low_stock, milk_drop, payment_reminder
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  daysBeforeEvent: integer("days_before_event").default(1),
+  channels: jsonb("channels").$type<string[]>().default(["app"]), // app, whatsapp, email
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("notif_rules_tenant_idx").on(table.tenantId),
+]);
+
+// =====================================================
+// FARM CONFIGURATION (extended tenant settings)
+// =====================================================
+
+export const farmSettings = pgTable("farm_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id).unique(),
+  // Farm info
+  farmName: text("farm_name"),
+  logoUrl: text("logo_url"),
+  address: text("address"),
+  phone: text("phone"),
+  email: text("email"),
+  // Locale
+  currency: text("currency").notNull().default("INR"),
+  currencySymbol: text("currency_symbol").notNull().default("₹"),
+  timezone: text("timezone").notNull().default("Asia/Kolkata"),
+  dateFormat: text("date_format").notNull().default("DD/MM/YYYY"),
+  language: text("language").notNull().default("en"),
+  // Milk settings
+  milkUnit: text("milk_unit").notNull().default("liters"),
+  milkingSessions: integer("milking_sessions").notNull().default(2), // 2 or 3
+  session1Name: text("session1_name").notNull().default("Morning"),
+  session2Name: text("session2_name").notNull().default("Evening"),
+  session3Name: text("session3_name").default("Night"),
+  fatMandatory: boolean("fat_mandatory").notNull().default(false),
+  snfMandatory: boolean("snf_mandatory").notNull().default(false),
+  milkDropAlertPercent: decimal("milk_drop_alert_percent", { precision: 5, scale: 2 }).default("20"),
+  // Breeding / Reproduction
+  heatIntervalDays: integer("heat_interval_days").notNull().default(21),
+  gestationDays: integer("gestation_days").notNull().default(280),
+  dryPeriodDays: integer("dry_period_days").notNull().default(60),
+  pregnancyTestDays: integer("pregnancy_test_days").notNull().default(30),
+  heiferInseminationAgeDays: integer("heifer_insemination_age_days").notNull().default(365),
+  // Billing
+  cattleLimitWarningPercent: integer("cattle_limit_warning_percent").notNull().default(80),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================================
 // AUDIT LOG
 // =====================================================
 
@@ -767,4 +907,26 @@ export type InsertByproductInventory = z.infer<typeof insertByproductInventorySc
 export type Attachment = typeof attachments.$inferSelect;
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
 export type AttachmentLink = typeof attachmentLinks.$inferSelect;
+
+// New Phase 2 schemas
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true });
+export const insertTenantSubscriptionSchema = createInsertSchema(tenantSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWhatsappConfigSchema = createInsertSchema(whatsappConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWhatsappLogSchema = createInsertSchema(whatsappLogs).omit({ id: true, createdAt: true });
+export const insertNotificationRuleSchema = createInsertSchema(notificationRules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertFarmSettingsSchema = createInsertSchema(farmSettings).omit({ id: true, createdAt: true, updatedAt: true });
+
+// New Phase 2 types
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
+export type TenantSubscription = typeof tenantSubscriptions.$inferSelect;
+export type InsertTenantSubscription = z.infer<typeof insertTenantSubscriptionSchema>;
+export type WhatsappConfig = typeof whatsappConfigs.$inferSelect;
+export type InsertWhatsappConfig = z.infer<typeof insertWhatsappConfigSchema>;
+export type WhatsappLog = typeof whatsappLogs.$inferSelect;
+export type InsertWhatsappLog = z.infer<typeof insertWhatsappLogSchema>;
+export type NotificationRule = typeof notificationRules.$inferSelect;
+export type InsertNotificationRule = z.infer<typeof insertNotificationRuleSchema>;
+export type FarmSettings = typeof farmSettings.$inferSelect;
+export type InsertFarmSettings = z.infer<typeof insertFarmSettingsSchema>;
 export type InsertAttachmentLink = z.infer<typeof insertAttachmentLinkSchema>;

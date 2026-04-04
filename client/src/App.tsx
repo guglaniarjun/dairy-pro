@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth.tsx";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import LandingPage from "@/pages/landing";
@@ -23,13 +24,18 @@ import InventoryPage from "@/pages/inventory/index";
 import ReportsPage from "@/pages/reports/index";
 import BreedingPage from "@/pages/breeding/index";
 import RecordHeatPage from "@/pages/breeding/heat";
+import RecordAIPage from "@/pages/breeding/ai";
+import RecordPregnancyTestPage from "@/pages/breeding/pregnancy-test";
+import RecordCalvingPage from "@/pages/breeding/calving";
 import FeedPage from "@/pages/feed/index";
 import AlertsPage from "@/pages/alerts/index";
 import SettingsPage from "@/pages/settings/index";
 import CattlePurchasePage from "@/pages/cattle-transactions/purchase";
 import CattleSalePage from "@/pages/cattle-transactions/sale";
 import CattlePLDashboard from "@/pages/cattle/pl-dashboard";
+import CattleDetailPage from "@/pages/cattle/detail";
 import ByproductsPage from "@/pages/byproducts/index";
+import BillingPage from "@/pages/billing/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -75,11 +81,12 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-auto pb-16 md:pb-0">
             {children}
           </main>
         </div>
       </div>
+      <MobileBottomNav />
     </SidebarProvider>
   );
 }
@@ -104,6 +111,8 @@ function AppRouter() {
         <Route path="/cattle/purchase" component={CattlePurchasePage} />
         <Route path="/cattle/sale" component={CattleSalePage} />
         <Route path="/cattle/pl" component={CattlePLDashboard} />
+        <Route path="/cattle/:id" component={CattleDetailPage} />
+        <Route path="/billing" component={BillingPage} />
         <Route path="/byproducts" component={ByproductsPage} />
         <Route path="/milk" component={MilkRecordsPage} />
         <Route path="/milk/new" component={AddMilkEntryPage} />
@@ -115,6 +124,9 @@ function AppRouter() {
         <Route path="/reports" component={ReportsPage} />
         <Route path="/breeding" component={BreedingPage} />
         <Route path="/breeding/heat" component={RecordHeatPage} />
+        <Route path="/breeding/ai" component={RecordAIPage} />
+        <Route path="/breeding/pregnancy-test" component={RecordPregnancyTestPage} />
+        <Route path="/breeding/calving" component={RecordCalvingPage} />
         <Route path="/feed" component={FeedPage} />
         <Route path="/alerts" component={AlertsPage} />
         <Route path="/settings" component={SettingsPage} />

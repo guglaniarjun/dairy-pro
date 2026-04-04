@@ -1,4 +1,4 @@
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
 import { db } from "./db";
 import {
   users,
@@ -38,6 +38,13 @@ import {
   byproductInventory,
   attachments,
   attachmentLinks,
+  milkSales,
+  subscriptionPlans,
+  tenantSubscriptions,
+  whatsappConfigs,
+  whatsappLogs,
+  notificationRules,
+  farmSettings,
   type User,
   type InsertUser,
   type Tenant,
@@ -58,6 +65,12 @@ import {
   type PregnancyTest,
   type SystemSettings,
   type TenantSettings,
+  type SubscriptionPlan,
+  type TenantSubscription,
+  type WhatsappConfig,
+  type WhatsappLog,
+  type NotificationRule,
+  type FarmSettings,
   type CattleTransaction,
   type CattlePayment,
   type CattleCost,
@@ -148,16 +161,7 @@ export interface IStorage {
   getPregnancyTestsByTenant(tenantId: string): Promise<PregnancyTest[]>;
 
   // Dashboard Stats
-  getDashboardStats(tenantId: string): Promise<{
-    totalCattle: number;
-    milkingCattle: number;
-    todayMilk: number;
-    yesterdayMilk: number;
-    pendingTasks: number;
-    activeAlerts: number;
-    healthIssues: number;
-    upcomingCalvings: number;
-  }>;
+  getDashboardStats(tenantId: string): Promise<Record<string, any>>;
 
   // System Settings (Super Admin)
   getSystemSetting(key: string): Promise<SystemSettings | undefined>;
@@ -200,6 +204,51 @@ export interface IStorage {
   getAttachmentsByEntity(entityType: string, entityId: string): Promise<Attachment[]>;
   createAttachmentLink(data: Partial<AttachmentLink>): Promise<AttachmentLink>;
   deleteAttachment(id: string): Promise<void>;
+
+  // Subscription Plans
+  getAllSubscriptionPlans(): Promise<SubscriptionPlan[]>;
+  getSubscriptionPlanByCode(code: string): Promise<SubscriptionPlan | undefined>;
+  createSubscriptionPlan(data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan>;
+
+  // Tenant Subscriptions
+  getTenantSubscription(tenantId: string): Promise<TenantSubscription | undefined>;
+  createTenantSubscription(data: Partial<TenantSubscription>): Promise<TenantSubscription>;
+  updateTenantSubscription(id: string, data: Partial<TenantSubscription>): Promise<TenantSubscription | undefined>;
+
+  // WhatsApp
+  getWhatsappConfig(tenantId: string): Promise<WhatsappConfig | undefined>;
+  upsertWhatsappConfig(data: Partial<WhatsappConfig>): Promise<WhatsappConfig>;
+  getWhatsappLogs(tenantId: string, limit?: number): Promise<WhatsappLog[]>;
+  createWhatsappLog(data: Partial<WhatsappLog>): Promise<WhatsappLog>;
+  updateWhatsappLog(id: string, data: Partial<WhatsappLog>): Promise<WhatsappLog | undefined>;
+
+  // Notification Rules
+  getNotificationRules(tenantId: string): Promise<NotificationRule[]>;
+  upsertNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule>;
+
+  // Farm Settings
+  getFarmSettings(tenantId: string): Promise<FarmSettings | undefined>;
+  upsertFarmSettings(data: Partial<FarmSettings>): Promise<FarmSettings>;
+
+  // Cattle detail queries
+  getMilkEntriesByCattle(cattleId: string): Promise<MilkEntry[]>;
+  getHealthEventsByCattle(cattleId: string): Promise<HealthEvent[]>;
+  getInseminationsByCattle(cattleId: string): Promise<Insemination[]>;
+  getHeatsByCattle(cattleId: string): Promise<Heat[]>;
+  getPregnancyTestsByCattle(cattleId: string): Promise<PregnancyTest[]>;
+  getCalvingsByCattle(cattleId: string): Promise<any[]>;
+  getVaccinationsByCattle(cattleId: string): Promise<any[]>;
+
+  // Vaccination due
+  getVaccinationsDue(tenantId: string): Promise<any[]>;
+
+  // Breeding analytics
+  getBreedingAnalytics(tenantId: string): Promise<any>;
+
+  // Finance analytics
+  getFinanceAnalytics(tenantId: string): Promise<any>;
+  getMilkSalesByTenant(tenantId: string): Promise<any[]>;
+  createMilkSale(data: any): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -421,52 +470,181 @@ export class DatabaseStorage implements IStorage {
   async getDashboardStats(tenantId: string) {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const now = new Date();
+    const in30Days = new Date(now.getTime() + 30 * 86400000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 
+    // All active cattle
     const allCattle = await db.select().from(cattle).where(
       and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active"))
     );
 
     const milkingCattle = allCattle.filter(c => c.stage === "milking");
+    const pregnantCattle = allCattle.filter(c => c.stage === "pregnant");
+    const dryCattle = allCattle.filter(c => c.stage === "dry");
 
-    const todayMilkResult = await db.select({ 
-      total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` 
-    })
-      .from(milkEntries)
-      .where(and(
-        eq(milkEntries.tenantId, tenantId),
-        eq(milkEntries.date, today)
-      ));
+    // Milk stats
+    const todayMilkResult = await db.select({ total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` })
+      .from(milkEntries).where(and(eq(milkEntries.tenantId, tenantId), eq(milkEntries.date, today)));
 
-    const yesterdayMilkResult = await db.select({ 
-      total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` 
-    })
-      .from(milkEntries)
-      .where(and(
-        eq(milkEntries.tenantId, tenantId),
-        eq(milkEntries.date, yesterday)
-      ));
+    const yesterdayMilkResult = await db.select({ total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` })
+      .from(milkEntries).where(and(eq(milkEntries.tenantId, tenantId), eq(milkEntries.date, yesterday)));
 
+    const monthMilkResult = await db.select({ total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` })
+      .from(milkEntries).where(and(eq(milkEntries.tenantId, tenantId), gte(milkEntries.date, monthStart)));
+
+    const todayMilk = Number(todayMilkResult[0]?.total || 0);
+    const monthMilk = Number(monthMilkResult[0]?.total || 0);
+    const herdAvgMilk = milkingCattle.length > 0 ? todayMilk / milkingCattle.length : 0;
+    const daysInMonth = now.getDate();
+    const monthAvgMilk = daysInMonth > 0 ? monthMilk / daysInMonth : 0;
+
+    // Pending tasks & alerts
     const pendingTasksResult = await db.select().from(tasks).where(
       and(eq(tasks.tenantId, tenantId), eq(tasks.status, "pending"))
     );
-
     const activeAlertsResult = await db.select().from(alerts).where(
       and(eq(alerts.tenantId, tenantId), eq(alerts.isDismissed, false))
     );
 
+    // Health
     const healthIssuesResult = await db.select().from(healthEvents).where(
       and(eq(healthEvents.tenantId, tenantId), eq(healthEvents.status, "active"))
     );
 
+    // Breeding: expected events in next 30 days
+    // Expected heat: cattle in milking/open stage without recent insemination in last 21 days
+    // Pregnancy tests due: inseminations from 28-45 days ago without pregnancy test
+    const recentInseminations = await db.select().from(inseminations).where(
+      and(eq(inseminations.tenantId, tenantId))
+    );
+    const recentPregnancyTests = await db.select().from(pregnancyTests).where(
+      and(eq(pregnancyTests.tenantId, tenantId))
+    );
+    const recentCalvings = await db.select().from(calvings).where(
+      and(eq(calvings.tenantId, tenantId))
+    );
+
+    // PT due: inseminations 28-45 days ago with no positive pregnancy test
+    const ptDueCattleIds = new Set<number>();
+    for (const ins of recentInseminations) {
+      const insDate = new Date(ins.date);
+      const daysAgo = Math.floor((now.getTime() - insDate.getTime()) / 86400000);
+      if (daysAgo >= 28 && daysAgo <= 60) {
+        const hasPT = recentPregnancyTests.some(pt => pt.cattleId === ins.cattleId && new Date(pt.testDate) > insDate);
+        if (!hasPT) ptDueCattleIds.add(ins.cattleId!);
+      }
+    }
+
+    // Expected calving: pregnant cattle with expected date in next 30 days
+    // Use last insemination + 280 days
+    const calvingDueCattleIds = new Set<number>();
+    const dryOffDueCattleIds = new Set<number>();
+    for (const ins of recentInseminations) {
+      const cattle_rec = allCattle.find(c => c.id === ins.cattleId);
+      if (!cattle_rec || cattle_rec.stage !== "pregnant") continue;
+      const expectedCalving = new Date(new Date(ins.date).getTime() + 280 * 86400000);
+      const daysToCalving = Math.floor((expectedCalving.getTime() - now.getTime()) / 86400000);
+      if (daysToCalving >= 0 && daysToCalving <= 30) calvingDueCattleIds.add(ins.cattleId!);
+      if (daysToCalving >= 60 && daysToCalving <= 75) dryOffDueCattleIds.add(ins.cattleId!); // dry 60 days before
+    }
+
+    // Expected heat: milking cows not inseminated in last 21 days
+    const expectedHeatCattle = allCattle.filter(c => {
+      if (c.stage !== "milking" && c.stage !== "heifer") return false;
+      const lastIns = recentInseminations.filter(i => i.cattleId === c.id).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const lastHeat = recentCalvings.filter(h => h.cattleId === c.id).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const referenceDate = lastIns?.date || lastHeat?.date;
+      if (!referenceDate) return false;
+      const daysAgo = Math.floor((now.getTime() - new Date(referenceDate).getTime()) / 86400000);
+      return daysAgo >= 18 && daysAgo <= 28;
+    });
+
+    // Repeat breeders: 3+ failed inseminations
+    const insCountByCattle: Record<number, number> = {};
+    for (const ins of recentInseminations) {
+      if (ins.cattleId) insCountByCattle[ins.cattleId] = (insCountByCattle[ins.cattleId] || 0) + 1;
+    }
+    const repeatBreeders = Object.entries(insCountByCattle).filter(([, count]) => count >= 3).length;
+    const openCattle = allCattle.filter(c => c.stage !== "pregnant" && c.stage !== "heifer" && c.stage !== "calf" && c.stage !== "dry").length;
+
+    // Vaccination stats
+    const allVaccinations = await db.select().from(vaccinations).where(eq(vaccinations.tenantId, tenantId));
+    const vaccinationDue = allVaccinations.filter(v => {
+      if (!v.nextDueDate) return false;
+      const due = new Date(v.nextDueDate);
+      return due >= now && due <= in30Days;
+    }).length;
+    const vaccinationOverdue = allVaccinations.filter(v => {
+      if (!v.nextDueDate) return false;
+      return new Date(v.nextDueDate) < now;
+    }).length;
+
+    // Finance
+    const monthExpenses = await db.select({ total: sql<number>`COALESCE(SUM(${expenses.amount}::numeric), 0)` })
+      .from(expenses).where(and(eq(expenses.tenantId, tenantId), gte(expenses.date, monthStart)));
+    const monthIncomes = await db.select({ total: sql<number>`COALESCE(SUM(${incomes.amount}::numeric), 0)` })
+      .from(incomes).where(and(eq(incomes.tenantId, tenantId), gte(incomes.date, monthStart)));
+    const unpaidMilkSales = await db.select({ total: sql<number>`COALESCE(SUM(${milkSales.totalAmount}::numeric), 0)` })
+      .from(milkSales).where(and(eq(milkSales.tenantId, tenantId), eq(milkSales.paymentStatus, "pending")));
+
+    const monthExpense = Number(monthExpenses[0]?.total || 0);
+    const monthRevenue = Number(monthIncomes[0]?.total || 0);
+    const pendingReceivables = Number(unpaidMilkSales[0]?.total || 0);
+
+    // Cost per kg milk (month)
+    const costPerKgMilk = monthMilk > 0 ? monthExpense / monthMilk : null;
+
+    // Tenant plan
+    const tenant_rec = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const currentPlan = tenant_rec[0]?.plan || "free";
+    const maxCattle = tenant_rec[0]?.maxCattle || 5;
+
+    // Conception rate: positive PT / total inseminations
+    const positivePTs = recentPregnancyTests.filter(pt => pt.result === "positive").length;
+    const conceptionRate = recentInseminations.length > 0
+      ? Math.round((positivePTs / recentInseminations.length) * 100)
+      : null;
+
     return {
+      // Herd
       totalCattle: allCattle.length,
       milkingCattle: milkingCattle.length,
-      todayMilk: Number(todayMilkResult[0]?.total || 0),
+      pregnantCattle: pregnantCattle.length,
+      dryCattle: dryCattle.length,
+      // Milk
+      todayMilk,
       yesterdayMilk: Number(yesterdayMilkResult[0]?.total || 0),
+      monthMilk,
+      herdAvgMilk: Math.round(herdAvgMilk * 10) / 10,
+      monthAvgMilk: Math.round(monthAvgMilk * 10) / 10,
+      // Tasks & Alerts
       pendingTasks: pendingTasksResult.length,
       activeAlerts: activeAlertsResult.length,
+      activeHealthIssues: healthIssuesResult.length,
       healthIssues: healthIssuesResult.length,
-      upcomingCalvings: 0,
+      // Breeding expected events
+      expectedHeat: expectedHeatCattle.length,
+      pregnancyTestDue: ptDueCattleIds.size,
+      expectedCalving: calvingDueCattleIds.size,
+      dryOffDue: dryOffDueCattleIds.size,
+      openCattle,
+      repeatBreeders,
+      totalInseminations: recentInseminations.length,
+      conceptionRate,
+      // Health
+      vaccinationDue,
+      vaccinationOverdue,
+      dewormingDue: 0,
+      // Finance
+      monthExpense,
+      monthRevenue,
+      pendingReceivables,
+      costPerKgMilk,
+      // Plan
+      currentPlan,
+      maxCattle,
+      upcomingCalvings: calvingDueCattleIds.size,
     };
   }
 
@@ -628,6 +806,242 @@ export class DatabaseStorage implements IStorage {
   async deleteAttachment(id: string): Promise<void> {
     await db.delete(attachmentLinks).where(eq(attachmentLinks.attachmentId, id));
     await db.delete(attachments).where(eq(attachments.id, id));
+  }
+
+  // Subscription Plans
+  async getAllSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    return db.select().from(subscriptionPlans).where(eq(subscriptionPlans.isActive, true)).orderBy(subscriptionPlans.sortOrder);
+  }
+
+  async getSubscriptionPlanByCode(code: string): Promise<SubscriptionPlan | undefined> {
+    const result = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.code, code)).limit(1);
+    return result[0];
+  }
+
+  async createSubscriptionPlan(data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan> {
+    const [created] = await db.insert(subscriptionPlans).values(data as any).returning();
+    return created;
+  }
+
+  // Tenant Subscriptions
+  async getTenantSubscription(tenantId: string): Promise<TenantSubscription | undefined> {
+    const result = await db.select().from(tenantSubscriptions)
+      .where(eq(tenantSubscriptions.tenantId, tenantId))
+      .orderBy(desc(tenantSubscriptions.createdAt))
+      .limit(1);
+    return result[0];
+  }
+
+  async createTenantSubscription(data: Partial<TenantSubscription>): Promise<TenantSubscription> {
+    const [created] = await db.insert(tenantSubscriptions).values(data as any).returning();
+    return created;
+  }
+
+  async updateTenantSubscription(id: string, data: Partial<TenantSubscription>): Promise<TenantSubscription | undefined> {
+    const [updated] = await db.update(tenantSubscriptions).set({ ...data, updatedAt: new Date() }).where(eq(tenantSubscriptions.id, id)).returning();
+    return updated;
+  }
+
+  // WhatsApp
+  async getWhatsappConfig(tenantId: string): Promise<WhatsappConfig | undefined> {
+    const result = await db.select().from(whatsappConfigs).where(eq(whatsappConfigs.tenantId, tenantId)).limit(1);
+    return result[0];
+  }
+
+  async upsertWhatsappConfig(data: Partial<WhatsappConfig>): Promise<WhatsappConfig> {
+    if (!data.tenantId) throw new Error("tenantId required");
+    const existing = await this.getWhatsappConfig(data.tenantId);
+    if (existing) {
+      const [updated] = await db.update(whatsappConfigs).set({ ...data, updatedAt: new Date() }).where(eq(whatsappConfigs.tenantId, data.tenantId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(whatsappConfigs).values(data as any).returning();
+    return created;
+  }
+
+  async getWhatsappLogs(tenantId: string, limit = 50): Promise<WhatsappLog[]> {
+    return db.select().from(whatsappLogs).where(eq(whatsappLogs.tenantId, tenantId)).orderBy(desc(whatsappLogs.createdAt)).limit(limit);
+  }
+
+  async createWhatsappLog(data: Partial<WhatsappLog>): Promise<WhatsappLog> {
+    const [created] = await db.insert(whatsappLogs).values(data as any).returning();
+    return created;
+  }
+
+  async updateWhatsappLog(id: string, data: Partial<WhatsappLog>): Promise<WhatsappLog | undefined> {
+    const [updated] = await db.update(whatsappLogs).set(data).where(eq(whatsappLogs.id, id)).returning();
+    return updated;
+  }
+
+  // Notification Rules
+  async getNotificationRules(tenantId: string): Promise<NotificationRule[]> {
+    return db.select().from(notificationRules).where(eq(notificationRules.tenantId, tenantId));
+  }
+
+  async upsertNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule> {
+    if (!data.tenantId || !data.ruleType) throw new Error("tenantId and ruleType required");
+    const existing = await db.select().from(notificationRules)
+      .where(and(eq(notificationRules.tenantId, data.tenantId), eq(notificationRules.ruleType, data.ruleType)))
+      .limit(1);
+    if (existing[0]) {
+      const [updated] = await db.update(notificationRules).set({ ...data, updatedAt: new Date() }).where(eq(notificationRules.id, existing[0].id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(notificationRules).values(data as any).returning();
+    return created;
+  }
+
+  // Farm Settings
+  async getFarmSettings(tenantId: string): Promise<FarmSettings | undefined> {
+    const result = await db.select().from(farmSettings).where(eq(farmSettings.tenantId, tenantId)).limit(1);
+    return result[0];
+  }
+
+  async upsertFarmSettings(data: Partial<FarmSettings>): Promise<FarmSettings> {
+    if (!data.tenantId) throw new Error("tenantId required");
+    const existing = await this.getFarmSettings(data.tenantId);
+    if (existing) {
+      const [updated] = await db.update(farmSettings).set({ ...data, updatedAt: new Date() }).where(eq(farmSettings.tenantId, data.tenantId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(farmSettings).values(data as any).returning();
+    return created;
+  }
+
+  // Cattle detail queries
+  async getMilkEntriesByCattle(cattleId: string): Promise<MilkEntry[]> {
+    return db.select().from(milkEntries).where(eq(milkEntries.cattleId, cattleId)).orderBy(desc(milkEntries.date));
+  }
+
+  async getHealthEventsByCattle(cattleId: string): Promise<HealthEvent[]> {
+    return db.select().from(healthEvents).where(eq(healthEvents.cattleId, cattleId)).orderBy(desc(healthEvents.date));
+  }
+
+  async getInseminationsByCattle(cattleId: string): Promise<Insemination[]> {
+    return db.select().from(inseminations).where(eq(inseminations.cattleId, cattleId)).orderBy(desc(inseminations.date));
+  }
+
+  async getHeatsByCattle(cattleId: string): Promise<Heat[]> {
+    return db.select().from(heats).where(eq(heats.cattleId, cattleId)).orderBy(desc(heats.detectedAt));
+  }
+
+  async getPregnancyTestsByCattle(cattleId: string): Promise<PregnancyTest[]> {
+    return db.select().from(pregnancyTests).where(eq(pregnancyTests.cattleId, cattleId)).orderBy(desc(pregnancyTests.testDate));
+  }
+
+  async getCalvingsByCattle(cattleId: string): Promise<any[]> {
+    return db.select().from(calvings).where(eq(calvings.cattleId, cattleId)).orderBy(desc(calvings.date));
+  }
+
+  async getVaccinationsByCattle(cattleId: string): Promise<any[]> {
+    return db.select().from(vaccinations).where(eq(vaccinations.cattleId, cattleId)).orderBy(desc(vaccinations.date));
+  }
+
+  // Vaccination due
+  async getVaccinationsDue(tenantId: string): Promise<any[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const future30 = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    return db.select({
+      id: vaccinations.id,
+      cattleId: vaccinations.cattleId,
+      vaccineName: vaccinations.vaccineName,
+      date: vaccinations.date,
+      nextDueDate: vaccinations.nextDueDate,
+    }).from(vaccinations)
+      .where(and(
+        eq(vaccinations.tenantId, tenantId),
+        lte(vaccinations.nextDueDate, future30)
+      ))
+      .orderBy(vaccinations.nextDueDate);
+  }
+
+  // Breeding analytics
+  async getBreedingAnalytics(tenantId: string): Promise<any> {
+    const today = new Date().toISOString().split('T')[0];
+    const allCattle = await db.select().from(cattle).where(and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active")));
+    const allHeats = await db.select().from(heats).where(eq(heats.tenantId, tenantId));
+    const allInseminations = await db.select().from(inseminations).where(eq(inseminations.tenantId, tenantId));
+    const allPregnancyTests = await db.select().from(pregnancyTests).where(eq(pregnancyTests.tenantId, tenantId));
+    const allCalvings = await db.select().from(calvings).where(eq(calvings.tenantId, tenantId));
+
+    const pregnant = allCattle.filter(c => c.stage === "pregnant").length;
+    const dry = allCattle.filter(c => c.stage === "dry").length;
+    const heifer = allCattle.filter(c => c.stage === "heifer").length;
+    const milking = allCattle.filter(c => c.stage === "milking").length;
+
+    const positiveTests = allPregnancyTests.filter(p => p.result === "positive").length;
+    const conceptionRate = allInseminations.length > 0 ? Math.round((positiveTests / allInseminations.length) * 100) : 0;
+
+    // Expected events in next 14 days
+    const future14 = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+    const expectedCalvings = allPregnancyTests.filter(p => p.expectedCalvingDate && p.expectedCalvingDate >= today && p.expectedCalvingDate <= future14).length;
+    const expectedPregnancyTests = allInseminations.filter(i => {
+      const testDue = new Date(new Date(i.date).getTime() + 30 * 86400000).toISOString().split('T')[0];
+      return testDue >= today && testDue <= future14;
+    }).length;
+
+    return {
+      totalCattle: allCattle.length,
+      pregnant,
+      dry,
+      heifer,
+      milking,
+      openCattle: allCattle.filter(c => c.stage !== "pregnant" && c.stage !== "dry" && c.stage !== "heifer" && c.stage !== "calf").length,
+      conceptionRate,
+      expectedCalvings,
+      expectedPregnancyTests,
+      totalInseminations: allInseminations.length,
+      totalCalvings: allCalvings.length,
+    };
+  }
+
+  // Finance analytics
+  async getFinanceAnalytics(tenantId: string): Promise<any> {
+    const thisMonth = new Date();
+    const firstDay = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+
+    const monthExpenses = await db.select({
+      total: sql<number>`COALESCE(SUM(${expenses.amount}::numeric), 0)`
+    }).from(expenses).where(and(eq(expenses.tenantId, tenantId), gte(expenses.date, firstDay)));
+
+    const monthIncomes = await db.select({
+      total: sql<number>`COALESCE(SUM(${incomes.amount}::numeric), 0)`
+    }).from(incomes).where(and(eq(incomes.tenantId, tenantId), gte(incomes.date, firstDay)));
+
+    const pendingReceivables = await db.select({
+      total: sql<number>`COALESCE(SUM(${cattleTransactions.amount}::numeric - COALESCE(${cattleTransactions.paidAmount}::numeric, 0)), 0)`
+    }).from(cattleTransactions).where(and(
+      eq(cattleTransactions.tenantId, tenantId),
+      eq(cattleTransactions.type, "sale"),
+    ));
+
+    const pendingPayables = await db.select({
+      total: sql<number>`COALESCE(SUM(${cattleTransactions.amount}::numeric - COALESCE(${cattleTransactions.paidAmount}::numeric, 0)), 0)`
+    }).from(cattleTransactions).where(and(
+      eq(cattleTransactions.tenantId, tenantId),
+      eq(cattleTransactions.type, "purchase"),
+    ));
+
+    const totalExpenses = Number(monthExpenses[0]?.total || 0);
+    const totalIncomes = Number(monthIncomes[0]?.total || 0);
+
+    return {
+      totalExpenses,
+      totalIncomes,
+      netProfit: totalIncomes - totalExpenses,
+      pendingReceivables: Number(pendingReceivables[0]?.total || 0),
+      pendingPayables: Number(pendingPayables[0]?.total || 0),
+    };
+  }
+
+  async getMilkSalesByTenant(tenantId: string): Promise<any[]> {
+    return db.select().from(milkSales).where(eq(milkSales.tenantId, tenantId)).orderBy(desc(milkSales.date));
+  }
+
+  async createMilkSale(data: any): Promise<any> {
+    const [created] = await db.insert(milkSales).values(data as any).returning();
+    return created;
   }
 }
 

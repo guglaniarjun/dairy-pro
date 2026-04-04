@@ -1,291 +1,479 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { format } from "date-fns";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
+import { format, parseISO, differenceInDays, addDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Plus,
-  Search,
-  Heart,
-  Syringe,
-  Baby,
-  Calendar,
-  AlertCircle,
+  Plus, Search, Heart, Syringe, Baby, Calendar, AlertCircle,
+  Thermometer, Activity, Clock, CheckCircle2, XCircle, ArrowRight
 } from "lucide-react";
-import type { Cattle, Heat, Insemination, PregnancyTest } from "@shared/schema";
+
+const fmtDate = (d: string | null | undefined) => d ? format(parseISO(d), "dd MMM yyyy") : "—";
+
+function DaysChip({ days, label }: { days: number; label: string }) {
+  const color = days < 0 ? "bg-red-100 text-red-800" :
+                days <= 3 ? "bg-orange-100 text-orange-800" :
+                days <= 7 ? "bg-amber-100 text-amber-800" :
+                "bg-green-100 text-green-800";
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>
+      {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `In ${days}d`}
+    </span>
+  );
+}
 
 export default function BreedingPage() {
+  const [location] = useLocation();
+  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const urlFilter = params.get("filter") || "all";
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("expected");
 
-  const { data: cattle } = useQuery<Cattle[]>({
-    queryKey: ["/api/cattle"],
-  });
+  const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
+  const { data: heats = [], isLoading: heatsLoading } = useQuery<any[]>({ queryKey: ["/api/breeding/heats"] });
+  const { data: inseminations = [] } = useQuery<any[]>({ queryKey: ["/api/breeding/inseminations"] });
+  const { data: pregnancyTests = [] } = useQuery<any[]>({ queryKey: ["/api/breeding/pregnancy-tests"] });
+  const { data: calvings = [] } = useQuery<any[]>({ queryKey: ["/api/breeding/calvings"] });
+  const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
 
-  const { data: heats, isLoading: heatsLoading } = useQuery<Heat[]>({
-    queryKey: ["/api/breeding/heats"],
-  });
-
-  const { data: inseminations } = useQuery<Insemination[]>({
-    queryKey: ["/api/breeding/inseminations"],
-  });
-
-  const { data: pregnancyTests } = useQuery<PregnancyTest[]>({
-    queryKey: ["/api/breeding/pregnancy-tests"],
-  });
-
-  const getCattleName = (cattleId: string) => {
-    const cow = cattle?.find((c) => c.id === cattleId);
-    return cow?.name || cow?.tagNumber || "Unknown";
+  const getCow = (id: number | string) => cattle.find((c: any) => c.id === id || c.id === Number(id));
+  const getCowName = (id: number | string) => {
+    const c = getCow(id);
+    return c?.name || c?.tagNumber || `#${id}`;
   };
 
-  const breedableCattle = cattle?.filter(
-    (c) => c.gender === "female" && c.status === "active" && c.stage !== "calf"
+  // Compute expected events
+  const now = new Date();
+  const GESTATION = 280;
+  const PT_DAYS = 30;
+
+  // Heat due: milking cows whose last calving or insemination was ~18-28 days ago
+  const heatDue = cattle.filter((c: any) => {
+    if (c.gender !== "female" || c.status !== "active") return false;
+    if (c.stage !== "milking" && c.stage !== "heifer") return false;
+    const lastIns = inseminations.filter((i: any) => i.cattleId === c.id).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+    const lastCalving = calvings.filter((h: any) => h.cattleId === c.id).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+    const refDate = lastIns?.date || lastCalving?.date;
+    if (!refDate) return false;
+    const daysSince = differenceInDays(now, parseISO(refDate));
+    return daysSince >= 18 && daysSince <= 25;
+  }).map((c: any) => {
+    const lastIns = inseminations.filter((i: any) => i.cattleId === c.id).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+    const lastCalving = calvings.filter((h: any) => h.cattleId === c.id).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+    const refDate = lastIns?.date || lastCalving?.date;
+    const daysSince = differenceInDays(now, parseISO(refDate!));
+    const expectedIn = 21 - daysSince;
+    return { ...c, expectedIn, refDate, refType: lastIns ? "Last AI" : "Last Calving" };
+  });
+
+  // PT due: inseminations 28-50 days ago without positive PT
+  const ptDue = inseminations.filter((i: any) => {
+    const daysAgo = differenceInDays(now, parseISO(i.date));
+    if (daysAgo < 28 || daysAgo > 55) return false;
+    const hasPT = pregnancyTests.some((pt: any) => pt.cattleId === i.cattleId && new Date(pt.testDate) > new Date(i.date));
+    return !hasPT;
+  }).map((i: any) => {
+    const daysAgo = differenceInDays(now, parseISO(i.date));
+    const dueDays = 30 - daysAgo;
+    return { ...i, daysAgo, dueDays, cow: getCow(i.cattleId) };
+  });
+
+  // Calving due: pregnant cattle with AI ~230-290 days ago
+  const calvingDue = inseminations.filter((i: any) => {
+    const cow = getCow(i.cattleId);
+    if (!cow || cow.stage !== "pregnant") return false;
+    const daysAgo = differenceInDays(now, parseISO(i.date));
+    return daysAgo >= 230 && daysAgo <= 300;
+  }).map((i: any) => {
+    const daysAgo = differenceInDays(now, parseISO(i.date));
+    const expectedCalving = addDays(parseISO(i.date), GESTATION);
+    const daysToCalving = differenceInDays(expectedCalving, now);
+    return { ...i, daysToCalving, expectedCalving, cow: getCow(i.cattleId) };
+  }).sort((a: any, b: any) => a.daysToCalving - b.daysToCalving);
+
+  // Dry off due: pregnant cattle 60-75 days before expected calving
+  const dryDue = inseminations.filter((i: any) => {
+    const cow = getCow(i.cattleId);
+    if (!cow || cow.stage !== "pregnant") return false;
+    const expectedCalving = addDays(parseISO(i.date), GESTATION);
+    const daysToCalving = differenceInDays(expectedCalving, now);
+    return daysToCalving >= 55 && daysToCalving <= 75;
+  }).map((i: any) => {
+    const expectedCalving = addDays(parseISO(i.date), GESTATION);
+    const daysToCalving = differenceInDays(expectedCalving, now);
+    const dryDaysLeft = daysToCalving - 60;
+    return { ...i, daysToCalving, dryDaysLeft, cow: getCow(i.cattleId) };
+  });
+
+  // Repeat breeders
+  const insCountByCattle: Record<number, any[]> = {};
+  inseminations.forEach((i: any) => {
+    if (!insCountByCattle[i.cattleId]) insCountByCattle[i.cattleId] = [];
+    insCountByCattle[i.cattleId].push(i);
+  });
+  const repeatBreeders = Object.entries(insCountByCattle)
+    .filter(([, ais]) => {
+      if (ais.length < 3) return false;
+      const hasPosPreg = pregnancyTests.some((pt: any) => pt.cattleId === Number(Object.keys(insCountByCattle)[0]) && pt.result === "positive");
+      return !hasPosPreg;
+    })
+    .map(([cattleId, ais]) => ({ cow: getCow(cattleId), ais, count: ais.length }));
+
+  const breedableCattle = cattle.filter((c: any) => c.gender === "female" && c.status === "active" && c.stage !== "calf");
+  const pregnantCount = cattle.filter((c: any) => c.stage === "pregnant").length;
+
+  const filteredHeats = heats.filter((h: any) =>
+    getCowName(h.cattleId).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const pregnantCount = cattle?.filter((c) => c.stage === "pregnant").length || 0;
-  const heatAlerts = heats?.filter((h) => {
-    const heatDate = new Date(h.detectedAt);
-    const daysSince = Math.floor((Date.now() - heatDate.getTime()) / (1000 * 60 * 60 * 24));
-    return daysSince <= 2;
-  }).length || 0;
+  const filteredInseminations = inseminations.filter((i: any) =>
+    getCowName(i.cattleId).toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="p-3 md:p-6 space-y-4 max-w-5xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Breeding & Reproduction</h1>
-          <p className="text-muted-foreground">Track heats, AI, and pregnancies</p>
+          <h1 className="text-2xl font-bold">Breeding & Reproduction</h1>
+          <p className="text-muted-foreground text-sm">Track heats, AI, pregnancies and calvings</p>
         </div>
         <div className="flex gap-2">
           <Link href="/breeding/heat">
-            <Button variant="outline" className="gap-2" data-testid="button-record-heat">
-              <Heart className="w-4 h-4" />
-              Record Heat
+            <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-record-heat">
+              <Heart className="w-4 h-4" /> Record Heat
             </Button>
           </Link>
           <Link href="/breeding/ai">
-            <Button className="gap-2" data-testid="button-record-ai">
-              <Syringe className="w-4 h-4" />
-              Record AI
+            <Button size="sm" className="gap-1.5" data-testid="button-record-ai">
+              <Syringe className="w-4 h-4" /> Record AI
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-l-4 border-l-pink-500">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Breedable Cattle</p>
-                <p className="text-3xl font-bold text-foreground">
-                  {breedableCattle?.length || 0}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
-                <Heart className="w-6 h-6 text-pink-600 dark:text-pink-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-red-500">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Heat Alerts</p>
-                <p className="text-3xl font-bold text-red-600">{heatAlerts}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-purple-500">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pregnant</p>
-                <p className="text-3xl font-bold text-foreground">{pregnantCount}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                <Baby className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Due This Month</p>
-                <p className="text-3xl font-bold text-foreground">2</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
+        <StatCard label="Breedable" value={breedableCattle.length} color="pink" icon="🐄" />
+        <StatCard label="Pregnant" value={pregnantCount} color="purple" icon="🤰" />
+        <StatCard label="Heat Due" value={heatDue.length} color="orange" icon="🌡️" />
+        <StatCard label="PT Due" value={ptDue.length} color="amber" icon="🔬" />
+        <StatCard label="Calving Soon" value={calvingDue.length} color="green" icon="🐄" />
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="heats" className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-4">
-          <TabsTrigger value="heats" data-testid="tab-heats">Heats</TabsTrigger>
-          <TabsTrigger value="ai" data-testid="tab-ai">AI Records</TabsTrigger>
-          <TabsTrigger value="pregnancy" data-testid="tab-pregnancy">Pregnancy</TabsTrigger>
-          <TabsTrigger value="calving" data-testid="tab-calving">Calving</TabsTrigger>
+      {/* Main Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
+          <TabsTrigger value="expected" className="text-xs">🗓️ Expected ({heatDue.length + ptDue.length + calvingDue.length})</TabsTrigger>
+          <TabsTrigger value="heats" className="text-xs" data-testid="tab-heats">Heats ({heats.length})</TabsTrigger>
+          <TabsTrigger value="ai" className="text-xs" data-testid="tab-ai">AI Records ({inseminations.length})</TabsTrigger>
+          <TabsTrigger value="pregnancy" className="text-xs" data-testid="tab-pregnancy">Pregnancy ({pregnancyTests.length})</TabsTrigger>
+          <TabsTrigger value="calving" className="text-xs" data-testid="tab-calving">Calvings ({calvings.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="heats" className="mt-6">
-          <div className="flex gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by cow..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-heats"
+        {/* Expected Events */}
+        <TabsContent value="expected">
+          <div className="space-y-4">
+            {/* Heat Due */}
+            <ExpectedSection
+              title="🌡️ Heat Expected"
+              count={heatDue.length}
+              color="orange"
+              items={heatDue}
+              renderItem={(c: any) => (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-lg">🌡️</div>
+                  <div className="flex-1 min-w-0">
+                    <Link href={`/cattle/${c.id}`}><p className="font-medium hover:underline truncate">{c.name || c.tagNumber}</p></Link>
+                    <p className="text-xs text-muted-foreground">{c.refType}: {fmtDate(c.refDate)} · Stage: {c.stage}</p>
+                  </div>
+                  <DaysChip days={c.expectedIn} label="heat" />
+                  <Link href={`/breeding/heat?cattleId=${c.id}`}>
+                    <Button size="sm" variant="outline" className="text-xs h-7">Record</Button>
+                  </Link>
+                </div>
+              )}
+            />
+
+            {/* PT Due */}
+            <ExpectedSection
+              title="🔬 Pregnancy Test Due"
+              count={ptDue.length}
+              color="amber"
+              items={ptDue}
+              renderItem={(item: any) => (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-lg">🔬</div>
+                  <div className="flex-1 min-w-0">
+                    <Link href={`/cattle/${item.cattleId}`}><p className="font-medium hover:underline truncate">{getCowName(item.cattleId)}</p></Link>
+                    <p className="text-xs text-muted-foreground">AI on {fmtDate(item.date)} · {item.daysAgo}d ago</p>
+                  </div>
+                  <DaysChip days={item.dueDays} label="PT" />
+                  <Link href={`/breeding/pregnancy-test?cattleId=${item.cattleId}`}>
+                    <Button size="sm" variant="outline" className="text-xs h-7">Record</Button>
+                  </Link>
+                </div>
+              )}
+            />
+
+            {/* Calving Due */}
+            <ExpectedSection
+              title="🐄 Expected Calvings"
+              count={calvingDue.length}
+              color="teal"
+              items={calvingDue}
+              renderItem={(item: any) => (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-lg">🐄</div>
+                  <div className="flex-1 min-w-0">
+                    <Link href={`/cattle/${item.cow?.id}`}><p className="font-medium hover:underline truncate">{getCowName(item.cattleId)}</p></Link>
+                    <p className="text-xs text-muted-foreground">AI on {fmtDate(item.date)} · Due {format(item.expectedCalving, "dd MMM yyyy")}</p>
+                  </div>
+                  <DaysChip days={item.daysToCalving} label="calving" />
+                  <Link href={`/breeding/calving?cattleId=${item.cattleId}`}>
+                    <Button size="sm" variant="outline" className="text-xs h-7">Record</Button>
+                  </Link>
+                </div>
+              )}
+            />
+
+            {/* Dry Off Due */}
+            {dryDue.length > 0 && (
+              <ExpectedSection
+                title="🛑 Dry Off Due"
+                count={dryDue.length}
+                color="purple"
+                items={dryDue}
+                renderItem={(item: any) => (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-lg">🛑</div>
+                    <div className="flex-1 min-w-0">
+                      <Link href={`/cattle/${item.cow?.id}`}><p className="font-medium hover:underline truncate">{getCowName(item.cattleId)}</p></Link>
+                      <p className="text-xs text-muted-foreground">Calving due in {item.daysToCalving}d · Dry now (60d before)</p>
+                    </div>
+                    <DaysChip days={item.dryDaysLeft} label="dry" />
+                  </div>
+                )}
               />
+            )}
+
+            {/* Repeat Breeders */}
+            {repeatBreeders.length > 0 && (
+              <Card className="border-red-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" /> Repeat Breeders ({repeatBreeders.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {repeatBreeders.map((rb: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-red-50 dark:bg-red-950/30">
+                      <div className="flex-1">
+                        <Link href={`/cattle/${rb.cow?.id}`}><p className="font-medium hover:underline">{rb.cow?.name || rb.cow?.tagNumber}</p></Link>
+                        <p className="text-xs text-muted-foreground">{rb.count} inseminations — no pregnancy confirmed</p>
+                      </div>
+                      <Badge variant="destructive" className="text-xs">{rb.count} AI</Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {heatDue.length === 0 && ptDue.length === 0 && calvingDue.length === 0 && dryDue.length === 0 && (
+              <div className="text-center py-12">
+                <CheckCircle2 className="w-16 h-16 mx-auto text-green-400 mb-4" />
+                <p className="text-muted-foreground">No expected breeding events in the next 30 days</p>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Heats Tab */}
+        <TabsContent value="heats">
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search by cow..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10" data-testid="input-search-heats" />
             </div>
           </div>
-
           {heatsLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-20 w-full" />
-              ))}
-            </div>
-          ) : heats && heats.length > 0 ? (
-            <div className="space-y-4">
-              {heats.map((heat) => (
-                <Card key={heat.id} className="hover-elevate cursor-pointer" data-testid={`heat-${heat.id}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
-                        <Heart className="w-6 h-6 text-pink-600 dark:text-pink-400" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="font-semibold text-foreground">
-                              {getCattleName(heat.cattleId)}
-                            </h3>
-                            <p className="text-sm text-muted-foreground">
-                              Detected: {format(new Date(heat.detectedAt), "dd MMM yyyy, h:mm a")}
-                            </p>
-                          </div>
-                          <Badge className="capitalize bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400">
-                            {heat.intensity}
-                          </Badge>
-                        </div>
-                      </div>
+            <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
+          ) : filteredHeats.length > 0 ? (
+            <div className="space-y-2">
+              {filteredHeats.map((heat: any) => (
+                <Card key={heat.id} className="hover:shadow-md transition-shadow" data-testid={`heat-${heat.id}`}>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center text-lg">🌡️</div>
+                    <div className="flex-1">
+                      <Link href={`/cattle/${heat.cattleId}`}>
+                        <p className="font-medium hover:underline">{getCowName(heat.cattleId)}</p>
+                      </Link>
+                      <p className="text-xs text-muted-foreground">
+                        {heat.detectedAt ? format(new Date(heat.detectedAt), "dd MMM yyyy, h:mm a") : "—"}
+                      </p>
                     </div>
+                    <Badge className="capitalize bg-pink-100 text-pink-800">{heat.intensity}</Badge>
                   </CardContent>
                 </Card>
               ))}
             </div>
           ) : (
-            <Card className="p-12">
-              <div className="text-center">
-                <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Heart className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  No heat records
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Start recording heat observations
-                </p>
-                <Link href="/breeding/heat">
-                  <Button className="gap-2" data-testid="button-add-first-heat">
-                    <Plus className="w-4 h-4" />
-                    Record Heat
-                  </Button>
-                </Link>
-              </div>
-            </Card>
+            <EmptyState icon="🌡️" title="No heat records" cta="Record Heat" href="/breeding/heat" testId="button-add-first-heat" />
           )}
         </TabsContent>
 
-        <TabsContent value="ai" className="mt-6">
-          <Card className="p-12">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center mb-4">
-                <Syringe className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                No AI records
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                Record artificial insemination events
-              </p>
-              <Link href="/breeding/ai">
-                <Button className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Record AI
-                </Button>
-              </Link>
+        {/* AI Records Tab */}
+        <TabsContent value="ai">
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search by cow..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10" />
             </div>
-          </Card>
+          </div>
+          {filteredInseminations.length > 0 ? (
+            <div className="space-y-2">
+              {filteredInseminations.map((ins: any) => {
+                const positivePT = pregnancyTests.find((pt: any) => pt.cattleId === ins.cattleId && new Date(pt.testDate) > new Date(ins.date) && pt.result === "positive");
+                return (
+                  <Card key={ins.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-lg">💉</div>
+                      <div className="flex-1">
+                        <Link href={`/cattle/${ins.cattleId}`}>
+                          <p className="font-medium hover:underline">{getCowName(ins.cattleId)}</p>
+                        </Link>
+                        <p className="text-xs text-muted-foreground">
+                          {fmtDate(ins.date)} · {ins.method?.toUpperCase() || "AI"} · {ins.bullName || ins.semenId || "Unknown Semen"}
+                        </p>
+                      </div>
+                      {positivePT ? (
+                        <Badge className="bg-green-100 text-green-800">Pregnant</Badge>
+                      ) : (
+                        <Badge variant="secondary">Inseminated</Badge>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState icon="💉" title="No AI records" cta="Record AI" href="/breeding/ai" />
+          )}
         </TabsContent>
 
-        <TabsContent value="pregnancy" className="mt-6">
-          <Card className="p-12">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center mb-4">
-                <Baby className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                No pregnancy tests
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                Record pregnancy test results
-              </p>
-              <Link href="/breeding/pregnancy-test">
-                <Button className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Add Test Result
-                </Button>
-              </Link>
+        {/* Pregnancy Tests Tab */}
+        <TabsContent value="pregnancy">
+          {pregnancyTests.length > 0 ? (
+            <div className="space-y-2">
+              {pregnancyTests.map((pt: any) => (
+                <Card key={pt.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${pt.result === "positive" ? "bg-green-100" : "bg-red-100"}`}>
+                      {pt.result === "positive" ? "✅" : "❌"}
+                    </div>
+                    <div className="flex-1">
+                      <Link href={`/cattle/${pt.cattleId}`}>
+                        <p className="font-medium hover:underline">{getCowName(pt.cattleId)}</p>
+                      </Link>
+                      <p className="text-xs text-muted-foreground">{fmtDate(pt.testDate)} · {pt.method || "Manual"}</p>
+                    </div>
+                    <Badge className={pt.result === "positive" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                      {pt.result}
+                    </Badge>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </Card>
+          ) : (
+            <EmptyState icon="🔬" title="No pregnancy tests" cta="Add Test Result" href="/breeding/pregnancy-test" />
+          )}
         </TabsContent>
 
-        <TabsContent value="calving" className="mt-6">
-          <Card className="p-12">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center mb-4">
-                <Calendar className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                No calving records
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                Record calving events
-              </p>
-              <Link href="/breeding/calving">
-                <Button className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Record Calving
-                </Button>
-              </Link>
+        {/* Calvings Tab */}
+        <TabsContent value="calving">
+          {calvings.length > 0 ? (
+            <div className="space-y-2">
+              {calvings.map((c: any) => (
+                <Card key={c.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-lg">🐄</div>
+                    <div className="flex-1">
+                      <Link href={`/cattle/${c.cattleId}`}>
+                        <p className="font-medium hover:underline">{getCowName(c.cattleId)}</p>
+                      </Link>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtDate(c.date)} · {c.outcome} · {c.calfGender || "?"} calf
+                      </p>
+                    </div>
+                    <Badge variant={c.outcome === "normal" ? "default" : "secondary"} className="capitalize">{c.outcome}</Badge>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </Card>
+          ) : (
+            <EmptyState icon="🐄" title="No calving records" cta="Record Calving" href="/breeding/calving" />
+          )}
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color, icon }: { label: string; value: number; color: string; icon: string }) {
+  const bg: Record<string, string> = {
+    pink: "bg-pink-50 dark:bg-pink-950/40",
+    purple: "bg-purple-50 dark:bg-purple-950/40",
+    orange: "bg-orange-50 dark:bg-orange-950/40",
+    amber: "bg-amber-50 dark:bg-amber-950/40",
+    green: "bg-green-50 dark:bg-green-950/40",
+    teal: "bg-teal-50 dark:bg-teal-950/40",
+  };
+  return (
+    <div className={`rounded-xl p-3 text-center ${bg[color] || "bg-muted"}`}>
+      <div className="text-xl mb-1">{icon}</div>
+      <div className="text-2xl font-bold">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function ExpectedSection({ title, count, color, items, renderItem }: any) {
+  const bg: Record<string, string> = {
+    orange: "border-orange-200",
+    amber: "border-amber-200",
+    teal: "border-teal-200",
+    purple: "border-purple-200",
+  };
+  if (items.length === 0) return null;
+  return (
+    <Card className={`border-l-4 ${bg[color] || ""}`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">{title} <Badge variant="secondary" className="ml-1 text-xs">{count}</Badge></CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {items.map((item: any, i: number) => (
+          <div key={i} className="p-2 rounded-lg bg-muted/30">{renderItem(item)}</div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyState({ icon, title, cta, href, testId }: any) {
+  return (
+    <div className="text-center py-12">
+      <div className="text-5xl mb-4">{icon}</div>
+      <p className="text-muted-foreground mb-4">{title}</p>
+      <Link href={href}>
+        <Button className="gap-2" data-testid={testId}>
+          <Plus className="w-4 h-4" /> {cta}
+        </Button>
+      </Link>
     </div>
   );
 }

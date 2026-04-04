@@ -974,5 +974,396 @@ export async function registerRoutes(
     }
   });
 
+  // =====================================================
+  // CATTLE DETAIL ROUTES
+  // =====================================================
+
+  app.get("/api/cattle/:id/milk-entries", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const entries = await storage.getMilkEntriesByCattle(req.params.id);
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch milk entries" });
+    }
+  });
+
+  app.get("/api/cattle/:id/health-events", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const events = await storage.getHealthEventsByCattle(req.params.id);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch health events" });
+    }
+  });
+
+  app.get("/api/cattle/:id/inseminations", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const records = await storage.getInseminationsByCattle(req.params.id);
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch inseminations" });
+    }
+  });
+
+  app.get("/api/cattle/:id/heats", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const records = await storage.getHeatsByCattle(req.params.id);
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch heats" });
+    }
+  });
+
+  app.get("/api/cattle/:id/pregnancy-tests", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const records = await storage.getPregnancyTestsByCattle(req.params.id);
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch pregnancy tests" });
+    }
+  });
+
+  app.get("/api/cattle/:id/calvings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const records = await storage.getCalvingsByCattle(req.params.id);
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch calvings" });
+    }
+  });
+
+  app.get("/api/cattle/:id/vaccinations", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const records = await storage.getVaccinationsByCattle(req.params.id);
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vaccinations" });
+    }
+  });
+
+  // =====================================================
+  // BREEDING ANALYTICS
+  // =====================================================
+
+  app.get("/api/breeding/analytics", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const analytics = await storage.getBreedingAnalytics(req.tenantId!);
+      res.json(analytics);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch breeding analytics" });
+    }
+  });
+
+  app.get("/api/breeding/calvings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { calvings } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const records = await db.select().from(calvings).where(eq(calvings.tenantId, req.tenantId!)).orderBy(desc(calvings.date));
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch calvings" });
+    }
+  });
+
+  app.post("/api/breeding/pregnancy-tests", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { pregnancyTests } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const [created] = await db.insert(pregnancyTests).values({
+        ...req.body,
+        tenantId: req.tenantId,
+      } as any).returning();
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create pregnancy test" });
+    }
+  });
+
+  app.post("/api/breeding/calvings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { calvings } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const [created] = await db.insert(calvings).values({
+        ...req.body,
+        tenantId: req.tenantId,
+      } as any).returning();
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create calving" });
+    }
+  });
+
+  // =====================================================
+  // VACCINATION ROUTES
+  // =====================================================
+
+  app.get("/api/vaccinations", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { vaccinations } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const records = await db.select().from(vaccinations).where(eq(vaccinations.tenantId, req.tenantId!)).orderBy(desc(vaccinations.date));
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vaccinations" });
+    }
+  });
+
+  app.post("/api/vaccinations", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { vaccinations } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const [created] = await db.insert(vaccinations).values({
+        ...req.body,
+        tenantId: req.tenantId,
+      } as any).returning();
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create vaccination" });
+    }
+  });
+
+  app.get("/api/vaccinations/due", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const due = await storage.getVaccinationsDue(req.tenantId!);
+      res.json(due);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vaccination due list" });
+    }
+  });
+
+  // =====================================================
+  // MILK SALES
+  // =====================================================
+
+  app.get("/api/milk-sales", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const sales = await storage.getMilkSalesByTenant(req.tenantId!);
+      res.json(sales);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch milk sales" });
+    }
+  });
+
+  app.post("/api/milk-sales", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const sale = await storage.createMilkSale({
+        ...req.body,
+        tenantId: req.tenantId,
+      });
+      res.status(201).json(sale);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create milk sale" });
+    }
+  });
+
+  // =====================================================
+  // FINANCE ANALYTICS
+  // =====================================================
+
+  app.get("/api/finance/analytics", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const analytics = await storage.getFinanceAnalytics(req.tenantId!);
+      res.json(analytics);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch finance analytics" });
+    }
+  });
+
+  // =====================================================
+  // FARM SETTINGS
+  // =====================================================
+
+  app.get("/api/farm-settings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const settings = await storage.getFarmSettings(req.tenantId!);
+      res.json(settings || {
+        currency: "INR", currencySymbol: "₹", timezone: "Asia/Kolkata",
+        milkingSessions: 2, session1Name: "Morning", session2Name: "Evening",
+        heatIntervalDays: 21, gestationDays: 280, dryPeriodDays: 60, pregnancyTestDays: 30,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch farm settings" });
+    }
+  });
+
+  app.put("/api/farm-settings", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const settings = await storage.upsertFarmSettings({
+        ...req.body,
+        tenantId: req.tenantId,
+      });
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update farm settings" });
+    }
+  });
+
+  // =====================================================
+  // WHATSAPP CONFIG & LOGS
+  // =====================================================
+
+  app.get("/api/whatsapp/config", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const config = await storage.getWhatsappConfig(req.tenantId!);
+      // Mask API key
+      if (config?.apiKey) {
+        return res.json({ ...config, apiKey: "••••••••" + config.apiKey.slice(-4) });
+      }
+      res.json(config || { mode: "disabled", webSessionStatus: "disconnected" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch WhatsApp config" });
+    }
+  });
+
+  app.put("/api/whatsapp/config", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      // Don't overwrite masked key
+      const existing = await storage.getWhatsappConfig(req.tenantId!);
+      const data = { ...req.body, tenantId: req.tenantId };
+      if (req.body.apiKey && req.body.apiKey.startsWith("••••••••")) {
+        data.apiKey = existing?.apiKey;
+      }
+      const config = await storage.upsertWhatsappConfig(data);
+      res.json({ ...config, apiKey: config.apiKey ? "••••••••" + config.apiKey.slice(-4) : undefined });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update WhatsApp config" });
+    }
+  });
+
+  app.get("/api/whatsapp/logs", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getWhatsappLogs(req.tenantId!, limit);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch WhatsApp logs" });
+    }
+  });
+
+  // Send test message
+  app.post("/api/whatsapp/test", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const { phone, message } = req.body;
+      if (!phone || !message) {
+        return res.status(400).json({ error: "phone and message required" });
+      }
+      const config = await storage.getWhatsappConfig(req.tenantId!);
+      if (!config || config.mode === "disabled") {
+        return res.status(400).json({ error: "WhatsApp not configured" });
+      }
+
+      const log = await storage.createWhatsappLog({
+        tenantId: req.tenantId,
+        toPhone: phone,
+        messageType: "text",
+        message,
+        status: "pending",
+        triggerType: "test",
+      });
+
+      // In production: call actual WhatsApp API here
+      // For now, simulate success after 1s
+      setTimeout(async () => {
+        await storage.updateWhatsappLog(log.id, {
+          status: config.mode === "api" ? "sent" : "sent",
+          sentAt: new Date(),
+        });
+      }, 1000);
+
+      res.json({ success: true, logId: log.id, message: "Test message queued" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to send test message" });
+    }
+  });
+
+  // =====================================================
+  // NOTIFICATION RULES
+  // =====================================================
+
+  app.get("/api/notification-rules", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const rules = await storage.getNotificationRules(req.tenantId!);
+      res.json(rules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notification rules" });
+    }
+  });
+
+  app.put("/api/notification-rules/:ruleType", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const rule = await storage.upsertNotificationRule({
+        ...req.body,
+        tenantId: req.tenantId,
+        ruleType: req.params.ruleType,
+      });
+      res.json(rule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update notification rule" });
+    }
+  });
+
+  // =====================================================
+  // SUBSCRIPTION PLANS & BILLING
+  // =====================================================
+
+  app.get("/api/subscription-plans", async (req, res) => {
+    try {
+      const plans = await storage.getAllSubscriptionPlans();
+      res.json(plans);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch plans" });
+    }
+  });
+
+  app.get("/api/billing/subscription", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const subscription = await storage.getTenantSubscription(req.tenantId!);
+      const plans = await storage.getAllSubscriptionPlans();
+      const tenant = await storage.getTenantById(req.tenantId!);
+      const cattleCount = (await storage.getCattleByTenant(req.tenantId!)).filter(c => c.status === "active").length;
+      res.json({ subscription, plans, tenant, cattleCount });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch billing info" });
+    }
+  });
+
+  // Enhanced dashboard stats with full KPI groups
+  app.get("/api/dashboard/full-stats", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const baseStats = await storage.getDashboardStats(tenantId);
+      const breedingAnalytics = await storage.getBreedingAnalytics(tenantId);
+      const financeAnalytics = await storage.getFinanceAnalytics(tenantId);
+      const vaccinationsDue = await storage.getVaccinationsDue(tenantId);
+      const activeAlerts = (await storage.getAlertsByTenant(tenantId)).filter(a => !a.isDismissed && !a.isRead);
+
+      const today = new Date().toISOString().split('T')[0];
+      const { milkEntries: meTable } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const { eq, and, gte, sql: drizzleSql } = await import("drizzle-orm");
+
+      // This month milk
+      const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+      const monthMilkResult = await db.select({
+        total: drizzleSql<number>`COALESCE(SUM(${meTable.quantity}::numeric), 0)`,
+        avgPerCow: drizzleSql<number>`COALESCE(AVG(${meTable.quantity}::numeric), 0)`,
+      }).from(meTable).where(and(eq(meTable.tenantId, tenantId), gte(meTable.date, firstDayMonth)));
+
+      res.json({
+        ...baseStats,
+        breeding: breedingAnalytics,
+        finance: financeAnalytics,
+        vaccinationsDue: vaccinationsDue.length,
+        activeAlertCount: activeAlerts.length,
+        monthMilk: Number(monthMilkResult[0]?.total || 0),
+      });
+    } catch (error) {
+      console.error("Full dashboard stats error:", error);
+      res.status(500).json({ error: "Failed to fetch full stats" });
+    }
+  });
+
   return httpServer;
 }

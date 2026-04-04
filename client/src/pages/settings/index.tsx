@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,160 +7,474 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Cloud, Settings, Building2 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import {
+  Loader2, Cloud, Settings, Building2, Milk, Stethoscope,
+  Bell, MessageCircle, Wallet, Save, Send, Eye, EyeOff,
+} from "lucide-react";
 
 export default function SettingsPage() {
-  const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("farm");
-
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-muted-foreground">Manage your farm and system settings</p>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-muted-foreground text-sm">Configure your farm and system preferences</p>
       </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 mb-6">
-          <TabsTrigger value="farm" data-testid="tab-farm-settings">
-            <Building2 className="w-4 h-4 mr-2" />
-            Farm Settings
+      <Tabs defaultValue="farm">
+        <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
+          <TabsTrigger value="farm" className="text-xs gap-1" data-testid="tab-farm-settings">
+            <Building2 className="w-3 h-3" />Farm
           </TabsTrigger>
-          <TabsTrigger value="storage" data-testid="tab-storage-settings">
-            <Cloud className="w-4 h-4 mr-2" />
-            Storage Config
+          <TabsTrigger value="milk" className="text-xs gap-1">
+            <Milk className="w-3 h-3" />Milking
+          </TabsTrigger>
+          <TabsTrigger value="breeding" className="text-xs gap-1">
+            <Stethoscope className="w-3 h-3" />Breeding
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="text-xs gap-1">
+            <Bell className="w-3 h-3" />Notifications
+          </TabsTrigger>
+          <TabsTrigger value="whatsapp" className="text-xs gap-1">
+            <MessageCircle className="w-3 h-3" />WhatsApp
+          </TabsTrigger>
+          <TabsTrigger value="storage" className="text-xs gap-1" data-testid="tab-storage-settings">
+            <Cloud className="w-3 h-3" />Storage
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="farm">
-          <FarmSettingsTab />
-        </TabsContent>
-
-        <TabsContent value="storage">
-          <StorageSettingsTab />
-        </TabsContent>
+        <TabsContent value="farm"><FarmTab /></TabsContent>
+        <TabsContent value="milk"><MilkingTab /></TabsContent>
+        <TabsContent value="breeding"><BreedingTab /></TabsContent>
+        <TabsContent value="notifications"><NotificationsTab /></TabsContent>
+        <TabsContent value="whatsapp"><WhatsAppTab /></TabsContent>
+        <TabsContent value="storage"><StorageTab /></TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function FarmSettingsTab() {
+function FarmTab() {
   const { toast } = useToast();
-  
-  const { data: settings, isLoading } = useQuery<{ accountingMode?: string; byproductInventoryEnabled?: boolean }>({
-    queryKey: ["/api/settings"],
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useQuery<any>({ queryKey: ["/api/settings"] });
+  const { data: farmSettings } = useQuery<any>({ queryKey: ["/api/farm-settings"] });
+
+  const [form, setForm] = useState<any>({});
+  const [farmForm, setFarmForm] = useState<any>({});
+
+  useEffect(() => { if (settings) setForm({ ...settings }); }, [settings]);
+  useEffect(() => { if (farmSettings) setFarmForm({ ...farmSettings }); }, [farmSettings]);
+
+  const saveTenant = useMutation({
+    mutationFn: (d: any) => apiRequest("PUT", "/api/settings", d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); toast({ title: "Farm settings saved" }); },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiRequest("PUT", "/api/settings", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-      toast({ title: "Settings saved", description: "Your farm settings have been updated." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
-    },
+  const saveFarm = useMutation({
+    mutationFn: (d: any) => apiRequest("PUT", "/api/farm-settings", d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/farm-settings"] }); },
   });
-
-  const [accountingMode, setAccountingMode] = useState("simple");
-  const [byproductInventory, setByproductInventory] = useState(false);
-
-  useEffect(() => {
-    if (settings) {
-      setAccountingMode(settings.accountingMode || "simple");
-      setByproductInventory(settings.byproductInventoryEnabled || false);
-    }
-  }, [settings]);
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center p-8">
-          <Loader2 className="w-6 h-6 animate-spin" />
-        </CardContent>
-      </Card>
-    );
-  }
 
   const handleSave = () => {
-    updateMutation.mutate({
-      accountingMode,
-      byproductInventoryEnabled: byproductInventory,
-    });
+    saveTenant.mutate(form);
+    saveFarm.mutate(farmForm);
   };
 
+  if (isLoading) return <Loader2 className="w-6 h-6 animate-spin mx-auto mt-8" />;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Accounting Settings
-          </CardTitle>
-          <CardDescription>Configure how financial records are tracked</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">Farm Information</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="accounting-mode">Accounting Mode</Label>
-            <Select value={accountingMode} onValueChange={setAccountingMode} data-testid="select-accounting-mode">
-              <SelectTrigger id="accounting-mode">
-                <SelectValue placeholder="Select mode" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="simple">Simple (Revenue/Expense tracking)</SelectItem>
-                <SelectItem value="full">Full (Double-entry with depreciation)</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              Simple mode tracks basic income and expenses. Full mode enables advanced features like asset depreciation and double-entry bookkeeping.
-            </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Farm Name">
+              <Input value={farmForm.farmName || ""} onChange={e => setFarmForm((p: any) => ({ ...p, farmName: e.target.value }))} placeholder="My Dairy Farm" />
+            </Field>
+            <Field label="Phone Number">
+              <Input value={farmForm.phone || ""} onChange={e => setFarmForm((p: any) => ({ ...p, phone: e.target.value }))} placeholder="+91 9876543210" />
+            </Field>
+            <Field label="Currency">
+              <Select value={farmForm.currency || "INR"} onValueChange={v => setFarmForm((p: any) => ({ ...p, currency: v, currencySymbol: v === "INR" ? "₹" : "$" }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INR">Indian Rupee (₹)</SelectItem>
+                  <SelectItem value="USD">US Dollar ($)</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Timezone">
+              <Select value={farmForm.timezone || "Asia/Kolkata"} onValueChange={v => setFarmForm((p: any) => ({ ...p, timezone: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
+                  <SelectItem value="UTC">UTC</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Address" className="sm:col-span-2">
+              <Input value={farmForm.address || ""} onChange={e => setFarmForm((p: any) => ({ ...p, address: e.target.value }))} placeholder="Village, District, State" />
+            </Field>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Byproduct Settings</CardTitle>
-          <CardDescription>Configure how byproducts are managed</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">Accounting Settings</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+          <Field label="Accounting Mode">
+            <Select value={form.accountingMode || "simple"} onValueChange={v => setForm((p: any) => ({ ...p, accountingMode: v }))}>
+              <SelectTrigger className="max-w-xs" data-testid="select-accounting-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="simple">Simple (Revenue & Expense)</SelectItem>
+                <SelectItem value="full">Full (Double-entry Accounting)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Simple mode is recommended for most farms</p>
+          </Field>
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="byproduct-inventory">Enable Inventory Tracking</Label>
-              <p className="text-sm text-muted-foreground">
-                Track stock levels for byproducts (cow dung, manure, etc.)
-              </p>
+            <div>
+              <p className="text-sm font-medium">Byproduct Inventory Tracking</p>
+              <p className="text-xs text-muted-foreground">Track stock levels for cow dung, manure, etc.</p>
             </div>
             <Switch
-              id="byproduct-inventory"
-              checked={byproductInventory}
-              onCheckedChange={setByproductInventory}
+              checked={!!form.byproductInventoryEnabled}
+              onCheckedChange={v => setForm((p: any) => ({ ...p, byproductInventoryEnabled: v }))}
               data-testid="switch-byproduct-inventory"
             />
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-farm-settings">
-          {updateMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Save Settings
-        </Button>
-      </div>
+      <Button onClick={handleSave} disabled={saveTenant.isPending || saveFarm.isPending} data-testid="button-save-farm-settings">
+        {saveTenant.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+        Save Farm Settings
+      </Button>
     </div>
   );
 }
 
-function StorageSettingsTab() {
+function MilkingTab() {
   const { toast } = useToast();
-  
-  const { data: settings, isLoading } = useQuery<Array<{ key: string; value: string | null; isSecret: boolean }>>({
-    queryKey: ["/api/admin/system-settings"],
+  const queryClient = useQueryClient();
+  const { data: farmSettings } = useQuery<any>({ queryKey: ["/api/farm-settings"] });
+  const [form, setForm] = useState<any>({});
+  useEffect(() => { if (farmSettings) setForm({ ...farmSettings }); }, [farmSettings]);
+
+  const save = useMutation({
+    mutationFn: (d: any) => apiRequest("PUT", "/api/farm-settings", d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/farm-settings"] }); toast({ title: "Milking settings saved" }); },
   });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Milking Sessions</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Sessions per Day">
+              <Select value={String(form.milkingSessions || 2)} onValueChange={v => setForm((p: any) => ({ ...p, milkingSessions: Number(v) }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2">2 Sessions</SelectItem>
+                  <SelectItem value="3">3 Sessions</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Session 1 Name">
+              <Input value={form.session1Name || "Morning"} onChange={e => setForm((p: any) => ({ ...p, session1Name: e.target.value }))} />
+            </Field>
+            <Field label="Session 2 Name">
+              <Input value={form.session2Name || "Evening"} onChange={e => setForm((p: any) => ({ ...p, session2Name: e.target.value }))} />
+            </Field>
+            {Number(form.milkingSessions || 2) === 3 && (
+              <Field label="Session 3 Name">
+                <Input value={form.session3Name || "Night"} onChange={e => setForm((p: any) => ({ ...p, session3Name: e.target.value }))} />
+              </Field>
+            )}
+            <Field label="Milk Drop Alert Threshold (%)">
+              <Input type="number" value={form.milkDropAlertPercent || 20} onChange={e => setForm((p: any) => ({ ...p, milkDropAlertPercent: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Alert when daily milk drops by this %</p>
+            </Field>
+          </div>
+          <div className="space-y-3">
+            <ToggleRow label="FAT% Mandatory" desc="Require FAT reading on every entry" checked={!!form.fatMandatory} onChange={v => setForm((p: any) => ({ ...p, fatMandatory: v }))} />
+            <ToggleRow label="SNF% Mandatory" desc="Require SNF reading on every entry" checked={!!form.snfMandatory} onChange={v => setForm((p: any) => ({ ...p, snfMandatory: v }))} />
+          </div>
+        </CardContent>
+      </Card>
+      <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
+        {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+        Save Milking Settings
+      </Button>
+    </div>
+  );
+}
+
+function BreedingTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: farmSettings } = useQuery<any>({ queryKey: ["/api/farm-settings"] });
+  const [form, setForm] = useState<any>({});
+  useEffect(() => { if (farmSettings) setForm({ ...farmSettings }); }, [farmSettings]);
+
+  const save = useMutation({
+    mutationFn: (d: any) => apiRequest("PUT", "/api/farm-settings", d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/farm-settings"] }); toast({ title: "Breeding settings saved" }); },
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Reproduction Rules</CardTitle>
+          <CardDescription>Configures expected event calculations for all cattle</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Heat Cycle Interval (days)">
+              <Input type="number" value={form.heatIntervalDays || 21} onChange={e => setForm((p: any) => ({ ...p, heatIntervalDays: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Default: 21 days</p>
+            </Field>
+            <Field label="Gestation Period (days)">
+              <Input type="number" value={form.gestationDays || 280} onChange={e => setForm((p: any) => ({ ...p, gestationDays: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Default: 280 days</p>
+            </Field>
+            <Field label="Dry Period Before Calving (days)">
+              <Input type="number" value={form.dryPeriodDays || 60} onChange={e => setForm((p: any) => ({ ...p, dryPeriodDays: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Default: 60 days (stop milking 60d before calving)</p>
+            </Field>
+            <Field label="Pregnancy Test After AI (days)">
+              <Input type="number" value={form.pregnancyTestDays || 30} onChange={e => setForm((p: any) => ({ ...p, pregnancyTestDays: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Default: 30 days after insemination</p>
+            </Field>
+            <Field label="Heifer First AI Age (months)">
+              <Input type="number" value={form.heiferInseminationAgeMonths || 18} onChange={e => setForm((p: any) => ({ ...p, heiferInseminationAgeMonths: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">Minimum age for first insemination</p>
+            </Field>
+          </div>
+        </CardContent>
+      </Card>
+      <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
+        {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+        Save Breeding Settings
+      </Button>
+    </div>
+  );
+}
+
+function NotificationsTab() {
+  const queryClient = useQueryClient();
+  const { data: rules = [] } = useQuery<any[]>({ queryKey: ["/api/notification-rules"] });
+
+  const notifTypes = [
+    { type: "heat_due", label: "Heat Due Reminder", desc: "Alert when a cow is expected to come into heat" },
+    { type: "pregnancy_test_due", label: "Pregnancy Test Due", desc: "Alert after insemination when pregnancy test is due" },
+    { type: "calving_due", label: "Calving Due", desc: "Alert when calving is approaching (within 14 days)" },
+    { type: "dry_due", label: "Dry Period Due", desc: "Alert when cow should be dried off" },
+    { type: "vaccination_due", label: "Vaccination Due", desc: "Alert for upcoming vaccine schedules" },
+    { type: "low_stock", label: "Low Stock Alert", desc: "Alert when inventory is below minimum level" },
+    { type: "milk_drop", label: "Milk Drop Alert", desc: "Alert when daily milk production drops significantly" },
+    { type: "payment_reminder", label: "Payment Reminder", desc: "Alert for pending receivables and payables" },
+  ];
+
+  const toggle = async (type: string, enabled: boolean) => {
+    await apiRequest("PUT", `/api/notification-rules/${type}`, { isEnabled: enabled, channels: ["app"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/notification-rules"] });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Notification Rules</CardTitle>
+        <CardDescription>Configure which events trigger alerts</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {notifTypes.map(rule => {
+          const existing = rules.find((r: any) => r.ruleType === rule.type);
+          return (
+            <div key={rule.type} className="flex items-center justify-between py-3 border-b last:border-0">
+              <div className="flex-1 mr-4">
+                <p className="text-sm font-medium">{rule.label}</p>
+                <p className="text-xs text-muted-foreground">{rule.desc}</p>
+              </div>
+              <Switch
+                checked={existing?.isEnabled !== false}
+                onCheckedChange={v => toggle(rule.type, v)}
+              />
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WhatsAppTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: config } = useQuery<any>({ queryKey: ["/api/whatsapp/config"] });
+  const { data: logs = [] } = useQuery<any[]>({ queryKey: ["/api/whatsapp/logs"] });
+  const [form, setForm] = useState<any>({});
+  const [showKey, setShowKey] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testMsg, setTestMsg] = useState("Hello from DairyFlow! This is a test message.");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => { if (config) setForm({ ...config }); }, [config]);
+
+  const save = useMutation({
+    mutationFn: (d: any) => apiRequest("PUT", "/api/whatsapp/config", d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/config"] }); toast({ title: "WhatsApp settings saved" }); },
+  });
+
+  const sendTest = async () => {
+    if (!testPhone || !testMsg) return;
+    setSending(true);
+    try {
+      await apiRequest("POST", "/api/whatsapp/test", { phone: testPhone, message: testMsg });
+      toast({ title: "Test message queued!", description: "Check the log below." });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/logs"] });
+    } catch (e: any) {
+      toast({ title: "Failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const mode = form.mode || "disabled";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">WhatsApp Configuration</CardTitle>
+          <CardDescription>Configure WhatsApp notifications for farm events</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Field label="WhatsApp Mode">
+            <Select value={mode} onValueChange={v => setForm((p: any) => ({ ...p, mode: v }))} data-testid="select-whatsapp-mode">
+              <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="disabled">Disabled</SelectItem>
+                <SelectItem value="web">WhatsApp Web (QR Scan)</SelectItem>
+                <SelectItem value="api">WhatsApp Business API</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {mode === "web" && (
+            <div className="p-4 bg-muted/40 rounded-lg space-y-3">
+              <h3 className="font-medium text-sm">WhatsApp Web Mode</h3>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${form.webSessionStatus === "connected" ? "bg-green-500" : "bg-gray-400"}`} />
+                <span className="text-sm">Status: {form.webSessionStatus || "Disconnected"}</span>
+              </div>
+              <div className="w-40 h-40 border-2 border-dashed rounded-lg flex items-center justify-center text-muted-foreground text-xs text-center p-2">
+                QR Code will appear here when WhatsApp Web library is connected
+              </div>
+              <Field label="From Phone Number">
+                <Input value={form.fromPhoneNumber || ""} onChange={e => setForm((p: any) => ({ ...p, fromPhoneNumber: e.target.value }))} placeholder="+91 9876543210" />
+              </Field>
+            </div>
+          )}
+
+          {mode === "api" && (
+            <div className="p-4 bg-muted/40 rounded-lg space-y-3">
+              <h3 className="font-medium text-sm">WhatsApp Business API</h3>
+              <Field label="API Provider">
+                <Select value={form.apiProvider || "meta"} onValueChange={v => setForm((p: any) => ({ ...p, apiProvider: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="meta">Meta (Official)</SelectItem>
+                    <SelectItem value="360dialog">360dialog</SelectItem>
+                    <SelectItem value="twilio">Twilio</SelectItem>
+                    <SelectItem value="wati">WATI</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="API Key">
+                <div className="flex gap-2">
+                  <Input type={showKey ? "text" : "password"} value={form.apiKey || ""} onChange={e => setForm((p: any) => ({ ...p, apiKey: e.target.value }))} placeholder="Enter API key" />
+                  <Button variant="outline" size="icon" onClick={() => setShowKey(p => !p)}>
+                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </Field>
+              <Field label="Phone Number ID">
+                <Input value={form.apiPhoneNumberId || ""} onChange={e => setForm((p: any) => ({ ...p, apiPhoneNumberId: e.target.value }))} placeholder="Meta Phone Number ID" />
+              </Field>
+              <Field label="From Number">
+                <Input value={form.fromPhoneNumber || ""} onChange={e => setForm((p: any) => ({ ...p, fromPhoneNumber: e.target.value }))} placeholder="+91 9876543210" />
+              </Field>
+            </div>
+          )}
+
+          <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
+            {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            Save WhatsApp Settings
+          </Button>
+        </CardContent>
+      </Card>
+
+      {mode !== "disabled" && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Send Test Message</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <Field label="Phone Number">
+              <Input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+91 9876543210" data-testid="input-test-phone" />
+            </Field>
+            <Field label="Message">
+              <Input value={testMsg} onChange={e => setTestMsg(e.target.value)} data-testid="input-test-message" />
+            </Field>
+            <Button onClick={sendTest} disabled={sending || !testPhone} data-testid="button-send-test">
+              <Send className="w-4 h-4 mr-2" />
+              {sending ? "Sending..." : "Send Test Message"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Message Log</CardTitle></CardHeader>
+        <CardContent>
+          {logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No messages sent yet</p>
+          ) : (
+            <div className="space-y-2">
+              {logs.slice(0, 20).map((log: any, i: number) => (
+                <div key={i} className="flex items-start gap-3 p-2.5 rounded-lg bg-muted/30 text-sm">
+                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                    log.status === "delivered" ? "bg-green-500" :
+                    log.status === "sent" ? "bg-blue-500" :
+                    log.status === "failed" ? "bg-red-500" : "bg-gray-400"
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">To: {log.toPhone}</div>
+                    <div className="text-muted-foreground truncate text-xs">{log.message}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-xs">{log.status}</Badge>
+                      <span className="text-xs text-muted-foreground">{log.createdAt ? new Date(log.createdAt).toLocaleString("en-IN") : ""}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function StorageTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/system-settings"] });
 
   const [provider, setProvider] = useState("none");
   const [endpoint, setEndpoint] = useState("");
@@ -171,168 +485,106 @@ function StorageSettingsTab() {
 
   useEffect(() => {
     if (settings && Array.isArray(settings)) {
-      const getValue = (key: string) => settings.find(s => s.key === key)?.value || "";
-      setProvider(getValue("storage_provider") || "none");
-      setEndpoint(getValue("storage_endpoint"));
-      setBucket(getValue("storage_bucket"));
-      setRegion(getValue("storage_region"));
-      const accessKeyVal = getValue("storage_access_key");
-      const secretKeyVal = getValue("storage_secret_key");
-      if (accessKeyVal) setAccessKey(accessKeyVal);
-      if (secretKeyVal) setSecretKey(secretKeyVal);
+      const get = (k: string) => settings.find(s => s.key === k)?.value || "";
+      setProvider(get("storage_provider") || "none");
+      setEndpoint(get("storage_endpoint"));
+      setBucket(get("storage_bucket"));
+      setRegion(get("storage_region"));
+      setAccessKey(get("storage_access_key"));
+      setSecretKey(get("storage_secret_key"));
     }
   }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: { key: string; value: string; isSecret?: boolean }) => {
-      return apiRequest("POST", "/api/admin/system-settings", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/system-settings"] });
-    },
+    mutationFn: (d: { key: string; value: string; isSecret?: boolean }) => apiRequest("POST", "/api/admin/system-settings", d),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/system-settings"] }),
   });
 
-  const handleSaveAll = async () => {
+  const handleSave = async () => {
     try {
       await saveMutation.mutateAsync({ key: "storage_provider", value: provider });
       await saveMutation.mutateAsync({ key: "storage_endpoint", value: endpoint });
       await saveMutation.mutateAsync({ key: "storage_bucket", value: bucket });
       await saveMutation.mutateAsync({ key: "storage_region", value: region });
-      if (accessKey && accessKey !== "********") {
-        await saveMutation.mutateAsync({ key: "storage_access_key", value: accessKey, isSecret: true });
-      }
-      if (secretKey && secretKey !== "********") {
-        await saveMutation.mutateAsync({ key: "storage_secret_key", value: secretKey, isSecret: true });
-      }
-      toast({ title: "Storage settings saved", description: "Your storage configuration has been updated." });
-    } catch (error) {
+      if (accessKey && !accessKey.includes("*")) await saveMutation.mutateAsync({ key: "storage_access_key", value: accessKey, isSecret: true });
+      if (secretKey && !secretKey.includes("*")) await saveMutation.mutateAsync({ key: "storage_secret_key", value: secretKey, isSecret: true });
+      toast({ title: "Storage settings saved" });
+    } catch {
       toast({ title: "Error", description: "Failed to save storage settings.", variant: "destructive" });
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center p-8">
-          <Loader2 className="w-6 h-6 animate-spin" />
-        </CardContent>
-      </Card>
-    );
-  }
+  if (isLoading) return <Loader2 className="w-6 h-6 animate-spin mx-auto mt-8" />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Cloud className="w-5 h-5" />
-            File Storage Configuration
-          </CardTitle>
-          <CardDescription>
-            Configure S3-compatible or Supabase storage for file attachments (images, documents, audio recordings)
-          </CardDescription>
+          <CardTitle className="text-base flex items-center gap-2"><Cloud className="w-4 h-4" />File Storage Configuration</CardTitle>
+          <CardDescription>Configure S3-compatible or Supabase storage for file attachments</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="storage-provider">Storage Provider</Label>
+          <Field label="Storage Provider">
             <Select value={provider} onValueChange={setProvider} data-testid="select-storage-provider">
-              <SelectTrigger id="storage-provider">
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
+              <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">None (Attachments disabled)</SelectItem>
                 <SelectItem value="s3">Amazon S3 / S3-Compatible</SelectItem>
                 <SelectItem value="supabase">Supabase Storage</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-
+          </Field>
           {provider !== "none" && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="storage-endpoint">
-                    {provider === "supabase" ? "Supabase URL" : "S3 Endpoint"}
-                  </Label>
-                  <Input
-                    id="storage-endpoint"
-                    placeholder={provider === "supabase" ? "https://xxx.supabase.co" : "https://s3.amazonaws.com"}
-                    value={endpoint}
-                    onChange={(e) => setEndpoint(e.target.value)}
-                    data-testid="input-storage-endpoint"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="storage-bucket">Bucket Name</Label>
-                  <Input
-                    id="storage-bucket"
-                    placeholder="my-dairy-bucket"
-                    value={bucket}
-                    onChange={(e) => setBucket(e.target.value)}
-                    data-testid="input-storage-bucket"
-                  />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label={provider === "supabase" ? "Supabase URL" : "S3 Endpoint"}>
+                <Input value={endpoint} onChange={e => setEndpoint(e.target.value)} placeholder="https://..." data-testid="input-storage-endpoint" />
+              </Field>
+              <Field label="Bucket Name">
+                <Input value={bucket} onChange={e => setBucket(e.target.value)} placeholder="my-dairy-bucket" data-testid="input-storage-bucket" />
+              </Field>
               {provider === "s3" && (
-                <div className="space-y-2">
-                  <Label htmlFor="storage-region">Region</Label>
-                  <Input
-                    id="storage-region"
-                    placeholder="us-east-1"
-                    value={region}
-                    onChange={(e) => setRegion(e.target.value)}
-                    data-testid="input-storage-region"
-                  />
-                </div>
+                <Field label="Region">
+                  <Input value={region} onChange={e => setRegion(e.target.value)} placeholder="ap-south-1" data-testid="input-storage-region" />
+                </Field>
               )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="storage-access-key">
-                    {provider === "supabase" ? "Anon Key" : "Access Key ID"}
-                  </Label>
-                  <Input
-                    id="storage-access-key"
-                    type="password"
-                    placeholder="Enter access key"
-                    value={accessKey}
-                    onChange={(e) => setAccessKey(e.target.value)}
-                    data-testid="input-storage-access-key"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="storage-secret-key">
-                    {provider === "supabase" ? "Service Role Key" : "Secret Access Key"}
-                  </Label>
-                  <Input
-                    id="storage-secret-key"
-                    type="password"
-                    placeholder="Enter secret key"
-                    value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    data-testid="input-storage-secret-key"
-                  />
-                </div>
-              </div>
-
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  <strong>Note:</strong> Maximum file size is 10 MB. Supported file types include images (JPG, PNG, WebP), 
-                  documents (PDF, DOC), and audio recordings (MP3, WAV, WebM).
-                </p>
-              </div>
-            </>
+              <Field label={provider === "supabase" ? "Anon Key" : "Access Key ID"}>
+                <Input type="password" value={accessKey} onChange={e => setAccessKey(e.target.value)} data-testid="input-storage-access-key" />
+              </Field>
+              <Field label={provider === "supabase" ? "Service Role Key" : "Secret Access Key"}>
+                <Input type="password" value={secretKey} onChange={e => setSecretKey(e.target.value)} data-testid="input-storage-secret-key" />
+              </Field>
+            </div>
           )}
+          <div className="p-3 bg-muted rounded-lg text-xs text-muted-foreground">
+            Max file size: 10 MB. Supported: JPG, PNG, WebP, PDF, DOC, MP3, WAV, WebM
+          </div>
         </CardContent>
       </Card>
+      <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-storage-settings">
+        {saveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+        Save Storage Settings
+      </Button>
+    </div>
+  );
+}
 
-      <div className="flex justify-end">
-        <Button onClick={handleSaveAll} disabled={saveMutation.isPending} data-testid="button-save-storage-settings">
-          {saveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Save Storage Settings
-        </Button>
+function Field({ label, children, className = "" }: { label: string; children: any; className?: string }) {
+  return (
+    <div className={`space-y-1.5 ${className}`}>
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between py-2 border-b last:border-0">
+      <div>
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">{desc}</p>
       </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }

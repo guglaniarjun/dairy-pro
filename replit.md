@@ -98,6 +98,22 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+### April 4, 2026 (Session 2)
+- **Breeding Module Depth**: Expected events page (Heat Due, PT Due, Calving Due, Dry Off Due, Repeat Breeders). AI Records with pregnancy status. All tabs populated with real data. New forms: /breeding/ai, /breeding/pregnancy-test, /breeding/calving.
+- **Health Module Depth**: 3-tab layout (Issues, Vaccinations Due, History). Vaccination due list grouped by cattle with DaysBadge. Quick resolve button. Real count KPI cards.
+- **Finance Module Depth**: 6 KPI cards including cost/kg milk, milk sales, feed cost. Cost Analysis tab with category breakdown charts. Period filtering across all tabs.
+- **Reports Module**: 5 tabbed reports (Milk, Cattle, Health, Finance, Breeding) with real data. CSV export for all report types. Daily milk summary, cow-wise breakdown, session analysis, herd composition charts.
+- **Mobile Bottom Nav**: Fixed bottom navigation bar (Home/Cattle/Milk/Breeding/Alerts) visible only on mobile (<md). Alert badge shows live count.
+- **Routes Added**: /breeding/ai, /breeding/pregnancy-test, /breeding/calving registered in App.tsx.
+
+### April 4, 2026 (Session 1)
+- **Dashboard Overhaul**: 6 KPI groups with real data: Herd Summary, Expected Actions (next 30 days), Milk Snapshot, Finance Snapshot, Health & Vaccination, Breeding Performance. All cards clickable with drill-down links. Plan usage bar in sidebar.
+- **Cattle Detail Page**: Full `/cattle/:id` route with tabs: Basic Info, Breeding Timeline, Milking History, Health & Vaccination, Financials, Timeline. Shows DIM, lactation, key KPIs in header.
+- **Billing Page**: `/billing` with plan comparison (Free/Starter/Basic/Pro/Enterprise), current plan usage progress bar, Razorpay-ready upgrade CTAs.
+- **Settings Expansion**: 6 tabs — Farm, Milking, Breeding, Notifications, WhatsApp (dual mode: Web QR + Business API with test message + log), Storage. All settings persisted to DB.
+- **Sidebar**: Live alerts badge from real API data. Billing nav item added. Active state fixed to use startsWith for nested routes.
+- **Smart Dashboard Stats**: `getDashboardStats` now returns ~30 KPI fields including expected breeding events, conception rate, month finance totals, cost/kg milk.
+
 ### January 27, 2026
 - **Cattle Sale & Purchase Module**:
   - Purchase form with partial/complete payment options
