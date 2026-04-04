@@ -165,7 +165,6 @@ export default function RecordFeedingPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">All Cattle / Herd</SelectItem>
                         {cattle?.map((cow) => (
                           <SelectItem key={cow.id} value={cow.id}>
                             {cow.name || cow.tagNumber} ({cow.tagNumber})

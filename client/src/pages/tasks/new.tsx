@@ -229,7 +229,6 @@ export default function TaskNewPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">No specific cattle</SelectItem>
                         {cattle?.map((cow) => (
                           <SelectItem key={cow.id} value={cow.id}>
                             {cow.name || cow.tagNumber} (Tag: {cow.tagNumber})

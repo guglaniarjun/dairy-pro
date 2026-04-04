@@ -361,7 +361,6 @@ export default function AddCattlePage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">Unknown</SelectItem>
                           {femaleCattle?.map((c) => (
                             <SelectItem key={c.id} value={c.id}>
                               {c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}

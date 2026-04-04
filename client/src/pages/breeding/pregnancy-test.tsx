@@ -108,7 +108,6 @@ export default function RecordPregnancyTestPage() {
                   <Select onValueChange={field.onChange} value={field.value || ""}>
                     <FormControl><SelectTrigger data-testid="select-insemination"><SelectValue placeholder="Select AI record (optional)" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="">No linked AI record</SelectItem>
                       {cattleInseminations.map((ins: any) => (
                         <SelectItem key={ins.id} value={String(ins.id)}>
                           AI on {new Date(ins.date).toLocaleDateString("en-IN")} ({ins.method})

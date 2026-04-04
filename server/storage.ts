@@ -1,4 +1,4 @@
-import { eq, desc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
 import { db } from "./db";
 import {
   users,
@@ -294,7 +294,7 @@ export class DatabaseStorage implements IStorage {
 
   // Cattle
   async getCattleByTenant(tenantId: string): Promise<Cattle[]> {
-    return db.select().from(cattle).where(eq(cattle.tenantId, tenantId)).orderBy(desc(cattle.createdAt));
+    return db.select().from(cattle).where(eq(cattle.tenantId, tenantId)).orderBy(asc(cattle.tagNumber));
   }
 
   async getCattleById(id: string): Promise<Cattle | undefined> {

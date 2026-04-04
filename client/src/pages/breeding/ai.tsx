@@ -110,7 +110,6 @@ export default function RecordAIPage() {
                   <Select onValueChange={field.onChange} value={field.value || ""}>
                     <FormControl><SelectTrigger data-testid="select-heat"><SelectValue placeholder="Select heat (optional)" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="">No linked heat</SelectItem>
                       {cattleHeats.map((h: any) => (
                         <SelectItem key={h.id} value={String(h.id)}>
                           Heat on {new Date(h.detectedAt).toLocaleDateString("en-IN")} ({h.intensity})

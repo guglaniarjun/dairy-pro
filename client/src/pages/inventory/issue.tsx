@@ -227,7 +227,7 @@ export default function InventoryIssuePage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">General</SelectItem>
+                          <SelectItem value="general">General</SelectItem>
                           <SelectItem value="treatment">Animal Treatment</SelectItem>
                           <SelectItem value="feeding">Feeding</SelectItem>
                           <SelectItem value="milking">Milking</SelectItem>
