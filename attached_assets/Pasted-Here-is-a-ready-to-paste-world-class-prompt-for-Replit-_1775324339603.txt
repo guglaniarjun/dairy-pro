@@ -1,0 +1,1235 @@
+Here is a **ready-to-paste, world-class prompt** for Replit or any strong coding agent to **analyze your current dairy farm app, compare it against the final target vision, and produce a deep, no-ambiguity master action plan**.
+
+---
+
+**PROMPT START**
+
+You are an elite **dairy-tech ERP modernization expert, product strategist, multi-tenant SaaS architect, and senior full-stack audit lead** trained in the style and rigor of **McKinsey, BCG, Deloitte, MIT, Harvard, Stanford, Zoho, Odoo, Stripe, SAP, and top enterprise systems teams**.
+
+Your task is to **REACT to my existing dairy farm application codebase** and produce a **deep, brutally honest, highly detailed audit and final modernization action plan**.
+
+This is **not** a prompt to build from scratch immediately.
+This is a prompt to:
+
+1. inspect the **current existing codebase thoroughly**
+2. understand exactly what is already built
+3. compare it against the **proposed final target product**
+4. identify every missing feature, architectural weakness, scaling issue, UX gap, business-logic gap, tenancy gap, billing gap, WhatsApp gap, dashboard gap, settings gap, reporting gap, and drill-down gap
+5. produce a **complete final upgrade roadmap** with exact implementation priorities
+
+You must be **extremely detailed**, **deeply analytical**, **mobile-first in thinking**, and **free from ambiguity, assumptions, or hallucinations**.
+
+If something is not found in the current codebase, say:
+
+* “Not found in codebase”
+* “Partially implied but not implemented”
+* “UI placeholder only”
+* “Hardcoded only”
+* “Needs verification”
+* “Needs full implementation”
+
+Do not invent functionality.
+
+---
+
+# 1. MASTER OBJECTIVE
+
+Analyze my current dairy farm app and compare it against a **final target vision** of a:
+
+## **Mobile-friendly, multi-tenant Dairy Farm ERP + CRM + Customer Ordering + Vendor Marketplace + Dual WhatsApp Engine + Subscription Billing Platform**
+
+The final target product must:
+
+* work well on **mobile, tablet, and desktop**
+* be **responsive and touch-friendly**
+* support **deep drill-down navigation**
+* support **“click every card → go deeper → go to filtered list → go to detail page → go to transaction/event history → go to source record”**
+* support **multi-tenant SaaS**
+* support **farmer subscriptions**
+* support **advertiser/vendor subscriptions**
+* support **WhatsApp Web**
+* support **WhatsApp API**
+* support **customer ordering**
+* support **vendor advertising + product selling**
+* support **deep analytics**
+* support **farm operations at last-mile level**
+
+This means the app should not stop at summary dashboards.
+It should go to the **last logical level on every click**.
+
+Examples:
+
+* click “Expected Heat” → list of expected heat cattle → click cattle → cattle breeding timeline → click event → source breeding form/history
+* click “Feed Cost This Month” → category split → date-wise expense rows → item-wise detail → linked vendor/purchase/inventory movement
+* click “Pregnant Cattle” → filtered list → cattle detail → linked insemination → pregnancy test → expected calving logic
+* click “Milking Cattle” → herd list → cattle-wise month trend → day-wise entries → session-wise records
+* click “Issue Cattle” → issue category buckets → affected cattle → issue timeline → treatment/breeding/milk drop/root-cause detail
+* click “Low Inventory” → item list → stock movement → purchase history → supplier details → reorder suggestions
+
+You must incorporate this **deep dive / drill-down-first philosophy** in the audit and final action plan.
+
+---
+
+# 2. HOW TO WORK
+
+Follow this exact process in order.
+
+## STEP 1 — FULL CURRENT CODEBASE INSPECTION
+
+Inspect the current project thoroughly, including:
+
+* folder structure
+* frontend app structure
+* backend structure
+* routes
+* pages
+* components
+* services
+* utilities
+* database schema/models
+* authentication flow
+* role/permission logic
+* business logic
+* calculations
+* dashboard APIs
+* settings persistence
+* billing/subscription logic if any
+* WhatsApp logic if any
+* notification logic if any
+* exports/reports if any
+* customer/vendor modules if any
+* mobile responsiveness support
+* navigation/drill-down behavior
+
+Do not stop at filenames. Open code and understand real implementation.
+
+## STEP 2 — CURRENT SYSTEM SNAPSHOT
+
+Summarize:
+
+* stack used
+* app type
+* modules found
+* overall architecture
+* code quality level
+* maintainability level
+* scalability level
+* responsiveness/mobile-readiness
+* multi-tenant readiness
+* current strongest areas
+* current weakest areas
+
+## STEP 3 — MODULE-BY-MODULE REALITY CHECK
+
+For each module, classify one of:
+
+* Strong
+* Working but Basic
+* Partially Implemented
+* UI Only / Placeholder
+* Hardcoded
+* Needs Refactor
+* Needs Redesign
+* Missing
+* Must Be Rebuilt
+
+## STEP 4 — TARGET COMPARISON
+
+Compare current app against the final target product requirements given below.
+
+## STEP 5 — FINAL ACTION PLAN
+
+Produce the final modernization plan with:
+
+* what to keep
+* what to clean up
+* what to refactor
+* what to redesign
+* what to rebuild
+* what to add new
+* what to postpone
+* what to do first
+* what dependencies exist
+* what risks exist
+* what the best migration approach is
+
+---
+
+# 3. CRITICAL NON-NEGOTIABLE RULES
+
+You must obey all of these:
+
+1. **No hallucinations**
+
+   * never assume a feature exists unless code confirms it
+   * never claim a workflow works unless code confirms it
+
+2. **No ambiguity**
+
+   * be explicit
+   * name exact modules, files, APIs, tables, components, missing fields, and dependencies wherever possible
+
+3. **No shallow review**
+
+   * this must be a deep technical + product + UX + business-logic audit
+
+4. **Mobile-first and responsive-first review**
+
+   * explicitly evaluate whether each important page/module is mobile-friendly
+   * identify touch issues, table overflow issues, sidebar issues, form usability issues, chart readability, deep navigation behavior on mobile
+
+5. **Deep-dive navigation review**
+
+   * evaluate whether the current app truly supports last-level drill-down on click
+   * identify every dashboard/report card that needs linked detail flows
+
+6. **Business-logic-first**
+
+   * do not only audit screens
+   * audit real dairy logic, formulas, workflows, states, dependencies, and lifecycle
+
+7. **Production-grade thinking**
+
+   * think as if this app will become a real SaaS used by many farms
+
+---
+
+# 4. FINAL TARGET PRODUCT VISION TO COMPARE AGAINST
+
+The target system should be a **world-class dairy farm platform** with the following modules and capabilities.
+
+---
+
+## A. MULTI-TENANT SAAS CORE
+
+Must support:
+
+* multiple farms/tenants
+* strict tenant isolation
+* tenant-aware users
+* super admin
+* audit logs
+* tenant-specific settings
+* tenant-specific subscription plan
+* tenant-specific WhatsApp configuration
+* tenant-specific branding/templates
+* tenant-specific quotas and limits
+
+Check current codebase for:
+
+* tenantId usage
+* isolation
+* tenant-aware APIs
+* tenant-aware queries
+* tenant-aware settings
+* tenant-aware users
+* tenant-aware billing
+* tenant-aware file/doc uploads
+
+---
+
+## B. MOBILE-FRIENDLY UI/UX
+
+Target product must be highly usable on:
+
+* mobile
+* tablet
+* desktop
+
+Must support:
+
+* responsive layout
+* collapsible sidebar
+* touch-friendly buttons and cards
+* sticky quick actions on mobile
+* readable tables or card alternatives on mobile
+* charts that remain usable on smaller screens
+* mobile search/filter sheets
+* drill-down pages that work naturally on phone
+* no desktop-only assumptions
+
+Audit current app for:
+
+* actual responsive implementation
+* breakpoints
+* mobile navigation
+* overflow issues
+* hidden unusable controls
+* table-heavy desktop screens without mobile fallback
+* spacing/touch issues
+* modal usability on mobile
+
+---
+
+## C. DEEP DIVE / LAST-LEVEL DRILL-DOWN ARCHITECTURE
+
+This is critical.
+
+Every dashboard card, metric, status tile, chart, report summary, and alert should support drill-down to progressively deeper levels.
+
+### Required drill-down philosophy:
+
+* Summary KPI
+* Filtered List
+* Entity Detail
+* Event Timeline
+* Source Record / Transaction Layer
+* Related Records
+* Editable Action or Audit Trail
+
+Examples:
+
+* Dashboard → Pregnancy Rate → Inseminated cohort → pregnancy test list → cattle profile → breeding cycle
+* Dashboard → Feed Cost → expenses by category → item ledger → inventory batch → supplier purchase
+* Dashboard → Milking → herd trend → cattle trend → day → session
+* Dashboard → Vaccination due → filtered due list → cattle → vaccination history → source treatment/vaccination form
+* Dashboard → Open cattle → filtered list → breeding failures → repeat pattern
+
+Audit current app for:
+
+* drill-down support
+* clickable cards
+* linked list/detail flows
+* dead-end dashboards
+* non-clickable widgets
+* summary-only pages
+* lack of relation navigation
+
+---
+
+## D. DASHBOARD — FINAL TARGET STATE
+
+The dashboard must be deeply data-driven and mobile-friendly.
+
+### Top Banner
+
+* subscription status
+* grace/expiry notice
+* renewal CTA
+* billable cattle usage
+* tenant/farm name
+* last updated timestamp
+
+### KPI Group 1 — Expected Action Cards
+
+* Expected Heat
+* Expected Heifer Insemination
+* Expected Pregnancy Test
+* Expected Calving
+* Expected Dry
+
+### KPI Group 2 — Herd Reproductive Status
+
+* Inseminated Cattle
+* Calf and Heifer
+* Pregnant Cattle
+* Open Cattle
+* Dry Cattle
+* Issue Cattle
+
+### KPI Group 3 — Health / Vaccination Due
+
+* Expected Theileria
+* Expected Brucellosis
+* Expected HS
+* Expected BQ
+* Expected FMD
+* Expected Deworming
+* Expected Calf Deworming
+
+### KPI Group 4 — Breeding Benchmark Metrics
+
+* Average DIM
+* % Pregnant Cattle
+* % Dry Cattle
+* Average Dry Days
+* Conception Rate
+* Pregnancy Rate
+
+### KPI Group 5 — Finance Snapshot
+
+* Total Expenditure
+* Total Feeding Cost
+* Total Sales
+* Total Revenue
+* Pending Receivables
+* Pending Payables
+
+### KPI Group 6 — Milking Snapshot
+
+* Milking Cattle
+* This Month Total Milking
+* This Month Average Milking
+* Today’s Herd Average
+
+### KPI Group 7 — Lactation Distribution
+
+* Early Lactation
+* Mid Lactation
+* Late Lactation
+
+### KPI Group 8 — Cost Analytics
+
+* Cost to Produce 1 Kg Milk from Cattle
+* Cost to Produce 1 Kg Milk from Farm
+* Feed to Milk Costing of Cattle
+* Feed to Milk Costing of Farm
+* Feed Cost This Month
+* Current Per Day Feed Consumption
+
+### Advanced Dashboard Sections
+
+* upcoming action calendar
+* herd alerts panel
+* issue cattle panel
+* top and bottom performers
+* shed-wise quick stats
+* group-wise quick stats
+* milk trend chart
+* finance trend chart
+* health due trend
+* quick action shortcuts
+* smart alerts
+* drilldowns on every card and chart
+
+Audit:
+
+* what exists
+* what is partial
+* what is missing
+* what formulas are hardcoded
+* what formulas are absent
+* what has no source data
+* what has no drill-down
+* what is not mobile-friendly
+
+---
+
+## E. SETTINGS CENTER — FINAL TARGET STATE
+
+Settings must be deep, persistent, tenant-aware, and not just display-only.
+
+### Settings sections required:
+
+1. Farm Configuration
+2. Breed Configuration
+3. Notification Rules
+4. WhatsApp Configuration
+5. Vaccination Schedule Rules
+6. Inventory Alert Settings
+7. Milking Rules
+8. Finance Settings
+9. Customer Ordering Settings
+10. Marketplace / Vendor Settings
+11. Users & Permissions
+12. Branding & Templates
+13. Subscription & Billing
+14. Data & Backup
+15. Audit & Security
+
+### Expected setting examples:
+
+#### Farm Configuration
+
+* farm name
+* logo
+* milk unit
+* milk recording method
+* time zone
+* language
+* date format
+* default dashboard period
+* currency
+* billable cattle warning threshold
+
+#### Breed Configuration
+
+* heifer insemination age
+* days after insemination for pregnancy test
+* days before calving to dry
+* heat interval
+* gestation defaults
+* breed-specific breeding rules
+
+#### Notification Rules
+
+* heat notification
+* pregnancy test notification
+* dry period notification
+* calving notification
+* stock notification
+* vaccination/treatment notification
+* payment reminders
+* customer order notifications
+* vendor lead notifications
+* subscription reminders
+
+Each should allow:
+
+* enable/disable
+* reminder before X days
+* channel selection
+* recipient rules
+* repeat frequency
+* escalation
+* quiet hours
+* template mapping
+
+#### WhatsApp Configuration
+
+* WhatsApp mode selector
+* disabled / web / API
+* QR connect flow
+* session state
+* API credentials
+* webhook placeholders
+* template mapping
+* retry logic
+* rate limit
+* test message
+* logs link
+
+#### Vaccination Schedule Rules
+
+* Theileria
+* Brucellosis
+* HS
+* BQ
+* FMD
+* Deworming
+* Calf Deworming
+
+#### Inventory Alerts
+
+* low stock threshold
+* expiry thresholds
+* inactive item visibility
+* negative stock setting
+
+#### Milking Rules
+
+* 2 or 3 milking sessions
+* session names
+* farm-level vs cattle-level entry
+* fat/SNF mandatory rules
+* abnormal milk threshold
+* drop alert %
+
+#### Finance Settings
+
+* tax setup
+* invoice numbering
+* costing method
+* partial payments
+* expense categories
+
+#### Customer Ordering
+
+* service areas
+* delivery slots
+* MOQ
+* payment methods
+* order cutoff time
+
+#### Marketplace/Vendor
+
+* vendor approval
+* ad approval
+* commission
+* placement rules
+
+#### Subscription & Billing
+
+* plan visibility
+* renewal rules
+* grace periods
+* overage rules
+* cattle limits
+* user limits
+* WhatsApp usage limits
+
+Audit:
+
+* what currently exists
+* which settings are DB-backed vs hardcoded
+* what is missing
+* what needs redesign
+* what needs true tenant-aware persistence
+
+---
+
+## F. CATTLE BOARD / CATTLE MASTER
+
+Target state:
+
+* cattle list
+* search
+* filters
+* card/list modes
+* cattle detail page
+* premium cattle header strip
+* tabs:
+
+  * Basic Information
+  * Breeding
+  * Milking
+  * Weights
+  * Diet Plans
+  * Vaccination and Treatment
+  * Housings
+  * Documents
+  * Financials
+  * Timeline
+* quick actions
+* alerts ribbon
+* drill-down to event/source level
+
+Audit:
+
+* what exists
+* which tabs are real
+* which tabs are placeholders
+* data completeness
+* relationship handling
+* mobile usability
+* deep-dive ability
+
+---
+
+## G. BREEDING / REPRODUCTION MANAGEMENT
+
+Target must support:
+
+* heat
+* insemination
+* pregnancy/conceive test
+* dry
+* calving
+* repeat breeder logic
+* heifer insemination logic
+* expected heat
+* expected calving
+* pregnancy test due
+* breeding timeline
+* lactation-linked breeding history
+
+Audit:
+
+* formulas
+* records
+* workflows
+* validations
+* expected event logic
+* repeat breeder logic
+* timeline navigation
+* last-level click flows
+
+---
+
+## H. LACTATION MANAGEMENT
+
+Target must support:
+
+* multiple lactations per cattle
+* lactation summary
+* lactation dropdown
+* linked breeding and milking
+* lactation analytics
+* lactation stage distribution
+* comparison across lactations
+
+Audit actual implementation quality.
+
+---
+
+## I. MILKING MANAGEMENT
+
+Target must support:
+
+* 2 or 3 sessions
+* cattle-wise entry
+* bulk entry
+* farm-level reporting
+* day-wise and month-wise reports
+* fat/SNF/protein support
+* milk drop alerts
+* max milk logic
+* session drill-down
+* herd average
+
+Audit:
+
+* entry flow
+* reporting
+* formulas
+* data model
+* mobile usability
+* drill-down depth
+
+---
+
+## J. FEED / DIET / INVENTORY
+
+Target must support:
+
+* daily feeding logs
+* diet plans
+* feed inventory active/inactive
+* stock movement
+* supplier linkage
+* expiry tracking
+* reorder alerts
+* feed cost reporting
+* feed-to-milk costing
+* item-level drill-down
+
+Audit:
+
+* actual inventory depth
+* feed costing logic
+* diet plan quality
+* relation between feeding and inventory
+* mobile usability
+
+---
+
+## K. HEALTH / VACCINATION / TREATMENT
+
+Target must support:
+
+* vaccination
+* deworming
+* treatment
+* disease history
+* due logic
+* treatment notes
+* follow-ups
+* due alerts
+* health reporting
+* drill-down from dashboard to animal record to event log
+
+Audit completeness and logic.
+
+---
+
+## L. FINANCE / SALES / EXPENSES / COSTING
+
+Target must support:
+
+* milk sales
+* cattle sales
+* other sales
+* expense management
+* feed cost
+* vaccine cost
+* treatment cost
+* salary and utilities
+* pending payments
+* invoice/receipt support
+* cost per kg milk
+* feed-to-milk costing
+* drill-down from summary to transaction
+
+Audit:
+
+* whether current finance is real or basic
+* whether costing formulas exist
+* whether pending dues logic exists
+* whether deep transaction drill-down exists
+
+---
+
+## M. CUSTOMER PORTAL
+
+Target must support:
+
+* customer login
+* order placement
+* recurring subscriptions
+* address management
+* invoice/payment status
+* complaints/feedback
+* WhatsApp order updates
+
+Audit whether any of this exists.
+
+---
+
+## N. VENDOR / ADVERTISER / MARKETPLACE
+
+Target must support:
+
+* vendor profiles
+* product catalog
+* farm ordering
+* ad campaigns
+* promotional notifications
+* vendor subscription plans
+* lead tracking
+* marketplace ordering
+
+Audit whether any of this exists.
+
+---
+
+## O. WHATSAPP SYSTEM — DUAL MODE
+
+Target must support both:
+
+### Mode 1: WhatsApp Web
+
+* QR connection
+* session persistence
+* reconnect logic
+* per-tenant session isolation
+* logs
+* retry handling
+* test message
+* session health
+
+### Mode 2: WhatsApp API
+
+* provider abstraction
+* approved template messaging
+* webhooks
+* delivery status
+* provider message IDs
+* logs
+* retries
+* per-tenant credentials
+
+### Common WhatsApp use cases
+
+* breeding reminders
+* vaccination reminders
+* treatment reminders
+* payment reminders
+* subscription reminders
+* customer order confirmations
+* delivery alerts
+* vendor lead alerts
+* promotional messages
+
+Audit:
+
+* whether WhatsApp exists at all
+* whether it is modular
+* whether it supports Web/API
+* whether notification events are real
+* whether queue/log/template architecture exists
+* whether settings support it
+
+---
+
+## P. SUBSCRIPTION BILLING — TWO-SIDED
+
+Target must support two separate subscription systems:
+
+### 1. Farmer / Farm Subscription
+
+Possible plan limits:
+
+* billable cattle
+* users
+* reports
+* exports
+* WhatsApp usage
+* marketplace access
+* advanced analytics
+* storage
+* notification limits
+
+### 2. Advertiser / Vendor Subscription
+
+Possible plan controls:
+
+* number of products
+* active campaigns
+* notification quota
+* premium placement
+* analytics depth
+* target farms accessible
+
+Need:
+
+* separate plan catalogs
+* separate usage records
+* invoices
+* payments
+* renewal dates
+* grace periods
+* overage logic
+* plan enforcement
+* banners
+* usage dashboards
+
+Audit:
+
+* whether any billing logic exists
+* whether billable cattle is real
+* whether plan enforcement exists
+* whether advertiser monetization exists
+
+---
+
+## Q. REPORTING SYSTEM
+
+Target must support:
+
+* milk reports
+* breed reports
+* farm reports
+* health reports
+* finance reports
+* table view
+* chart view
+* export
+* filters
+* drill-down
+* mobile-friendly report consumption
+
+Audit actual current reporting depth and usability.
+
+---
+
+# 5. DAIRY FARM MANAGEMENT BEST-PRACTICE LOGIC YOU MUST USE AS REFERENCE
+
+Use practical dairy management logic while auditing and recommending.
+
+At minimum consider:
+
+### Reproduction / Breeding
+
+* heat tracking
+* 18–24 day repeat heat logic as configurable
+* pregnancy diagnosis timing configurable
+* gestation period configurable by breed
+* dry period before calving configurable
+* repeat breeder alerts
+* open cattle monitoring
+* DIM-based reproduction alerts
+
+### Lactation
+
+* early/mid/late lactation staging
+* calving-linked lactation increment
+* peak milk tracking
+* milk trend analysis
+* herd average tracking
+
+### Health
+
+* vaccine schedule logic
+* due/overdue classification
+* treatment follow-up
+* deworming cadence
+* issue cattle categorization
+
+### Finance
+
+* variable and fixed cost separation
+* feed-cost heavy dairy economics
+* milk-costing realism
+* monthly cost aggregation
+* sales-vs-expense visibility
+
+### Inventory
+
+* stock movement
+* supplier linkage
+* expiry
+* reorder threshold
+* inactive items
+* usage-based depletion insight
+
+### User Experience
+
+* farm staff need fast entry
+* owner needs insight and drill-down
+* mobile use is essential
+* actions must be one-tap or near one-tap on phone
+* reports must not be dead ends
+
+---
+
+# 6. SPECIFIC THINGS TO AUDIT IN THE CURRENT CODEBASE
+
+You must explicitly inspect and comment on:
+
+## Architecture
+
+* frontend/backend separation
+* modularity
+* code duplication
+* service layer maturity
+* shared types/models
+* scalability bottlenecks
+* monolithic vs modular structure
+
+## Database
+
+* schema quality
+* normalization
+* tenant readiness
+* audit fields
+* enums
+* missing relations
+* indexes
+* migration risk
+
+## Auth & RBAC
+
+* role support
+* tenant boundaries
+* admin scope
+* weak permission handling
+* hardcoded roles
+
+## Dashboard
+
+* actual source APIs
+* KPI logic
+* data quality
+* placeholder charts
+* missing drill-down
+* mobile behavior
+
+## Settings
+
+* persisted vs hardcoded
+* missing settings areas
+* tenant scope
+* UI depth
+* extensibility
+
+## Responsiveness / Mobile
+
+* which pages are mobile friendly
+* which are not
+* deep navigation on mobile
+* fixed headers/sidebars behavior
+* mobile tables vs cards
+* chart responsiveness
+* modal usability
+
+## Drill-down architecture
+
+* which cards/pages drill down
+* which are dead ends
+* where navigation hierarchy is broken
+
+## WhatsApp
+
+* implementation quality
+* session management
+* provider abstraction
+* event triggers
+* retry/log/template support
+
+## Subscription / Billing
+
+* current existence
+* plan enforcement
+* cattle limits
+* advertiser monetization
+* UI vs real logic
+
+---
+
+# 7. REQUIRED OUTPUT FORMAT
+
+Return your answer in exactly this structure:
+
+## 1. Executive Summary
+
+Short but sharp, brutally honest summary of current app state and key recommendation.
+
+## 2. Current App Snapshot
+
+* tech stack
+* architecture style
+* modules found
+* completion level
+* strengths
+* weaknesses
+* mobile-readiness summary
+* drill-down-readiness summary
+
+## 3. Codebase Structure Analysis
+
+Explain frontend, backend, DB, services, routing, state, and important patterns.
+
+## 4. Module-by-Module Audit
+
+Audit every major module in detail.
+
+## 5. Mobile & Responsive Audit
+
+Very detailed review of current mobile-friendliness and what must change.
+
+## 6. Deep Drill-Down / Navigation Audit
+
+Explain where current app stops at summary level and how to redesign it so every important click goes deeper to the last level.
+
+## 7. Gap Analysis Table
+
+Columns:
+
+* Module
+* Current State
+* Target State
+* Gap
+* Severity
+* Recommendation
+* Complexity
+* Dependencies
+
+## 8. Reuse vs Refactor vs Rebuild Matrix
+
+Split into:
+
+* Keep as-is
+* Keep with cleanup
+* Refactor
+* Redesign
+* Rebuild
+* Add fresh
+
+## 9. Final Target Architecture Recommendation
+
+Recommend final architecture for the upgraded app.
+
+## 10. Database Upgrade Plan
+
+Explain:
+
+* new entities
+* new relations
+* tenant model
+* audit model
+* migration strategy
+* indexes
+* risks
+
+## 11. Dashboard Upgrade Plan
+
+Explain:
+
+* which cards to add
+* formulas
+* source data
+* drill-down mapping
+* mobile behavior
+* performance considerations
+
+## 12. Settings Center Upgrade Plan
+
+Explain:
+
+* what exists
+* what must be expanded
+* what must be tenant-scoped
+* what must be DB-backed
+* how to structure settings for growth
+
+## 13. WhatsApp Upgrade Plan
+
+Explain:
+
+* current status
+* final architecture
+* WhatsApp Web mode
+* WhatsApp API mode
+* abstraction layer
+* job queue
+* logs
+* retries
+* templates
+* settings and permissions
+
+## 14. Subscription & Billing Upgrade Plan
+
+Explain:
+
+* farmer plans
+* advertiser/vendor plans
+* plan catalogs
+* feature gating
+* usage records
+* invoices
+* grace periods
+* overage logic
+* UI and enforcement
+
+## 15. Final Phased Master Action Plan
+
+Create phases such as:
+
+* Phase 1 Foundations
+* Phase 2 Core Data & Tenant Refactor
+* Phase 3 Dashboard + Drill-Down + Mobile UX
+* Phase 4 Breeding/Milking/Health Logic Deepening
+* Phase 5 WhatsApp + Notification Engine
+* Phase 6 Subscription Billing
+* Phase 7 Customer Portal + Vendor Marketplace
+* Phase 8 Reports + Optimization + Hardening
+
+For each phase include:
+
+* objective
+* detailed tasks
+* dependencies
+* risk
+* deliverables
+* recommended sprint sequencing
+
+## 16. Priority Matrix
+
+Mark all major work items:
+
+* Critical
+* High
+* Medium
+* Low
+
+## 17. Technical Debt Register
+
+List major technical debt found in current code.
+
+## 18. Recommended Immediate Next Sprint
+
+Give an exact actionable sprint plan for the next sprint only.
+
+---
+
+# 8. STYLE RULES
+
+* be exhaustive
+* be structured
+* use tables where useful
+* no flattery
+* no vague best-practice filler
+* no hallucinations
+* no fake assumptions
+* no build implementation yet
+* analyze first, compare second, plan third
+* go deep
+* think like an ERP auditor and modernization architect
+* every recommendation must be grounded in codebase reality plus target product logic
+
+---
+
+# 9. FINAL INSTRUCTION
+
+Begin by fully inspecting the current project structure and code.
+Then create the full audit, comparison, and final upgrade roadmap.
+
+Do **not** write code yet.
+Do **not** start implementing.
+Your job is to produce the **final master analysis and action plan only**.
+
+**PROMPT END**
+
+---
+
+After this, I can also give you a **Phase-2 execution prompt** that tells Replit exactly how to start upgrading the app module by module after the audit is complete.

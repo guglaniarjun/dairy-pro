@@ -877,7 +877,7 @@ export async function registerRoutes(
       }
       
       // Validate entityType
-      const validEntityTypes = ["cattle", "milk_record", "health_record", "breeding_record", "cattle_transaction", "byproduct_transaction"];
+      const validEntityTypes = ["cattle", "milk_record", "milk_entry", "health_record", "breeding_record", "heat_record", "cattle_transaction", "byproduct_transaction"];
       if (!validEntityTypes.includes(entityType)) {
         return res.status(400).json({ error: "Invalid entity type" });
       }
@@ -916,7 +916,7 @@ export async function registerRoutes(
       const { entityType, entityId } = req.params;
       
       // Validate entityType
-      const validEntityTypes = ["cattle", "milk_record", "health_record", "breeding_record", "cattle_transaction", "byproduct_transaction"];
+      const validEntityTypes = ["cattle", "milk_record", "milk_entry", "health_record", "breeding_record", "heat_record", "cattle_transaction", "byproduct_transaction"];
       if (!validEntityTypes.includes(entityType)) {
         return res.status(400).json({ error: "Invalid entity type" });
       }
