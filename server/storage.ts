@@ -146,6 +146,8 @@ export interface IStorage {
   // Inventory
   getInventoryItemsByTenant(tenantId: string): Promise<InventoryItem[]>;
   createInventoryItem(data: Partial<InventoryItem>): Promise<InventoryItem>;
+  getInventoryTransactionsByTenant(tenantId: string): Promise<any[]>;
+  createInventoryTransaction(data: any): Promise<any>;
 
   // Feed
   getAllFeedItems(): Promise<FeedItem[]>;
@@ -422,6 +424,26 @@ export class DatabaseStorage implements IStorage {
 
   async createInventoryItem(data: Partial<InventoryItem>): Promise<InventoryItem> {
     const [created] = await db.insert(inventoryItems).values(data as any).returning();
+    return created;
+  }
+
+  async getInventoryTransactionsByTenant(tenantId: string): Promise<any[]> {
+    return db.select().from(inventoryTransactions)
+      .where(eq(inventoryTransactions.tenantId, tenantId))
+      .orderBy(desc(inventoryTransactions.createdAt));
+  }
+
+  async createInventoryTransaction(data: any): Promise<any> {
+    const [created] = await db.insert(inventoryTransactions).values(data).returning();
+    if (created.type === "purchase" || created.type === "return") {
+      await db.update(inventoryItems)
+        .set({ currentStock: sql`current_stock + ${created.quantity}`, updatedAt: new Date() })
+        .where(eq(inventoryItems.id, created.itemId));
+    } else if (created.type === "issue" || created.type === "wastage") {
+      await db.update(inventoryItems)
+        .set({ currentStock: sql`GREATEST(0, current_stock - ${created.quantity})`, updatedAt: new Date() })
+        .where(eq(inventoryItems.id, created.itemId));
+    }
     return created;
   }
 

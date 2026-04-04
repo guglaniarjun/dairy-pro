@@ -417,6 +417,30 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/inventory/transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const txns = await storage.getInventoryTransactionsByTenant(req.tenantId!);
+      res.json(txns);
+    } catch (error) {
+      console.error("Inventory transactions fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch inventory transactions" });
+    }
+  });
+
+  app.post("/api/inventory/transactions", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const txn = await storage.createInventoryTransaction({
+        ...req.body,
+        tenantId: req.tenantId,
+        recordedBy: req.user?.claims?.sub,
+      });
+      res.status(201).json(txn);
+    } catch (error) {
+      console.error("Inventory transaction create error:", error);
+      res.status(500).json({ error: "Failed to create inventory transaction" });
+    }
+  });
+
   // =====================================================
   // FEED ROUTES
   // =====================================================

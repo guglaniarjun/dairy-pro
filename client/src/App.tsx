@@ -28,6 +28,16 @@ import RecordAIPage from "@/pages/breeding/ai";
 import RecordPregnancyTestPage from "@/pages/breeding/pregnancy-test";
 import RecordCalvingPage from "@/pages/breeding/calving";
 import FeedPage from "@/pages/feed/index";
+import RecordFeedingPage from "@/pages/feed/new";
+import FeedFormulationPage from "@/pages/feed/formulation";
+import HealthNewPage from "@/pages/health/new";
+import VaccinationPage from "@/pages/health/vaccination";
+import ExpenseNewPage from "@/pages/finances/expense-new";
+import IncomeNewPage from "@/pages/finances/income-new";
+import TaskNewPage from "@/pages/tasks/new";
+import InventoryNewPage from "@/pages/inventory/new";
+import InventoryPurchasePage from "@/pages/inventory/purchase";
+import InventoryIssuePage from "@/pages/inventory/issue";
 import AlertsPage from "@/pages/alerts/index";
 import SettingsPage from "@/pages/settings/index";
 import CattlePurchasePage from "@/pages/cattle-transactions/purchase";
@@ -117,10 +127,17 @@ function AppRouter() {
         <Route path="/milk" component={MilkRecordsPage} />
         <Route path="/milk/new" component={AddMilkEntryPage} />
         <Route path="/health" component={HealthPage} />
-        <Route path="/health/new" component={HealthPage} />
+        <Route path="/health/new" component={HealthNewPage} />
+        <Route path="/health/vaccination" component={VaccinationPage} />
         <Route path="/tasks" component={TasksPage} />
         <Route path="/finances" component={FinancesPage} />
+        <Route path="/finances/expense/new" component={ExpenseNewPage} />
+        <Route path="/finances/income/new" component={IncomeNewPage} />
+        <Route path="/tasks/new" component={TaskNewPage} />
         <Route path="/inventory" component={InventoryPage} />
+        <Route path="/inventory/new" component={InventoryNewPage} />
+        <Route path="/inventory/purchase" component={InventoryPurchasePage} />
+        <Route path="/inventory/issue" component={InventoryIssuePage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/breeding" component={BreedingPage} />
         <Route path="/breeding/heat" component={RecordHeatPage} />
@@ -128,6 +145,8 @@ function AppRouter() {
         <Route path="/breeding/pregnancy-test" component={RecordPregnancyTestPage} />
         <Route path="/breeding/calving" component={RecordCalvingPage} />
         <Route path="/feed" component={FeedPage} />
+        <Route path="/feed/new" component={RecordFeedingPage} />
+        <Route path="/feed/formulation" component={FeedFormulationPage} />
         <Route path="/alerts" component={AlertsPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />

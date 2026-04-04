@@ -98,6 +98,24 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+### April 4, 2026 (Session 3)
+- **Missing Forms Added**: All module form pages now exist and are functional:
+  - `/feed/new` - Record Feeding form (select cattle, feed item, session, quantity)
+  - `/feed/formulation` - Diet Formulation calculator (estimate daily feed needs from milk yield + body weight)
+  - `/health/new` - Report Health Issue form (illness, injury, checkup, deworming)
+  - `/health/vaccination` - Record Vaccination form (cattle, vaccine type, date, batch, next due)
+  - `/finances/expense/new` - Record Expense form (category, amount, vendor, payment method)
+  - `/finances/income/new` - Record Income form (category, amount, customer, payment method)
+  - `/tasks/new` - Add Task form (title, type, priority, due date, linked cattle)
+  - `/inventory/new` - Add Inventory Item form (name, category, unit, opening stock)
+  - `/inventory/purchase` - Record Purchase form (item, quantity, unit cost, batch, expiry)
+  - `/inventory/issue` - Issue Stock form (item, type: issue/wastage/adjustment, quantity)
+- **Routes Fixed**: `/health/new` was incorrectly mapped to `HealthPage` - now maps to `HealthNewPage`
+- **Feed Stats Fixed**: Hardcoded "18.5 kg" and "₹8.50" replaced with real computed stats
+- **Health ID Type Fixed**: Health resolve mutation now uses `string` type for UUIDs (was `number`)
+- **Inventory Transactions**: Added backend storage methods and API routes (`GET/POST /api/inventory/transactions`). Stock is automatically updated when purchase/issue is recorded.
+- **Routes Added**: All above pages registered in App.tsx
+
 ### April 4, 2026 (Session 2)
 - **Breeding Module Depth**: Expected events page (Heat Due, PT Due, Calving Due, Dry Off Due, Repeat Breeders). AI Records with pregnancy status. All tabs populated with real data. New forms: /breeding/ai, /breeding/pregnancy-test, /breeding/calving.
 - **Health Module Depth**: 3-tab layout (Issues, Vaccinations Due, History). Vaccination due list grouped by cattle with DaysBadge. Quick resolve button. Real count KPI cards.

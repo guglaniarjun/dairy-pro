@@ -41,7 +41,7 @@ export default function HealthPage() {
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
 
   const resolveMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("PATCH", `/api/health/${id}`, { status: "resolved" }),
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/health/${id}`, { status: "resolved" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/health"] });
       toast({ title: "Issue marked as resolved" });

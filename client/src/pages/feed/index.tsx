@@ -57,6 +57,9 @@ export default function FeedPage() {
     (sum, r) => sum + parseFloat(r.actualQuantity),
     0
   ) || 0;
+  const avgPerCow = cattle && cattle.length > 0 && todayTotal > 0
+    ? todayTotal / cattle.length
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -122,7 +125,7 @@ export default function FeedPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Avg per Cow</p>
                 <p className="text-3xl font-bold text-foreground">
-                  18.5 kg
+                  {avgPerCow > 0 ? `${avgPerCow.toFixed(1)} kg` : "—"}
                 </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -136,13 +139,13 @@ export default function FeedPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Feed Cost/L</p>
+                <p className="text-sm text-muted-foreground">Records Today</p>
                 <p className="text-3xl font-bold text-foreground">
-                  ₹8.50
+                  {feedingRecords?.length || 0}
                 </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                <span className="text-lg font-bold">₹</span>
+                <Package className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
             </div>
           </CardContent>
