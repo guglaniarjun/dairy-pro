@@ -10,40 +10,46 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useTheme, COLOR_THEMES } from "@/components/theme-provider";
 import {
-  Loader2, Cloud, Settings, Building2, Milk, Stethoscope,
-  Bell, MessageCircle, Wallet, Save, Send, Eye, EyeOff,
+  Loader2, Cloud, Building2, Milk, Stethoscope,
+  Bell, MessageCircle, Save, Send, Eye, EyeOff,
+  Palette, Sun, Moon, Monitor, Check,
 } from "lucide-react";
 
 export default function SettingsPage() {
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm">Configure your farm and system preferences</p>
       </div>
-      <Tabs defaultValue="farm">
-        <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
-          <TabsTrigger value="farm" className="text-xs gap-1" data-testid="tab-farm-settings">
+      <Tabs defaultValue="appearance">
+        <TabsList className="flex flex-wrap h-auto gap-1 mb-4 p-1">
+          <TabsTrigger value="appearance" className="text-xs gap-1.5" data-testid="tab-appearance-settings">
+            <Palette className="w-3 h-3" />Appearance
+          </TabsTrigger>
+          <TabsTrigger value="farm" className="text-xs gap-1.5" data-testid="tab-farm-settings">
             <Building2 className="w-3 h-3" />Farm
           </TabsTrigger>
-          <TabsTrigger value="milk" className="text-xs gap-1">
+          <TabsTrigger value="milk" className="text-xs gap-1.5">
             <Milk className="w-3 h-3" />Milking
           </TabsTrigger>
-          <TabsTrigger value="breeding" className="text-xs gap-1">
+          <TabsTrigger value="breeding" className="text-xs gap-1.5">
             <Stethoscope className="w-3 h-3" />Breeding
           </TabsTrigger>
-          <TabsTrigger value="notifications" className="text-xs gap-1">
+          <TabsTrigger value="notifications" className="text-xs gap-1.5">
             <Bell className="w-3 h-3" />Notifications
           </TabsTrigger>
-          <TabsTrigger value="whatsapp" className="text-xs gap-1">
+          <TabsTrigger value="whatsapp" className="text-xs gap-1.5">
             <MessageCircle className="w-3 h-3" />WhatsApp
           </TabsTrigger>
-          <TabsTrigger value="storage" className="text-xs gap-1" data-testid="tab-storage-settings">
+          <TabsTrigger value="storage" className="text-xs gap-1.5" data-testid="tab-storage-settings">
             <Cloud className="w-3 h-3" />Storage
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="appearance"><AppearanceTab /></TabsContent>
         <TabsContent value="farm"><FarmTab /></TabsContent>
         <TabsContent value="milk"><MilkingTab /></TabsContent>
         <TabsContent value="breeding"><BreedingTab /></TabsContent>
@@ -51,6 +57,142 @@ export default function SettingsPage() {
         <TabsContent value="whatsapp"><WhatsAppTab /></TabsContent>
         <TabsContent value="storage"><StorageTab /></TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function AppearanceTab() {
+  const { theme, setTheme, colorTheme, setColorTheme } = useTheme();
+
+  const modeOptions = [
+    { value: "light",  label: "Light",  icon: Sun,     desc: "Bright and clean" },
+    { value: "dark",   label: "Dark",   icon: Moon,    desc: "Easy on the eyes" },
+    { value: "system", label: "System", icon: Monitor, desc: "Follows device" },
+  ] as const;
+
+  return (
+    <div className="space-y-6">
+      {/* Display Mode */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sun className="w-4 h-4 text-primary" />
+            Display Mode
+          </CardTitle>
+          <CardDescription>Choose how DairyFlow looks on your device</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3">
+            {modeOptions.map((opt) => {
+              const Icon = opt.icon;
+              const active = theme === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => setTheme(opt.value)}
+                  data-testid={`button-theme-${opt.value}`}
+                  className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center cursor-pointer ${
+                    active
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/40 hover:bg-accent/50"
+                  }`}
+                >
+                  {active && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                      <Check className="w-3 h-3 text-primary-foreground" />
+                    </div>
+                  )}
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className={`text-sm font-semibold ${active ? "text-primary" : "text-foreground"}`}>{opt.label}</p>
+                    <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Color Themes */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Palette className="w-4 h-4 text-primary" />
+            Colour Theme
+          </CardTitle>
+          <CardDescription>Pick an accent colour that suits your style</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {COLOR_THEMES.map((ct) => {
+              const active = colorTheme === ct.id;
+              const hslColor = `hsl(${ct.hsl})`;
+              return (
+                <button
+                  key={ct.id}
+                  onClick={() => setColorTheme(ct.id)}
+                  data-testid={`button-color-theme-${ct.id}`}
+                  className={`relative flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer text-left ${
+                    active
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/30 hover:bg-accent/40"
+                  }`}
+                >
+                  {active && (
+                    <div
+                      className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{ background: hslColor }}
+                    >
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </div>
+                  )}
+                  <div
+                    className="w-8 h-8 rounded-lg flex-shrink-0 shadow-sm"
+                    style={{ background: `linear-gradient(135deg, ${hslColor}, hsl(${ct.hsl} / 0.7))` }}
+                  />
+                  <div className="min-w-0">
+                    <p className={`text-xs font-semibold truncate ${active ? "text-primary" : ""}`}>{ct.label}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{ct.name}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Live preview swatch */}
+          <div className="mt-4 p-4 rounded-xl border bg-card flex items-center gap-4">
+            <div
+              className="w-12 h-12 rounded-xl shadow-md flex-shrink-0"
+              style={{ background: `hsl(var(--primary))` }}
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Current theme preview</p>
+              <p className="text-xs text-muted-foreground">
+                {COLOR_THEMES.find(c => c.id === colorTheme)?.name} · {theme === "system" ? "System" : theme === "dark" ? "Dark" : "Light"} mode
+              </p>
+            </div>
+            <div className="flex gap-1.5">
+              {["bg-primary", "bg-accent", "bg-secondary"].map((cls) => (
+                <div key={cls} className={`w-6 h-6 rounded-md ${cls} border border-border/50`} />
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Typography & Density (future) */}
+      <Card className="opacity-60 select-none">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Font & Density</CardTitle>
+            <Badge variant="secondary" className="text-[10px]">Coming Soon</Badge>
+          </div>
+          <CardDescription>Adjust text size and interface density</CardDescription>
+        </CardHeader>
+      </Card>
     </div>
   );
 }

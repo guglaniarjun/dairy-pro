@@ -78,7 +78,7 @@ function LoadingSpinner() {
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const sidebarStyle = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "15.5rem",
     "--sidebar-width-icon": "3rem",
   };
 
@@ -87,11 +87,16 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between p-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <ThemeToggle />
+          <header className="flex items-center justify-between px-3 py-2 border-b border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
+            <SidebarTrigger
+              data-testid="button-sidebar-toggle"
+              className="h-8 w-8 rounded-lg hover:bg-accent transition-colors"
+            />
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+            </div>
           </header>
-          <main className="flex-1 overflow-auto pb-16 md:pb-0">
+          <main className="flex-1 overflow-auto pb-20 md:pb-0">
             {children}
           </main>
         </div>
