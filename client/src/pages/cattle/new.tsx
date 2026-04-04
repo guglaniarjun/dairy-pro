@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowLeft, Loader2, Paperclip } from "lucide-react";
 import { AttachmentUploader } from "@/components/attachments/attachment-uploader";
-import type { Breed } from "@shared/schema";
+import type { Breed, Cattle } from "@shared/schema";
 
 const cattleFormSchema = z.object({
   tagNumber: z.string().min(1, "Tag number is required"),
@@ -38,7 +38,11 @@ const cattleFormSchema = z.object({
   dateOfEntry: z.string().min(1, "Date of entry is required"),
   source: z.enum(["born", "purchased"]),
   purchasePrice: z.string().optional(),
+  status: z.enum(["active", "sold", "dead", "culled"]),
   stage: z.enum(["calf", "heifer", "milking", "dry", "pregnant"]),
+  lactationNumber: z.string().optional(),
+  motherId: z.string().optional(),
+  fatherId: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -50,9 +54,9 @@ export default function AddCattlePage() {
   const [createdCattleId, setCreatedCattleId] = useState<string | null>(null);
   const [showAttachments, setShowAttachments] = useState(false);
 
-  const { data: breeds } = useQuery<Breed[]>({
-    queryKey: ["/api/breeds"],
-  });
+  const { data: breeds } = useQuery<Breed[]>({ queryKey: ["/api/breeds"] });
+  const { data: allCattle } = useQuery<Cattle[]>({ queryKey: ["/api/cattle"] });
+  const femaleCattle = allCattle?.filter((c) => c.gender === "female" && c.status === "active");
 
   const form = useForm<CattleFormData>({
     resolver: zodResolver(cattleFormSchema),
@@ -62,7 +66,11 @@ export default function AddCattlePage() {
       gender: "female",
       dateOfEntry: new Date().toISOString().split("T")[0],
       source: "born",
+      status: "active",
       stage: "heifer",
+      lactationNumber: "",
+      motherId: "",
+      fatherId: "",
       notes: "",
     },
   });
@@ -72,6 +80,10 @@ export default function AddCattlePage() {
       const response = await apiRequest("POST", "/api/cattle", {
         ...data,
         purchasePrice: data.purchasePrice ? parseFloat(data.purchasePrice) : undefined,
+        lactationNumber: data.lactationNumber ? parseInt(data.lactationNumber) : undefined,
+        motherId: data.motherId || undefined,
+        fatherId: data.fatherId || undefined,
+        breedId: data.breedId || undefined,
       });
       return response.json();
     },
@@ -281,7 +293,7 @@ export default function AddCattlePage() {
                   name="purchasePrice"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Purchase Price</FormLabel>
+                      <FormLabel>Purchase Price (₹)</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -295,6 +307,86 @@ export default function AddCattlePage() {
                   )}
                 />
               )}
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-status">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="sold">Sold</SelectItem>
+                          <SelectItem value="dead">Dead</SelectItem>
+                          <SelectItem value="culled">Culled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="lactationNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lactation Number</FormLabel>
+                      <FormControl>
+                        <Input type="number" min="0" placeholder="e.g. 3 (0 for heifer)" {...field} data-testid="input-lactation" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="motherId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Dam (Mother)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-mother">
+                            <SelectValue placeholder="Select dam (optional)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">Unknown</SelectItem>
+                          {femaleCattle?.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="fatherId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sire (Father / Bull ID)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Bull tag or semen ID (optional)" {...field} data-testid="input-father" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <FormField
                 control={form.control}

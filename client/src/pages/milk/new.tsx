@@ -37,6 +37,7 @@ const milkFormSchema = z.object({
   quantity: z.string().min(1, "Quantity is required"),
   fat: z.string().optional(),
   snf: z.string().optional(),
+  recordedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -64,6 +65,7 @@ export default function AddMilkEntryPage() {
       quantity: "",
       fat: "",
       snf: "",
+      recordedBy: "",
       notes: "",
     },
   });
@@ -75,6 +77,7 @@ export default function AddMilkEntryPage() {
         quantity: parseFloat(data.quantity),
         fat: data.fat ? parseFloat(data.fat) : undefined,
         snf: data.snf ? parseFloat(data.snf) : undefined,
+        recordedBy: data.recordedBy || undefined,
       });
       return response.json();
     },
@@ -277,6 +280,20 @@ export default function AddMilkEntryPage() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="recordedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recorded By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Name of person recording (optional)" {...field} data-testid="input-recorded-by" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

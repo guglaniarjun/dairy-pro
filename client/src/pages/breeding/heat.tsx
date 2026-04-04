@@ -33,6 +33,7 @@ const heatFormSchema = z.object({
   cattleId: z.string().min(1, "Please select a cow"),
   detectedAt: z.string().min(1, "Detection time is required"),
   intensity: z.enum(["weak", "normal", "strong"]),
+  detectedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -56,6 +57,7 @@ export default function RecordHeatPage() {
       cattleId: "",
       detectedAt: new Date().toISOString().slice(0, 16),
       intensity: "normal",
+      detectedBy: "",
       notes: "",
     },
   });
@@ -177,6 +179,20 @@ export default function RecordHeatPage() {
                         <SelectItem value="strong">Strong</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="detectedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Detected By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Name of person who observed the heat (optional)" {...field} data-testid="input-detected-by" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

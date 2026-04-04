@@ -41,6 +41,7 @@ const expenseFormSchema = z.object({
   vendorName: z.string().optional(),
   invoiceNumber: z.string().optional(),
   paymentMethod: z.enum(["cash", "upi", "bank_transfer", "cheque", "credit"]),
+  recordedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -62,6 +63,7 @@ export default function ExpenseNewPage() {
       vendorName: "",
       invoiceNumber: "",
       paymentMethod: "cash",
+      recordedBy: "",
       notes: "",
     },
   });
@@ -73,6 +75,7 @@ export default function ExpenseNewPage() {
         description: data.description || null,
         vendorName: data.vendorName || null,
         invoiceNumber: data.invoiceNumber || null,
+        recordedBy: data.recordedBy || null,
         notes: data.notes || null,
       });
       return res.json();
@@ -242,6 +245,34 @@ export default function ExpenseNewPage() {
                         <SelectItem value="credit">Credit / Khata</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="recordedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recorded By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Person recording this expense (optional)" {...field} data-testid="input-recorded-by" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Additional notes or context..." rows={2} {...field} data-testid="input-notes" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

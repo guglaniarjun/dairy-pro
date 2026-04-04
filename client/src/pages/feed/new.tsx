@@ -35,6 +35,7 @@ const feedFormSchema = z.object({
   session: z.enum(["morning", "evening", "night"]),
   plannedQuantity: z.string().optional(),
   actualQuantity: z.string().min(1, "Actual quantity is required"),
+  recordedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -56,6 +57,7 @@ export default function RecordFeedingPage() {
       session: "morning",
       plannedQuantity: "",
       actualQuantity: "",
+      recordedBy: "",
       notes: "",
     },
   });
@@ -67,6 +69,7 @@ export default function RecordFeedingPage() {
         date: data.date,
         session: data.session,
         actualQuantity: data.actualQuantity,
+        recordedBy: data.recordedBy || null,
         notes: data.notes || null,
       };
       if (data.cattleId && data.cattleId !== "") payload.cattleId = data.cattleId;
@@ -249,6 +252,20 @@ export default function RecordFeedingPage() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="recordedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recorded By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Name of person recording (optional)" {...field} data-testid="input-recorded-by" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

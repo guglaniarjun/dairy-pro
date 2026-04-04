@@ -16,11 +16,11 @@ import { ArrowLeft, Baby, Loader2 } from "lucide-react";
 const schema = z.object({
   cattleId: z.string().min(1, "Required"),
   date: z.string().min(1, "Required"),
-  outcome: z.string().default("normal"),
+  outcome: z.enum(["live", "stillborn", "abortion"]),
+  calvingEase: z.enum(["easy", "normal", "difficult", "assisted"]),
   calfGender: z.string().optional(),
+  calfWeight: z.string().optional(),
   calfTagNumber: z.string().optional(),
-  birthWeight: z.string().optional(),
-  complications: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -31,26 +31,33 @@ export default function RecordCalvingPage() {
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
   const pregnantCattle = cattle.filter((c: any) => c.stage === "pregnant" && c.status === "active");
+  const femaleCattle = cattle.filter((c: any) => c.gender === "female" && c.status === "active");
 
   const form = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       cattleId: params.get("cattleId") || "",
       date: new Date().toISOString().split("T")[0],
-      outcome: "normal",
+      outcome: "live" as const,
+      calvingEase: "normal" as const,
       calfGender: "",
+      calfWeight: "",
       calfTagNumber: "",
-      birthWeight: "",
-      complications: "",
       notes: "",
     },
   });
 
+  const watchOutcome = form.watch("outcome");
+
   const mutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/breeding/calvings", {
-      ...data,
-      cattleId: parseInt(data.cattleId),
-      birthWeight: data.birthWeight ? parseFloat(data.birthWeight) : null,
+      cattleId: data.cattleId,
+      date: data.date,
+      outcome: data.outcome,
+      calvingEase: data.calvingEase,
+      calfGender: data.calfGender || null,
+      calfWeight: data.calfWeight ? parseFloat(data.calfWeight) : null,
+      notes: [data.notes, data.calfTagNumber ? `Calf Tag: ${data.calfTagNumber}` : ""].filter(Boolean).join(" | ") || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/breeding/calvings"] });
@@ -65,12 +72,12 @@ export default function RecordCalvingPage() {
   return (
     <div className="p-4 max-w-xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/breeding")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/breeding")} data-testid="button-back">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
           <h1 className="text-xl font-bold">Record Calving</h1>
-          <p className="text-sm text-muted-foreground">Record calving/delivery event</p>
+          <p className="text-sm text-muted-foreground">Record calving / delivery event</p>
         </div>
       </div>
 
@@ -82,10 +89,10 @@ export default function RecordCalvingPage() {
                 <FormItem>
                   <FormLabel>Dam (Mother Cattle) *</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Select pregnant cattle" /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger data-testid="select-cattle"><SelectValue placeholder="Select pregnant cattle" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {(pregnantCattle.length > 0 ? pregnantCattle : cattle.filter((c: any) => c.gender === "female")).map((c: any) => (
-                        <SelectItem key={c.id} value={String(c.id)}>{c.name || c.tagNumber}</SelectItem>
+                      {(pregnantCattle.length > 0 ? pregnantCattle : femaleCattle).map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -96,74 +103,89 @@ export default function RecordCalvingPage() {
               <FormField control={form.control} name="date" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Calving Date *</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
+                  <FormControl><Input type="date" {...field} data-testid="input-date" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
 
-              <FormField control={form.control} name="outcome" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Outcome</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="normal">Normal Birth</SelectItem>
-                      <SelectItem value="assisted">Assisted Delivery</SelectItem>
-                      <SelectItem value="caesarean">Caesarean</SelectItem>
-                      <SelectItem value="stillbirth">Stillbirth</SelectItem>
-                      <SelectItem value="abortion">Abortion</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </FormItem>
-              )} />
-
               <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="calfGender" render={({ field }) => (
+                <FormField control={form.control} name="outcome" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Calf Gender</FormLabel>
+                    <FormLabel>Outcome *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger data-testid="select-outcome"><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="male">Male (Bull Calf)</SelectItem>
-                        <SelectItem value="female">Female (Heifer Calf)</SelectItem>
+                        <SelectItem value="live">Live Birth</SelectItem>
+                        <SelectItem value="stillborn">Stillborn</SelectItem>
+                        <SelectItem value="abortion">Abortion</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
                   </FormItem>
                 )} />
-
-                <FormField control={form.control} name="birthWeight" render={({ field }) => (
+                <FormField control={form.control} name="calvingEase" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Birth Weight (kg)</FormLabel>
-                    <FormControl><Input type="number" step="0.1" placeholder="e.g. 30.5" {...field} /></FormControl>
+                    <FormLabel>Calving Ease *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger data-testid="select-calving-ease"><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="easy">Easy (Unassisted)</SelectItem>
+                        <SelectItem value="normal">Normal</SelectItem>
+                        <SelectItem value="difficult">Difficult</SelectItem>
+                        <SelectItem value="assisted">Assisted (Vet)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
                   </FormItem>
                 )} />
               </div>
 
-              <FormField control={form.control} name="calfTagNumber" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Calf Tag Number</FormLabel>
-                  <FormControl><Input placeholder="e.g. C-001" {...field} /></FormControl>
-                </FormItem>
-              )} />
+              {watchOutcome === "live" && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="calfGender" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Calf Gender</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl><SelectTrigger data-testid="select-calf-gender"><SelectValue placeholder="Select" /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="male">Male (Bull Calf)</SelectItem>
+                            <SelectItem value="female">Female (Heifer Calf)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="calfWeight" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Calf Birth Weight (kg)</FormLabel>
+                        <FormControl><Input type="number" step="0.1" placeholder="e.g. 30.5" {...field} data-testid="input-calf-weight" /></FormControl>
+                      </FormItem>
+                    )} />
+                  </div>
 
-              <FormField control={form.control} name="complications" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Complications</FormLabel>
-                  <FormControl><Input placeholder="Any complications..." {...field} /></FormControl>
-                </FormItem>
-              )} />
+                  <FormField control={form.control} name="calfTagNumber" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Calf Tag Number (register calf separately in Cattle)</FormLabel>
+                      <FormControl><Input placeholder="e.g. C-001 (for reference)" {...field} data-testid="input-calf-tag" /></FormControl>
+                    </FormItem>
+                  )} />
+                </>
+              )}
 
               <FormField control={form.control} name="notes" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Notes</FormLabel>
-                  <FormControl><Textarea rows={3} placeholder="Additional notes..." {...field} /></FormControl>
+                  <FormControl><Textarea rows={3} placeholder="Complications, observations, vet name..." {...field} data-testid="input-notes" /></FormControl>
                 </FormItem>
               )} />
 
-              <Button type="submit" className="w-full gap-2" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Baby className="w-4 h-4" />}
-                Record Calving
-              </Button>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={() => navigate("/breeding")} className="flex-1" data-testid="button-cancel">Cancel</Button>
+                <Button type="submit" className="flex-1 gap-2" disabled={mutation.isPending} data-testid="button-submit">
+                  {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Baby className="w-4 h-4" />}
+                  Record Calving
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>

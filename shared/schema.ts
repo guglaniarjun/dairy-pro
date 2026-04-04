@@ -361,6 +361,7 @@ export const expenses = pgTable("expenses", {
   referenceType: text("reference_type"),
   referenceId: varchar("reference_id"),
   recordedBy: varchar("recorded_by"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -377,6 +378,7 @@ export const incomes = pgTable("incomes", {
   referenceType: text("reference_type"),
   referenceId: varchar("reference_id"),
   recordedBy: varchar("recorded_by"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

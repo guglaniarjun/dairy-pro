@@ -40,6 +40,7 @@ const inventoryFormSchema = z.object({
   minStock: z.string().optional(),
   maxStock: z.string().optional(),
   avgCost: z.string().optional(),
+  lastPurchasePrice: z.string().optional(),
 });
 
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
@@ -65,6 +66,7 @@ export default function InventoryNewPage() {
       minStock: "0",
       maxStock: "",
       avgCost: "",
+      lastPurchasePrice: "",
     },
   });
 
@@ -78,6 +80,7 @@ export default function InventoryNewPage() {
         minStock: data.minStock || "0",
         maxStock: data.maxStock || null,
         avgCost: data.avgCost || null,
+        lastPurchasePrice: data.lastPurchasePrice || null,
       });
       return res.json();
     },
@@ -211,12 +214,41 @@ export default function InventoryNewPage() {
                 />
                 <FormField
                   control={form.control}
+                  name="maxStock"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Stock Level</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" min="0" placeholder="optional" {...field} data-testid="input-max-stock" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
                   name="avgCost"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Avg Cost (₹)</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} data-testid="input-cost" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="lastPurchasePrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Last Purchase Price (₹)</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} data-testid="input-last-price" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

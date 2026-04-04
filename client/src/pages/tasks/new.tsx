@@ -26,6 +26,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowLeft, Loader2, ClipboardList } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Cattle } from "@shared/schema";
 
 const taskFormSchema = z.object({
@@ -36,6 +37,9 @@ const taskFormSchema = z.object({
   dueDate: z.string().optional(),
   dueTime: z.string().optional(),
   cattleId: z.string().optional(),
+  assignedTo: z.string().optional(),
+  isRecurring: z.boolean().default(false),
+  recurringPattern: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -57,6 +61,9 @@ export default function TaskNewPage() {
       dueDate: format(new Date(), "yyyy-MM-dd"),
       dueTime: "",
       cattleId: "",
+      assignedTo: "",
+      isRecurring: false,
+      recurringPattern: "",
       notes: "",
     },
   });
@@ -69,6 +76,8 @@ export default function TaskNewPage() {
         dueDate: data.dueDate || null,
         dueTime: data.dueTime || null,
         cattleId: data.cattleId || null,
+        assignedTo: data.assignedTo || null,
+        recurringPattern: data.recurringPattern || null,
         notes: data.notes || null,
       });
       return res.json();
@@ -232,6 +241,68 @@ export default function TaskNewPage() {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="assignedTo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assign To</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Worker / staff name (optional)" {...field} data-testid="input-assigned-to" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="isRecurring"
+                render={({ field }) => (
+                  <FormItem className="flex items-center gap-3 rounded-lg border p-3">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="checkbox-recurring"
+                      />
+                    </FormControl>
+                    <div>
+                      <FormLabel className="cursor-pointer">Recurring Task</FormLabel>
+                      <p className="text-xs text-muted-foreground">Task repeats on a schedule</p>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              {form.watch("isRecurring") && (
+                <FormField
+                  control={form.control}
+                  name="recurringPattern"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Recurring Pattern</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-pattern">
+                            <SelectValue placeholder="Select frequency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="daily">Daily</SelectItem>
+                          <SelectItem value="weekly">Weekly</SelectItem>
+                          <SelectItem value="biweekly">Every 2 Weeks</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="quarterly">Quarterly</SelectItem>
+                          <SelectItem value="annual">Annual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <div className="flex gap-3 pt-2">
                 <Button

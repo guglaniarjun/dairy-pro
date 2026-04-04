@@ -31,7 +31,12 @@ const issueFormSchema = z.object({
   itemId: z.string().min(1, "Please select an item"),
   type: z.enum(["issue", "wastage", "adjustment"]),
   quantity: z.string().min(1, "Quantity is required"),
+  unitCost: z.string().optional(),
+  batchNumber: z.string().optional(),
+  expiryDate: z.string().optional(),
   referenceType: z.string().optional(),
+  referenceId: z.string().optional(),
+  recordedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -49,7 +54,12 @@ export default function InventoryIssuePage() {
       itemId: "",
       type: "issue",
       quantity: "",
+      unitCost: "",
+      batchNumber: "",
+      expiryDate: "",
       referenceType: "",
+      referenceId: "",
+      recordedBy: "",
       notes: "",
     },
   });
@@ -60,7 +70,12 @@ export default function InventoryIssuePage() {
     mutationFn: async (data: IssueFormValues) => {
       const res = await apiRequest("POST", "/api/inventory/transactions", {
         ...data,
+        unitCost: data.unitCost || null,
+        batchNumber: data.batchNumber || null,
+        expiryDate: data.expiryDate || null,
         referenceType: data.referenceType || null,
+        referenceId: data.referenceId || null,
+        recordedBy: data.recordedBy || null,
         notes: data.notes || null,
       });
       return res.json();
@@ -155,27 +170,99 @@ export default function InventoryIssuePage() {
                 />
               </div>
 
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="unitCost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Unit Cost (₹)</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" min="0" placeholder="Optional cost per unit" {...field} data-testid="input-unit-cost" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="batchNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Batch / Lot Number</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Batch or lot number (optional)" {...field} data-testid="input-batch" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <FormField
                 control={form.control}
-                name="referenceType"
+                name="expiryDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Usage Purpose</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormLabel>Expiry Date of Batch</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} data-testid="input-expiry" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="referenceType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Usage Purpose</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-reference">
+                            <SelectValue placeholder="Select purpose" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">General</SelectItem>
+                          <SelectItem value="treatment">Animal Treatment</SelectItem>
+                          <SelectItem value="feeding">Feeding</SelectItem>
+                          <SelectItem value="milking">Milking</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="referenceId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reference ID</FormLabel>
                       <FormControl>
-                        <SelectTrigger data-testid="select-reference">
-                          <SelectValue placeholder="Select purpose" />
-                        </SelectTrigger>
+                        <Input placeholder="e.g. cattle tag, treatment ID" {...field} data-testid="input-reference-id" />
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="">General</SelectItem>
-                        <SelectItem value="treatment">Animal Treatment</SelectItem>
-                        <SelectItem value="feeding">Feeding</SelectItem>
-                        <SelectItem value="milking">Milking</SelectItem>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="recordedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Issued By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Name of person recording this issue (optional)" {...field} data-testid="input-recorded-by" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

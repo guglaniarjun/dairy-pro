@@ -34,6 +34,7 @@ const purchaseFormSchema = z.object({
   unitCost: z.string().optional(),
   batchNumber: z.string().optional(),
   expiryDate: z.string().optional(),
+  recordedBy: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -53,6 +54,7 @@ export default function InventoryPurchasePage() {
       unitCost: "",
       batchNumber: "",
       expiryDate: "",
+      recordedBy: "",
       notes: "",
     },
   });
@@ -72,6 +74,7 @@ export default function InventoryPurchasePage() {
         totalCost: totalCost > 0 ? totalCost.toFixed(2) : null,
         batchNumber: data.batchNumber || null,
         expiryDate: data.expiryDate || null,
+        recordedBy: data.recordedBy || null,
         notes: data.notes || null,
       });
       return res.json();
@@ -192,6 +195,20 @@ export default function InventoryPurchasePage() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="recordedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recorded By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Person recording this purchase (optional)" {...field} data-testid="input-recorded-by" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

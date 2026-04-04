@@ -36,6 +36,8 @@ const healthFormSchema = z.object({
   description: z.string().min(1, "Description is required"),
   symptoms: z.string().optional(),
   diagnosis: z.string().optional(),
+  vetId: z.string().optional(),
+  status: z.enum(["active", "resolved", "chronic"]),
   notes: z.string().optional(),
 });
 
@@ -57,6 +59,8 @@ export default function HealthNewPage() {
       description: "",
       symptoms: "",
       diagnosis: "",
+      vetId: "",
+      status: "active",
       notes: "",
     },
   });
@@ -67,6 +71,7 @@ export default function HealthNewPage() {
         ...data,
         symptoms: data.symptoms || null,
         diagnosis: data.diagnosis || null,
+        vetId: data.vetId || null,
         notes: data.notes || null,
       });
       return res.json();
@@ -242,6 +247,44 @@ export default function HealthNewPage() {
                   </FormItem>
                 )}
               />
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="vetId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vet Name / ID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Attending vet (optional)" {...field} data-testid="input-vet" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status *</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-status">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="active">Active (Under Treatment)</SelectItem>
+                          <SelectItem value="resolved">Resolved</SelectItem>
+                          <SelectItem value="chronic">Chronic</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <FormField
                 control={form.control}

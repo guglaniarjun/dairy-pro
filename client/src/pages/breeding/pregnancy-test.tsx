@@ -15,10 +15,12 @@ import { ArrowLeft, CheckSquare, Loader2 } from "lucide-react";
 
 const schema = z.object({
   cattleId: z.string().min(1, "Required"),
+  inseminationId: z.string().optional(),
   testDate: z.string().min(1, "Required"),
   result: z.enum(["positive", "negative", "inconclusive"]),
   method: z.string().optional(),
-  daysPregnant: z.string().optional(),
+  testedBy: z.string().optional(),
+  expectedCalvingDate: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -28,25 +30,37 @@ export default function RecordPregnancyTestPage() {
   const params = new URLSearchParams(window.location.search);
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
+  const { data: inseminations = [] } = useQuery<any[]>({ queryKey: ["/api/breeding/inseminations"] });
   const femaleCattle = cattle.filter((c: any) => c.gender === "female" && c.status === "active");
 
   const form = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       cattleId: params.get("cattleId") || "",
+      inseminationId: "",
       testDate: new Date().toISOString().split("T")[0],
       result: "positive" as const,
       method: "rectal",
-      daysPregnant: "",
+      testedBy: "",
+      expectedCalvingDate: "",
       notes: "",
     },
   });
 
+  const selectedCattleId = form.watch("cattleId");
+  const watchResult = form.watch("result");
+  const cattleInseminations = inseminations.filter((i: any) => String(i.cattleId) === String(selectedCattleId));
+
   const mutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/breeding/pregnancy-tests", {
-      ...data,
-      cattleId: parseInt(data.cattleId),
-      daysPregnant: data.daysPregnant ? parseInt(data.daysPregnant) : null,
+      cattleId: data.cattleId,
+      inseminationId: data.inseminationId || null,
+      testDate: data.testDate,
+      result: data.result,
+      method: data.method || null,
+      testedBy: data.testedBy || null,
+      expectedCalvingDate: data.expectedCalvingDate || null,
+      notes: data.notes || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/breeding/pregnancy-tests"] });
@@ -60,7 +74,7 @@ export default function RecordPregnancyTestPage() {
   return (
     <div className="p-4 max-w-xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/breeding")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/breeding")} data-testid="button-back">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
@@ -77,10 +91,10 @@ export default function RecordPregnancyTestPage() {
                 <FormItem>
                   <FormLabel>Cattle *</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Select cattle" /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger data-testid="select-cattle"><SelectValue placeholder="Select cattle" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {femaleCattle.map((c: any) => (
-                        <SelectItem key={c.id} value={String(c.id)}>{c.name || c.tagNumber}</SelectItem>
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -88,23 +102,18 @@ export default function RecordPregnancyTestPage() {
                 </FormItem>
               )} />
 
-              <FormField control={form.control} name="testDate" render={({ field }) => (
+              <FormField control={form.control} name="inseminationId" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Test Date *</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-
-              <FormField control={form.control} name="result" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Result *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                  <FormLabel>Linked AI / Insemination Record</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <FormControl><SelectTrigger data-testid="select-insemination"><SelectValue placeholder="Select AI record (optional)" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="positive">✅ Positive (Pregnant)</SelectItem>
-                      <SelectItem value="negative">❌ Negative (Not Pregnant)</SelectItem>
-                      <SelectItem value="inconclusive">❓ Inconclusive</SelectItem>
+                      <SelectItem value="">No linked AI record</SelectItem>
+                      {cattleInseminations.map((ins: any) => (
+                        <SelectItem key={ins.id} value={String(ins.id)}>
+                          AI on {new Date(ins.date).toLocaleDateString("en-IN")} ({ins.method})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -112,11 +121,35 @@ export default function RecordPregnancyTestPage() {
               )} />
 
               <div className="grid grid-cols-2 gap-4">
+                <FormField control={form.control} name="testDate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Test Date *</FormLabel>
+                    <FormControl><Input type="date" {...field} data-testid="input-date" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="result" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Result *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger data-testid="select-result"><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="positive">✅ Positive (Pregnant)</SelectItem>
+                        <SelectItem value="negative">❌ Negative (Not Pregnant)</SelectItem>
+                        <SelectItem value="inconclusive">❓ Inconclusive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="method" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Test Method</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <Select onValueChange={field.onChange} value={field.value || "rectal"}>
+                      <FormControl><SelectTrigger data-testid="select-method"><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="rectal">Rectal Palpation</SelectItem>
                         <SelectItem value="ultrasound">Ultrasound</SelectItem>
@@ -126,26 +159,38 @@ export default function RecordPregnancyTestPage() {
                     </Select>
                   </FormItem>
                 )} />
-
-                <FormField control={form.control} name="daysPregnant" render={({ field }) => (
+                <FormField control={form.control} name="testedBy" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Days Pregnant</FormLabel>
-                    <FormControl><Input type="number" placeholder="e.g. 45" {...field} /></FormControl>
+                    <FormLabel>Tested By (Vet)</FormLabel>
+                    <FormControl><Input placeholder="Vet / technician name" {...field} data-testid="input-tested-by" /></FormControl>
                   </FormItem>
                 )} />
               </div>
 
+              {watchResult === "positive" && (
+                <FormField control={form.control} name="expectedCalvingDate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Expected Calving Date</FormLabel>
+                    <FormControl><Input type="date" {...field} data-testid="input-calving-date" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
+
               <FormField control={form.control} name="notes" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Notes</FormLabel>
-                  <FormControl><Textarea rows={3} placeholder="Vet name, observations..." {...field} /></FormControl>
+                  <FormControl><Textarea rows={3} placeholder="Observations, findings..." {...field} data-testid="input-notes" /></FormControl>
                 </FormItem>
               )} />
 
-              <Button type="submit" className="w-full gap-2" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckSquare className="w-4 h-4" />}
-                Save Test Result
-              </Button>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={() => navigate("/breeding")} className="flex-1" data-testid="button-cancel">Cancel</Button>
+                <Button type="submit" className="flex-1 gap-2" disabled={mutation.isPending} data-testid="button-submit">
+                  {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckSquare className="w-4 h-4" />}
+                  Save Test Result
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>
