@@ -1389,5 +1389,561 @@ export async function registerRoutes(
     }
   });
 
+  // =====================================================================
+  // IMPORT / EXPORT ROUTES
+  // =====================================================================
+
+  // Helper: convert array of objects to CSV string
+  function toCSV(rows: Record<string, any>[], headers: { key: string; label: string }[]): string {
+    const headerRow = headers.map(h => `"${h.label}"`).join(",");
+    const dataRows = rows.map(row =>
+      headers.map(h => {
+        const v = row[h.key] ?? "";
+        return `"${String(v).replace(/"/g, '""')}"`;
+      }).join(",")
+    );
+    return [headerRow, ...dataRows].join("\n");
+  }
+
+  // Helper: convert array of objects to XLSX buffer
+  async function toXLSX(rows: Record<string, any>[], headers: { key: string; label: string }[], sheetName: string): Promise<Buffer> {
+    const XLSX = await import("xlsx");
+    const ws_data = [
+      headers.map(h => h.label),
+      ...rows.map(row => headers.map(h => row[h.key] ?? "")),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+  }
+
+  // Helper: parse uploaded file (CSV or XLSX) into array of row objects
+  async function parseUploadedFile(buffer: Buffer, filename: string): Promise<Record<string, string>[]> {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
+    return rows;
+  }
+
+  // Helper: send file response
+  function sendFile(res: Response, data: string | Buffer, filename: string, format: string) {
+    if (format === "xlsx") {
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}.xlsx"`);
+      res.send(data);
+    } else {
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
+      res.send("\uFEFF" + data); // BOM for Excel UTF-8
+    }
+  }
+
+  // ---- EXPORT ENDPOINTS ----
+
+  // Export Cattle
+  app.get("/api/export/cattle", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", status, gender } = req.query as Record<string, string>;
+      let rows = await storage.getCattleByTenant(tenantId);
+      const breeds = await storage.getAllBreeds();
+      const breedMap = Object.fromEntries(breeds.map(b => [b.id, b.name]));
+      if (status) rows = rows.filter(r => r.status === status);
+      if (gender) rows = rows.filter(r => r.gender === gender);
+      const headers = [
+        { key: "tagNumber",        label: "Tag Number" },
+        { key: "name",             label: "Name" },
+        { key: "breedName",        label: "Breed" },
+        { key: "gender",           label: "Gender" },
+        { key: "dateOfBirth",      label: "Date of Birth" },
+        { key: "dateOfEntry",      label: "Date of Entry" },
+        { key: "source",           label: "Source" },
+        { key: "status",           label: "Status" },
+        { key: "stage",            label: "Stage" },
+        { key: "lactationNumber",  label: "Lactation No." },
+        { key: "purchasePrice",    label: "Purchase Price (₹)" },
+        { key: "notes",            label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, breedName: breedMap[r.breedId || ""] || "" }));
+      if (format === "xlsx") {
+        const buf = await toXLSX(data, headers, "Cattle");
+        sendFile(res, buf, "cattle-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "cattle-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Milk Entries
+  app.get("/api/export/milk", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate, cattleId, session } = req.query as Record<string, string>;
+      let rows = await storage.getMilkEntriesByTenant(tenantId);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const cattleMap = Object.fromEntries(cattle.map(c => [c.id, `${c.tagNumber}${c.name ? " - " + c.name : ""}`]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      if (cattleId)  rows = rows.filter(r => r.cattleId === cattleId);
+      if (session)   rows = rows.filter(r => r.session === session);
+      const headers = [
+        { key: "date",         label: "Date" },
+        { key: "cattleTag",    label: "Cattle (Tag - Name)" },
+        { key: "session",      label: "Session" },
+        { key: "quantity",     label: "Quantity (L)" },
+        { key: "fat",          label: "Fat (%)" },
+        { key: "snf",          label: "SNF (%)" },
+        { key: "notes",        label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, cattleTag: cattleMap[r.cattleId] || r.cattleId }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Milk Records"), "milk-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "milk-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Health Events
+  app.get("/api/export/health", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate, cattleId, eventType } = req.query as Record<string, string>;
+      let rows = await storage.getHealthEventsByTenant(tenantId);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const cattleMap = Object.fromEntries(cattle.map(c => [c.id, `${c.tagNumber}${c.name ? " - " + c.name : ""}`]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      if (cattleId)  rows = rows.filter(r => r.cattleId === cattleId);
+      if (eventType) rows = rows.filter(r => r.eventType === eventType);
+      const headers = [
+        { key: "date",        label: "Date" },
+        { key: "cattleTag",   label: "Cattle (Tag - Name)" },
+        { key: "eventType",   label: "Event Type" },
+        { key: "description", label: "Description" },
+        { key: "severity",    label: "Severity" },
+        { key: "symptoms",    label: "Symptoms" },
+        { key: "diagnosis",   label: "Diagnosis" },
+        { key: "status",      label: "Status" },
+        { key: "notes",       label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, cattleTag: cattleMap[r.cattleId] || r.cattleId }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Health Events"), "health-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "health-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Breeding (Inseminations)
+  app.get("/api/export/breeding", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate, cattleId } = req.query as Record<string, string>;
+      let rows = await storage.getInseminationsByTenant(tenantId);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const cattleMap = Object.fromEntries(cattle.map(c => [c.id, `${c.tagNumber}${c.name ? " - " + c.name : ""}`]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      if (cattleId)  rows = rows.filter(r => r.cattleId === cattleId);
+      const headers = [
+        { key: "date",            label: "Date" },
+        { key: "cattleTag",       label: "Cattle (Tag - Name)" },
+        { key: "method",          label: "Method (ai/natural)" },
+        { key: "bullId",          label: "Bull / Semen ID" },
+        { key: "semenBatchId",    label: "Semen Batch ID" },
+        { key: "pregnancyStatus", label: "Pregnancy Status" },
+        { key: "cost",            label: "Cost (₹)" },
+        { key: "notes",           label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, cattleTag: cattleMap[r.cattleId] || r.cattleId }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Breeding"), "breeding-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "breeding-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Feeding Records
+  app.get("/api/export/feeding", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate, cattleId } = req.query as Record<string, string>;
+      let rows = await storage.getFeedingRecordsByTenant(tenantId);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const feedItems = await storage.getAllFeedItems();
+      const cattleMap = Object.fromEntries(cattle.map(c => [c.id, `${c.tagNumber}${c.name ? " - " + c.name : ""}`]));
+      const feedMap = Object.fromEntries(feedItems.map(f => [f.id, f.name]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      if (cattleId)  rows = rows.filter(r => r.cattleId === cattleId);
+      const headers = [
+        { key: "date",           label: "Date" },
+        { key: "cattleTag",      label: "Cattle (Tag - Name)" },
+        { key: "feedItemName",   label: "Feed Item" },
+        { key: "session",        label: "Session" },
+        { key: "actualQuantity", label: "Quantity (kg)" },
+        { key: "notes",          label: "Notes" },
+      ];
+      const data = rows.map(r => ({
+        ...r,
+        cattleTag: cattleMap[r.cattleId || ""] || r.cattleId || "All Cattle",
+        feedItemName: feedMap[r.feedItemId] || r.feedItemId,
+      }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Feeding Records"), "feeding-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "feeding-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Expenses
+  app.get("/api/export/expenses", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate, category } = req.query as Record<string, string>;
+      let rows = await storage.getExpensesByTenant(tenantId);
+      const heads = await storage.getAllExpenseHeads();
+      const headMap = Object.fromEntries(heads.map(h => [h.id, h.name]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      if (category)  rows = rows.filter(r => headMap[r.headId || ""] === category || r.headId === category);
+      const headers = [
+        { key: "date",          label: "Date" },
+        { key: "headName",      label: "Category" },
+        { key: "description",   label: "Description" },
+        { key: "amount",        label: "Amount (₹)" },
+        { key: "vendorName",    label: "Vendor" },
+        { key: "paymentMethod", label: "Payment Method" },
+        { key: "invoiceNumber",   label: "Reference No." },
+        { key: "notes",         label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, headName: headMap[r.headId || ""] || "" }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Expenses"), "expenses-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "expenses-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // Export Incomes
+  app.get("/api/export/incomes", isAuthenticated, withTenant, async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      const { format = "csv", startDate, endDate } = req.query as Record<string, string>;
+      let rows = await storage.getIncomesByTenant(tenantId);
+      const heads = await storage.getAllIncomeHeads();
+      const headMap = Object.fromEntries(heads.map(h => [h.id, h.name]));
+      if (startDate) rows = rows.filter(r => r.date >= startDate);
+      if (endDate)   rows = rows.filter(r => r.date <= endDate);
+      const headers = [
+        { key: "date",          label: "Date" },
+        { key: "headName",      label: "Category" },
+        { key: "description",   label: "Description" },
+        { key: "amount",        label: "Amount (₹)" },
+        { key: "customerName",  label: "Customer" },
+        { key: "paymentMethod", label: "Payment Method" },
+        { key: "invoiceNumber",   label: "Reference No." },
+        { key: "notes",         label: "Notes" },
+      ];
+      const data = rows.map(r => ({ ...r, headName: headMap[r.headId || ""] || "" }));
+      if (format === "xlsx") {
+        sendFile(res, await toXLSX(data, headers, "Incomes"), "incomes-export", format);
+      } else {
+        sendFile(res, toCSV(data, headers), "incomes-export", format);
+      }
+    } catch (e) { res.status(500).json({ error: "Export failed" }); }
+  });
+
+  // ---- IMPORT TEMPLATES ----
+
+  app.get("/api/import/template/:module", async (req, res) => {
+    const { module } = req.params;
+    const { format = "csv" } = req.query as Record<string, string>;
+    const templates: Record<string, { headers: string[]; sample: string[][] }> = {
+      cattle: {
+        headers: ["Tag Number*", "Name", "Breed Name", "Gender* (male/female)", "Date of Birth (YYYY-MM-DD)", "Date of Entry* (YYYY-MM-DD)", "Source (born/purchased)", "Status (active/sold/dead/culled)", "Stage (calf/heifer/milking/dry/pregnant)", "Lactation No.", "Purchase Price (₹)", "Notes"],
+        sample: [["IN001","Lakshmi","Holstein","female","2021-05-10","2021-05-10","born","active","milking","3","","First calving at 2 years"], ["IN002","Gauri","Gir","female","2020-03-15","2020-03-15","purchased","active","dry","4","45000","Purchased from Anand dairy"]],
+      },
+      milk: {
+        headers: ["Date* (YYYY-MM-DD)", "Cattle Tag Number*", "Session* (morning/evening/night)", "Quantity (L)*", "Fat (%)", "SNF (%)", "Notes"],
+        sample: [["2026-04-01","IN001","morning","8.5","4.2","8.6",""], ["2026-04-01","IN001","evening","6.2","4.5","8.8",""]],
+      },
+      health: {
+        headers: ["Date* (YYYY-MM-DD)", "Cattle Tag Number*", "Event Type* (illness/injury/vaccination/deworming/checkup)", "Description", "Severity (mild/moderate/severe/critical)", "Symptoms", "Diagnosis", "Notes"],
+        sample: [["2026-04-01","IN001","illness","Off feed, dull","moderate","Reduced appetite, dull coat","Suspected mastitis","Sent for vet check"]],
+      },
+      expenses: {
+        headers: ["Date* (YYYY-MM-DD)", "Category Name*", "Description", "Amount (₹)*", "Vendor", "Payment Method (cash/bank/upi/cheque)", "Reference No.", "Notes"],
+        sample: [["2026-04-01","Feed & Fodder","Monthly concentrate purchase","12500","Anand Feeds","upi","TXN12345",""]],
+      },
+      incomes: {
+        headers: ["Date* (YYYY-MM-DD)", "Category Name*", "Description", "Amount (₹)*", "Customer", "Payment Method (cash/bank/upi/cheque)", "Reference No.", "Notes"],
+        sample: [["2026-04-01","Milk Sale","Morning milk - Co-op","3200","Amul Co-op","bank","","April 1 batch"]],
+      },
+    };
+    const t = templates[module];
+    if (!t) return res.status(404).json({ error: "Module not found" });
+    const XLSX = await import("xlsx");
+    if (format === "xlsx") {
+      const ws = XLSX.utils.aoa_to_sheet([t.headers, ...t.sample]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, module.charAt(0).toUpperCase() + module.slice(1));
+      const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${module}-import-template.xlsx"`);
+      res.send(buf);
+    } else {
+      const csv = [t.headers.join(","), ...t.sample.map(r => r.map(v => `"${v}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${module}-import-template.csv"`);
+      res.send("\uFEFF" + csv);
+    }
+  });
+
+  // ---- IMPORT ENDPOINTS ----
+
+  // Import Cattle
+  app.post("/api/import/cattle", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+      const breeds = await storage.getAllBreeds();
+      const breedMap = Object.fromEntries(breeds.map(b => [b.name.toLowerCase().trim(), b.id]));
+      let imported = 0, failed = 0;
+      const errors: { row: number; message: string }[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const tagKey = Object.keys(row).find(k => k.toLowerCase().includes("tag"));
+        const tagNumber = tagKey ? String(row[tagKey]).trim() : "";
+        const entryKey = Object.keys(row).find(k => k.toLowerCase().includes("entry"));
+        const dateOfEntry = entryKey ? String(row[entryKey]).trim() : "";
+        if (!tagNumber) { errors.push({ row: i + 2, message: "Tag Number is required" }); failed++; continue; }
+        if (!dateOfEntry) { errors.push({ row: i + 2, message: "Date of Entry is required" }); failed++; continue; }
+        const breedKey = Object.keys(row).find(k => k.toLowerCase().includes("breed"));
+        const breedName = breedKey ? String(row[breedKey]).toLowerCase().trim() : "";
+        const genderKey = Object.keys(row).find(k => k.toLowerCase().includes("gender"));
+        const gender = genderKey ? String(row[genderKey]).toLowerCase().trim() : "female";
+        const dobKey = Object.keys(row).find(k => k.toLowerCase().includes("birth"));
+        const statusKey = Object.keys(row).find(k => k.toLowerCase().includes("status"));
+        const stageKey = Object.keys(row).find(k => k.toLowerCase().includes("stage"));
+        const sourceKey = Object.keys(row).find(k => k.toLowerCase().includes("source"));
+        const lactKey = Object.keys(row).find(k => k.toLowerCase().includes("lactation"));
+        const priceKey = Object.keys(row).find(k => k.toLowerCase().includes("price"));
+        const nameKey = Object.keys(row).find(k => k.toLowerCase() === "name");
+        const notesKey = Object.keys(row).find(k => k.toLowerCase().includes("notes"));
+        try {
+          await storage.createCattle({
+            tenantId,
+            tagNumber,
+            name: nameKey ? String(row[nameKey]).trim() || null : null,
+            breedId: breedName ? (breedMap[breedName] || null) : null,
+            gender: ["male","female"].includes(gender) ? gender : "female",
+            dateOfBirth: dobKey && row[dobKey] ? String(row[dobKey]).trim() : null,
+            dateOfEntry,
+            source: sourceKey ? (["born","purchased"].includes(String(row[sourceKey]).toLowerCase()) ? String(row[sourceKey]).toLowerCase() : "born") : "born",
+            status: statusKey ? String(row[statusKey]).toLowerCase().trim() || "active" : "active",
+            stage: stageKey ? String(row[stageKey]).toLowerCase().trim() || "heifer" : "heifer",
+            lactationNumber: lactKey && row[lactKey] ? parseInt(String(row[lactKey])) || 0 : 0,
+            purchasePrice: priceKey && row[priceKey] ? String(row[priceKey]).replace(/[₹,\s]/g,"") : null,
+            notes: notesKey ? String(row[notesKey]).trim() || null : null,
+          });
+          imported++;
+        } catch (e: any) {
+          errors.push({ row: i + 2, message: e.message || "Insert failed" });
+          failed++;
+        }
+      }
+      res.json({ imported, failed, total: rows.length, errors });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Import failed" });
+    }
+  });
+
+  // Import Milk Entries
+  app.post("/api/import/milk", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const cattleTagMap = Object.fromEntries(cattle.map(c => [c.tagNumber.toLowerCase().trim(), c.id]));
+      let imported = 0, failed = 0;
+      const errors: { row: number; message: string }[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const dateKey = Object.keys(row).find(k => k.toLowerCase().startsWith("date"));
+        const tagKey = Object.keys(row).find(k => k.toLowerCase().includes("tag"));
+        const sessionKey = Object.keys(row).find(k => k.toLowerCase().includes("session"));
+        const qtyKey = Object.keys(row).find(k => k.toLowerCase().includes("quantity") || k.toLowerCase().includes("qty"));
+        const fatKey = Object.keys(row).find(k => k.toLowerCase().includes("fat"));
+        const snfKey = Object.keys(row).find(k => k.toLowerCase().includes("snf"));
+        const notesKey = Object.keys(row).find(k => k.toLowerCase().includes("notes"));
+        const date = dateKey ? String(row[dateKey]).trim() : "";
+        const tag = tagKey ? String(row[tagKey]).trim().toLowerCase() : "";
+        const session = sessionKey ? String(row[sessionKey]).trim().toLowerCase() : "";
+        const qty = qtyKey ? String(row[qtyKey]).replace(/[^\d.]/g,"") : "";
+        if (!date || !tag || !session || !qty) {
+          errors.push({ row: i+2, message: `Missing required fields (date, tag, session, quantity)` });
+          failed++; continue;
+        }
+        const cattleId = cattleTagMap[tag];
+        if (!cattleId) { errors.push({ row: i+2, message: `Cattle with tag "${tag}" not found` }); failed++; continue; }
+        try {
+          await storage.createMilkEntry({
+            tenantId, cattleId,
+            date,
+            session: ["morning","evening","night"].includes(session) ? session : "morning",
+            quantity: qty,
+            fat: fatKey && row[fatKey] ? String(row[fatKey]).replace(/[^\d.]/g,"") : null,
+            snf: snfKey && row[snfKey] ? String(row[snfKey]).replace(/[^\d.]/g,"") : null,
+            notes: notesKey ? String(row[notesKey]).trim() || null : null,
+          });
+          imported++;
+        } catch (e: any) {
+          errors.push({ row: i+2, message: e.message || "Insert failed" });
+          failed++;
+        }
+      }
+      res.json({ imported, failed, total: rows.length, errors });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Import failed" });
+    }
+  });
+
+  // Import Health Events
+  app.post("/api/import/health", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+      const cattle = await storage.getCattleByTenant(tenantId);
+      const cattleTagMap = Object.fromEntries(cattle.map(c => [c.tagNumber.toLowerCase().trim(), c.id]));
+      let imported = 0, failed = 0;
+      const errors: { row: number; message: string }[] = [];
+      const validTypes = ["illness","injury","vaccination","deworming","checkup"];
+      const validSeverities = ["mild","moderate","severe","critical"];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const keys = Object.keys(row).map(k => k.toLowerCase());
+        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
+        const date = get("date");
+        const tag = get("tag").toLowerCase();
+        const eventType = get("event").toLowerCase() || get("type").toLowerCase();
+        if (!date || !tag || !eventType) { errors.push({ row: i+2, message: "Missing date, tag or event type" }); failed++; continue; }
+        const cattleId = cattleTagMap[tag];
+        if (!cattleId) { errors.push({ row: i+2, message: `Cattle "${tag}" not found` }); failed++; continue; }
+        const sev = get("severity").toLowerCase();
+        try {
+          await storage.createHealthEvent({
+            tenantId, cattleId,
+            date,
+            eventType: validTypes.includes(eventType) ? eventType : "checkup",
+            description: get("description") || null,
+            severity: validSeverities.includes(sev) ? sev : "moderate",
+            symptoms: get("symptoms") || null,
+            diagnosis: get("diagnosis") || null,
+            notes: get("notes") || null,
+            status: "active",
+          });
+          imported++;
+        } catch (e: any) {
+          errors.push({ row: i+2, message: e.message || "Insert failed" });
+          failed++;
+        }
+      }
+      res.json({ imported, failed, total: rows.length, errors });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Import failed" });
+    }
+  });
+
+  // Import Expenses
+  app.post("/api/import/expenses", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+      const heads = await storage.getAllExpenseHeads();
+      const headMap = Object.fromEntries(heads.map(h => [h.name.toLowerCase().trim(), h.id]));
+      let imported = 0, failed = 0;
+      const errors: { row: number; message: string }[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
+        const date = get("date"); const category = get("category").toLowerCase();
+        const amount = get("amount").replace(/[₹,\s]/g,"");
+        if (!date || !category || !amount) { errors.push({ row: i+2, message: "Missing date, category or amount" }); failed++; continue; }
+        const headId = headMap[category];
+        if (!headId) { errors.push({ row: i+2, message: `Category "${category}" not found. Use exact name from template.` }); failed++; continue; }
+        try {
+          await storage.createExpense({
+            tenantId, headId, date,
+            description: get("description") || null,
+            amount,
+            vendorName: get("vendor") || null,
+            paymentMethod: get("payment") || "cash",
+            invoiceNumber: get("reference") || null,
+            notes: get("notes") || null,
+          });
+          imported++;
+        } catch (e: any) {
+          errors.push({ row: i+2, message: e.message || "Insert failed" });
+          failed++;
+        }
+      }
+      res.json({ imported, failed, total: rows.length, errors });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Import failed" });
+    }
+  });
+
+  // Import Incomes
+  app.post("/api/import/incomes", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
+    try {
+      const tenantId = req.tenantId!;
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+      const heads = await storage.getAllIncomeHeads();
+      const headMap = Object.fromEntries(heads.map(h => [h.name.toLowerCase().trim(), h.id]));
+      let imported = 0, failed = 0;
+      const errors: { row: number; message: string }[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
+        const date = get("date"); const category = get("category").toLowerCase();
+        const amount = get("amount").replace(/[₹,\s]/g,"");
+        if (!date || !category || !amount) { errors.push({ row: i+2, message: "Missing date, category or amount" }); failed++; continue; }
+        const headId = headMap[category];
+        if (!headId) { errors.push({ row: i+2, message: `Category "${category}" not found. Use exact name from template.` }); failed++; continue; }
+        try {
+          await storage.createIncome({
+            tenantId, headId, date,
+            description: get("description") || null,
+            amount,
+            customerName: get("customer") || null,
+            paymentMethod: get("payment") || "cash",
+            invoiceNumber: get("reference") || null,
+            notes: get("notes") || null,
+          });
+          imported++;
+        } catch (e: any) {
+          errors.push({ row: i+2, message: e.message || "Insert failed" });
+          failed++;
+        }
+      }
+      res.json({ imported, failed, total: rows.length, errors });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Import failed" });
+    }
+  });
+
   return httpServer;
 }

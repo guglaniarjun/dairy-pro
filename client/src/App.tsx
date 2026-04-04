@@ -46,6 +46,7 @@ import CattlePLDashboard from "@/pages/cattle/pl-dashboard";
 import CattleDetailPage from "@/pages/cattle/detail";
 import ByproductsPage from "@/pages/byproducts/index";
 import BillingPage from "@/pages/billing/index";
+import ImportExportPage from "@/pages/import-export/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -154,6 +155,7 @@ function AppRouter() {
         <Route path="/feed/formulation" component={FeedFormulationPage} />
         <Route path="/alerts" component={AlertsPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/import-export" component={ImportExportPage} />
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>

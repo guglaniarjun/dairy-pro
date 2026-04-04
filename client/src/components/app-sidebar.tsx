@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard, Milk, Heart, Stethoscope, Leaf, Package, Wallet,
   Bell, BarChart3, Settings, ChevronUp, LogOut, CreditCard,
-  Baby, Recycle, Activity,
+  Baby, Recycle, ArrowLeftRight,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -170,6 +170,14 @@ export function AppSidebar() {
                   <Link href="/billing" data-testid="nav-billing" className="flex items-center gap-3 px-3">
                     <CreditCard className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/billing") ? "text-primary" : "text-purple-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Billing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/import-export")} className="h-9 rounded-lg">
+                  <Link href="/import-export" data-testid="nav-import-export" className="flex items-center gap-3 px-3">
+                    <ArrowLeftRight className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/import-export") ? "text-primary" : "text-indigo-500"} opacity-90`} />
+                    <span className="text-[13px] font-medium">Import / Export</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

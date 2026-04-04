@@ -98,6 +98,29 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+### April 4, 2026 (Session 4)
+- **Bulk Import/Export System**: Full data import and export with filtering at `/import-export`
+  - **Export** (7 modules): Cattle, Milk, Health, Breeding, Feeding, Expenses, Incomes
+    - Filters: date range, cattle, status, gender, session, event type
+    - Formats: CSV (with UTF-8 BOM for Excel) and Excel (.xlsx)
+  - **Import** (5 modules): Cattle, Milk, Health, Expenses, Incomes
+    - Template download (CSV/XLSX) with sample rows and column hints
+    - Drag-and-drop file upload zone
+    - Row-level validation with error reporting (row number + message)
+    - Success/failure summary with imported/failed/total counts
+  - **Template Endpoint**: `GET /api/import/template/:module?format=csv|xlsx`
+  - **Export Endpoints**: `GET /api/export/:module?format=csv|xlsx&startDate=&endDate=&cattleId=&...`
+  - **Import Endpoints**: `POST /api/import/:module` (multipart/form-data)
+  - Added `xlsx` package for Excel parsing and generation
+  - Added `Import / Export` link in sidebar
+- **UI Overhaul**: Modern design with 8 colour themes in Settings → Appearance
+  - Colour themes: Forest Green, Ocean Blue, Royal Indigo, Deep Violet, Sunset Orange, Crimson Rose, Teal Breeze, Amber Gold
+  - Display modes: Light, Dark, System — with dropdown selector
+  - Themes persist via localStorage
+  - Modernised sidebar with coloured icons, cleaner nav groups
+  - Improved mobile bottom nav with pill indicator and blur background
+  - Frosted-glass header bar, smoother transitions, better scrollbars
+
 ### April 4, 2026 (Session 3)
 - **Missing Forms Added**: All module form pages now exist and are functional:
   - `/feed/new` - Record Feeding form (select cattle, feed item, session, quantity)
