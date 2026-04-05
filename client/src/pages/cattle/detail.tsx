@@ -1,5 +1,5 @@
 import { useParams, Link } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,8 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format, differenceInDays, parseISO } from "date-fns";
 import {
   ArrowLeft, Tag, Calendar, Milk, Heart, Stethoscope, Leaf,
-  Wallet, FileText, Clock, Edit, TrendingUp, TrendingDown,
-  Activity, CheckCircle2, XCircle, Baby, Syringe, Scale
+  Wallet, Clock, Edit, TrendingUp, TrendingDown,
+  Activity, CheckCircle2, XCircle, Baby, Syringe, Scale, ExternalLink
 } from "lucide-react";
 
 const fmtDate = (d: string | null | undefined) =>
@@ -57,6 +57,72 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || "bg-gray-100 text-gray-800"}`}>
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
+  );
+}
+
+function StatCard({
+  label, value, icon, color, href
+}: {
+  label: string; value: any; icon: any; color: string; href?: string;
+}) {
+  const bg: Record<string, string> = {
+    blue: "bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900",
+    green: "bg-green-50 dark:bg-green-950 hover:bg-green-100 dark:hover:bg-green-900",
+    red: "bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900",
+    orange: "bg-orange-50 dark:bg-orange-950 hover:bg-orange-100 dark:hover:bg-orange-900",
+    purple: "bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900",
+    amber: "bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900",
+    pink: "bg-pink-50 dark:bg-pink-950 hover:bg-pink-100 dark:hover:bg-pink-900",
+  };
+
+  const inner = (
+    <div className={`rounded-lg p-3 transition-all ${bg[color] || "bg-muted"} ${href ? "cursor-pointer" : ""}`}>
+      <div className="flex items-center gap-2 mb-1">
+        {icon}
+        <span className="text-xs text-muted-foreground">{label}</span>
+        {href && <ExternalLink className="w-3 h-3 text-muted-foreground ml-auto" />}
+      </div>
+      <div className="font-bold text-lg">{value}</div>
+    </div>
+  );
+
+  if (href) {
+    return <Link href={href}>{inner}</Link>;
+  }
+  return inner;
+}
+
+function Row({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span className="text-muted-foreground flex-shrink-0">{label}</span>
+      <span className="font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+function BreedingEvent({ event }: { event: any }) {
+  const icons: Record<string, string> = { heat: "🌡️", ai: "💉", pt: "🔬", calving: "🐄" };
+  const labels: Record<string, string> = { heat: "Heat Detected", ai: "Insemination (AI)", pt: "Pregnancy Test", calving: "Calving" };
+  const colors: Record<string, string> = {
+    heat: "border-pink-200 bg-pink-50 dark:bg-pink-950/30",
+    ai: "border-blue-200 bg-blue-50 dark:bg-blue-950/30",
+    pt: "border-purple-200 bg-purple-50 dark:bg-purple-950/30",
+    calving: "border-green-200 bg-green-50 dark:bg-green-950/30",
+  };
+  return (
+    <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${colors[event.type] || ""}`}>
+      <div className="text-xl flex-shrink-0">{icons[event.type]}</div>
+      <div>
+        <div className="font-medium">{labels[event.type]}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          {event.date ? format(parseISO(event.date), "dd MMM yyyy") : "—"}
+          {event.type === "pt" && event.data?.result && ` · Result: ${event.data.result}`}
+          {event.type === "ai" && event.data?.method && ` · ${event.data.method?.toUpperCase()}`}
+          {event.type === "heat" && event.data?.intensity && ` · ${event.data.intensity}`}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -179,7 +245,6 @@ export default function CattleDetailPage() {
       <Card className="border-2">
         <CardContent className="p-4 md:p-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start">
-            {/* Avatar */}
             <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-2xl">
               🐄
             </div>
@@ -204,24 +269,30 @@ export default function CattleDetailPage() {
             </Link>
           </div>
 
-          {/* Quick KPIs */}
+          {/* Quick KPIs — each is a link */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-            <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{fmtNum(avgDailyMilk)} L</div>
-              <div className="text-xs text-blue-600 dark:text-blue-400">Avg Daily Milk</div>
-            </div>
+            <Link href={`/milk?cattleId=${id}`}>
+              <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-3 text-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors">
+                <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{fmtNum(avgDailyMilk)} L</div>
+                <div className="text-xs text-blue-600 dark:text-blue-400">Avg Daily Milk ↗</div>
+              </div>
+            </Link>
             <div className="bg-purple-50 dark:bg-purple-950 rounded-lg p-3 text-center">
               <div className="text-lg font-bold text-purple-700 dark:text-purple-300">{dim != null ? `${dim}d` : "—"}</div>
               <div className="text-xs text-purple-600 dark:text-purple-400">DIM</div>
             </div>
-            <div className="bg-green-50 dark:bg-green-950 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-green-700 dark:text-green-300">{fmtNum(totalMilk30Days, 0)} L</div>
-              <div className="text-xs text-green-600 dark:text-green-400">Last 30 Days</div>
-            </div>
-            <div className="bg-amber-50 dark:bg-amber-950 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-amber-700 dark:text-amber-300">₹{totalCosts.toLocaleString("en-IN")}</div>
-              <div className="text-xs text-amber-600 dark:text-amber-400">Total Costs</div>
-            </div>
+            <Link href={`/milk?cattleId=${id}`}>
+              <div className="bg-green-50 dark:bg-green-950 rounded-lg p-3 text-center cursor-pointer hover:bg-green-100 dark:hover:bg-green-900 transition-colors">
+                <div className="text-lg font-bold text-green-700 dark:text-green-300">{fmtNum(totalMilk30Days, 0)} L</div>
+                <div className="text-xs text-green-600 dark:text-green-400">Last 30 Days ↗</div>
+              </div>
+            </Link>
+            <Link href={`/cattle/pl?cattleId=${id}`}>
+              <div className="bg-amber-50 dark:bg-amber-950 rounded-lg p-3 text-center cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900 transition-colors">
+                <div className="text-lg font-bold text-amber-700 dark:text-amber-300">₹{totalCosts.toLocaleString("en-IN")}</div>
+                <div className="text-xs text-amber-600 dark:text-amber-400">Total Costs ↗</div>
+              </div>
+            </Link>
           </div>
         </CardContent>
       </Card>
@@ -279,19 +350,50 @@ export default function CattleDetailPage() {
         <TabsContent value="breeding">
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Heats" value={heats.length} icon={<Heart className="w-4 h-4 text-pink-500" />} color="pink" />
-              <StatCard label="Inseminations" value={inseminations.length} icon={<Activity className="w-4 h-4 text-blue-500" />} color="blue" />
-              <StatCard label="Pregnancies" value={pregnancyTests.filter(p => p.result === "positive").length} icon={<Baby className="w-4 h-4 text-purple-500" />} color="purple" />
-              <StatCard label="Calvings" value={calvings.length} icon={<CheckCircle2 className="w-4 h-4 text-green-500" />} color="green" />
+              <StatCard
+                label="Heats Detected"
+                value={heats.length}
+                icon={<Heart className="w-4 h-4 text-pink-500" />}
+                color="pink"
+                href={`/breeding?tab=heats&cattleId=${id}`}
+              />
+              <StatCard
+                label="Inseminations"
+                value={inseminations.length}
+                icon={<Activity className="w-4 h-4 text-blue-500" />}
+                color="blue"
+                href={`/breeding?tab=ai&cattleId=${id}`}
+              />
+              <StatCard
+                label="Confirmed Pregnant"
+                value={pregnancyTests.filter(p => p.result === "positive").length}
+                icon={<Baby className="w-4 h-4 text-purple-500" />}
+                color="purple"
+                href={`/breeding?tab=pregnancy-tests&cattleId=${id}`}
+              />
+              <StatCard
+                label="Calvings"
+                value={calvings.length}
+                icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
+                color="green"
+                href={`/breeding?tab=calvings&cattleId=${id}`}
+              />
             </div>
             {/* Timeline */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center justify-between">
                   Breeding Timeline
-                  <Link href={`/breeding/heat?cattleId=${id}`}>
-                    <Button size="sm" variant="outline">Record Heat</Button>
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link href={`/breeding/heat?cattleId=${id}`}>
+                      <Button size="sm" variant="outline">Record Heat</Button>
+                    </Link>
+                    <Link href={`/breeding?cattleId=${id}`}>
+                      <Button size="sm" variant="ghost" className="gap-1 text-xs">
+                        View All <ExternalLink className="w-3 h-3" />
+                      </Button>
+                    </Link>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -318,18 +420,48 @@ export default function CattleDetailPage() {
         <TabsContent value="milk">
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Total Entries" value={milkEntries.length} icon={<Milk className="w-4 h-4 text-blue-500" />} color="blue" />
-              <StatCard label="30-Day Total" value={`${fmtNum(totalMilk30Days, 0)} L`} icon={<TrendingUp className="w-4 h-4 text-green-500" />} color="green" />
-              <StatCard label="Daily Avg" value={`${fmtNum(avgDailyMilk)} L`} icon={<Activity className="w-4 h-4 text-purple-500" />} color="purple" />
-              <StatCard label="Sessions" value={milkEntries.filter(m => m.fat).length > 0 ? "With FAT" : "Basic"} icon={<Scale className="w-4 h-4 text-amber-500" />} color="amber" />
+              <StatCard
+                label="Total Entries"
+                value={milkEntries.length}
+                icon={<Milk className="w-4 h-4 text-blue-500" />}
+                color="blue"
+                href={`/milk?cattleId=${id}`}
+              />
+              <StatCard
+                label="30-Day Total"
+                value={`${fmtNum(totalMilk30Days, 0)} L`}
+                icon={<TrendingUp className="w-4 h-4 text-green-500" />}
+                color="green"
+                href={`/milk?cattleId=${id}&dateFilter=month`}
+              />
+              <StatCard
+                label="Daily Avg (30d)"
+                value={`${fmtNum(avgDailyMilk)} L`}
+                icon={<Activity className="w-4 h-4 text-purple-500" />}
+                color="purple"
+                href={`/milk?cattleId=${id}`}
+              />
+              <StatCard
+                label="Sessions Tracked"
+                value={milkEntries.filter(m => m.fat).length > 0 ? `${milkEntries.filter(m => m.fat).length} w/FAT` : milkEntries.length}
+                icon={<Scale className="w-4 h-4 text-amber-500" />}
+                color="amber"
+              />
             </div>
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center justify-between">
                   Milk Records
-                  <Link href={`/milk/new?cattleId=${id}`}>
-                    <Button size="sm" variant="outline">Add Entry</Button>
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link href={`/milk/new?cattleId=${id}`}>
+                      <Button size="sm" variant="outline">Add Entry</Button>
+                    </Link>
+                    <Link href={`/milk?cattleId=${id}`}>
+                      <Button size="sm" variant="ghost" className="gap-1 text-xs">
+                        View All {milkEntries.length > 30 ? `(${milkEntries.length})` : ""} <ExternalLink className="w-3 h-3" />
+                      </Button>
+                    </Link>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -359,6 +491,15 @@ export default function CattleDetailPage() {
                         ))}
                       </tbody>
                     </table>
+                    {milkEntries.length > 30 && (
+                      <div className="text-center pt-3">
+                        <Link href={`/milk?cattleId=${id}`}>
+                          <Button variant="ghost" size="sm" className="text-xs gap-1">
+                            View all {milkEntries.length} records <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -370,18 +511,43 @@ export default function CattleDetailPage() {
         <TabsContent value="health">
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <StatCard label="Health Events" value={healthEvents.length} icon={<Stethoscope className="w-4 h-4 text-red-500" />} color="red" />
-              <StatCard label="Active Issues" value={healthEvents.filter(h => h.status === "active").length} icon={<XCircle className="w-4 h-4 text-orange-500" />} color="orange" />
-              <StatCard label="Vaccinations" value={vaccinations.length} icon={<Syringe className="w-4 h-4 text-green-500" />} color="green" />
+              <StatCard
+                label="Health Events"
+                value={healthEvents.length}
+                icon={<Stethoscope className="w-4 h-4 text-red-500" />}
+                color="red"
+                href={`/health?cattleId=${id}`}
+              />
+              <StatCard
+                label="Active Issues"
+                value={healthEvents.filter(h => h.status === "active").length}
+                icon={<XCircle className="w-4 h-4 text-orange-500" />}
+                color="orange"
+                href={`/health?cattleId=${id}&status=active`}
+              />
+              <StatCard
+                label="Vaccinations"
+                value={vaccinations.length}
+                icon={<Syringe className="w-4 h-4 text-green-500" />}
+                color="green"
+                href={`/health?tab=vaccination&cattleId=${id}`}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between">
                     Health Events
-                    <Link href={`/health/new?cattleId=${id}`}>
-                      <Button size="sm" variant="outline">Add</Button>
-                    </Link>
+                    <div className="flex gap-2">
+                      <Link href={`/health/new?cattleId=${id}`}>
+                        <Button size="sm" variant="outline">Add</Button>
+                      </Link>
+                      <Link href={`/health?cattleId=${id}`}>
+                        <Button size="sm" variant="ghost" className="text-xs gap-1">
+                          View All <ExternalLink className="w-3 h-3" />
+                        </Button>
+                      </Link>
+                    </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -398,6 +564,13 @@ export default function CattleDetailPage() {
                           </div>
                         </div>
                       ))}
+                      {healthEvents.length > 10 && (
+                        <Link href={`/health?cattleId=${id}`}>
+                          <Button variant="ghost" size="sm" className="w-full text-xs">
+                            View all {healthEvents.length} events →
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -406,9 +579,16 @@ export default function CattleDetailPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between">
                     Vaccination History
-                    <Link href={`/health?tab=vaccination&cattleId=${id}`}>
-                      <Button size="sm" variant="outline">Add</Button>
-                    </Link>
+                    <div className="flex gap-2">
+                      <Link href={`/health/vaccination?cattleId=${id}`}>
+                        <Button size="sm" variant="outline">Add</Button>
+                      </Link>
+                      <Link href={`/health?tab=vaccination&cattleId=${id}`}>
+                        <Button size="sm" variant="ghost" className="text-xs gap-1">
+                          View All <ExternalLink className="w-3 h-3" />
+                        </Button>
+                      </Link>
+                    </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -437,17 +617,42 @@ export default function CattleDetailPage() {
         <TabsContent value="finance">
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Purchase Cost" value={`₹${Number(plSummary?.purchaseCost || 0).toLocaleString("en-IN")}`} icon={<Wallet className="w-4 h-4 text-red-500" />} color="red" />
-              <StatCard label="Other Costs" value={`₹${totalCosts.toLocaleString("en-IN")}`} icon={<TrendingDown className="w-4 h-4 text-orange-500" />} color="orange" />
-              <StatCard label="Milk Revenue" value={`₹${Number(plSummary?.milkRevenue || 0).toLocaleString("en-IN")}`} icon={<Milk className="w-4 h-4 text-blue-500" />} color="blue" />
-              <StatCard label="Total Invested" value={`₹${(Number(plSummary?.purchaseCost || 0) + totalCosts).toLocaleString("en-IN")}`} icon={<TrendingUp className="w-4 h-4 text-purple-500" />} color="purple" />
+              <StatCard
+                label="Purchase Cost"
+                value={`₹${Number(plSummary?.purchaseCost || 0).toLocaleString("en-IN")}`}
+                icon={<Wallet className="w-4 h-4 text-red-500" />}
+                color="red"
+                href={`/cattle-transactions?cattleId=${id}`}
+              />
+              <StatCard
+                label="Other Costs"
+                value={`₹${totalCosts.toLocaleString("en-IN")}`}
+                icon={<TrendingDown className="w-4 h-4 text-orange-500" />}
+                color="orange"
+              />
+              <StatCard
+                label="Milk Revenue"
+                value={`₹${Number(plSummary?.milkRevenue || 0).toLocaleString("en-IN")}`}
+                icon={<Milk className="w-4 h-4 text-blue-500" />}
+                color="blue"
+                href={`/milk?cattleId=${id}`}
+              />
+              <StatCard
+                label="Net P/L"
+                value={`₹${(Number(plSummary?.milkRevenue || 0) - Number(plSummary?.purchaseCost || 0) - totalCosts).toLocaleString("en-IN")}`}
+                icon={<TrendingUp className="w-4 h-4 text-purple-500" />}
+                color="purple"
+                href={`/cattle/pl?cattleId=${id}`}
+              />
             </div>
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center justify-between">
                   Cost Records
                   <Link href={`/cattle/pl?cattleId=${id}`}>
-                    <Button size="sm" variant="outline">View P/L</Button>
+                    <Button size="sm" variant="outline" className="gap-1">
+                      <ExternalLink className="w-3 h-3" /> View Full P/L
+                    </Button>
                   </Link>
                 </CardTitle>
               </CardHeader>
@@ -490,79 +695,30 @@ export default function CattleDetailPage() {
             <CardContent>
               <div className="space-y-3">
                 {[
-                  ...heats.map(h => ({ type: "heat", date: h.detectedAt?.split('T')[0], label: `Heat detected (${h.intensity || "normal"})`, icon: "🌡️" })),
-                  ...inseminations.map(i => ({ type: "ai", date: i.date, label: `Insemination (${i.method?.toUpperCase() || "AI"})`, icon: "💉" })),
-                  ...pregnancyTests.map(p => ({ type: "pt", date: p.testDate, label: `Pregnancy test: ${p.result}`, icon: p.result === "positive" ? "✅" : "❌" })),
-                  ...calvings.map(c => ({ type: "calving", date: c.date, label: `Calving — ${c.outcome} ${c.calfGender || ""} calf`, icon: "🐄" })),
-                  ...healthEvents.map(h => ({ type: "health", date: h.date, label: `${h.eventType}: ${h.description || h.diagnosis || ""}`, icon: "🏥" })),
-                  ...vaccinations.map(v => ({ type: "vaccination", date: v.date, label: `Vaccination: ${v.vaccineName}`, icon: "💊" })),
-                  ...milkEntries.slice(0, 10).map(m => ({ type: "milk", date: m.date, label: `Milk: ${Number(m.quantity).toFixed(1)}L (${m.session})`, icon: "🥛" })),
+                  ...heats.map(h => ({ type: "heat", date: h.detectedAt?.split('T')[0], label: `Heat detected (${h.intensity || "normal"})`, icon: "🌡️", href: `/breeding?tab=heats&cattleId=${id}` })),
+                  ...inseminations.map(i => ({ type: "ai", date: i.date, label: `Insemination (${i.method?.toUpperCase() || "AI"})`, icon: "💉", href: `/breeding?tab=ai&cattleId=${id}` })),
+                  ...pregnancyTests.map(p => ({ type: "pt", date: p.testDate, label: `Pregnancy test: ${p.result}`, icon: p.result === "positive" ? "✅" : "❌", href: `/breeding?tab=pregnancy-tests&cattleId=${id}` })),
+                  ...calvings.map(c => ({ type: "calving", date: c.date, label: `Calving — ${c.outcome} ${c.calfGender || ""} calf`, icon: "🐄", href: `/breeding?tab=calvings&cattleId=${id}` })),
+                  ...healthEvents.map(h => ({ type: "health", date: h.date, label: `${h.eventType}: ${h.description || h.diagnosis || ""}`, icon: "🏥", href: `/health?cattleId=${id}` })),
+                  ...vaccinations.map(v => ({ type: "vaccination", date: v.date, label: `Vaccination: ${v.vaccineName}`, icon: "💊", href: `/health?tab=vaccination&cattleId=${id}` })),
+                  ...milkEntries.slice(0, 10).map(m => ({ type: "milk", date: m.date, label: `Milk: ${Number(m.quantity).toFixed(1)}L (${m.session})`, icon: "🥛", href: `/milk?cattleId=${id}` })),
                 ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 30).map((event, i) => (
-                  <div key={i} className="flex gap-3 items-start text-sm">
-                    <div className="w-8 flex-shrink-0 text-center">{event.icon}</div>
-                    <div className="flex-1 border-b pb-2">
-                      <div className="font-medium">{event.label}</div>
-                      <div className="text-xs text-muted-foreground">{fmtDate(event.date)}</div>
+                  <Link key={i} href={event.href || "#"}>
+                    <div className="flex gap-3 items-start text-sm hover:bg-muted/30 rounded p-1 transition-colors cursor-pointer">
+                      <div className="w-8 flex-shrink-0 text-center">{event.icon}</div>
+                      <div className="flex-1 border-b pb-2">
+                        <div className="font-medium">{event.label}</div>
+                        <div className="text-xs text-muted-foreground">{fmtDate(event.date)}</div>
+                      </div>
+                      <ExternalLink className="w-3 h-3 text-muted-foreground mt-1 flex-shrink-0" />
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-muted-foreground flex-shrink-0">{label}</span>
-      <span className="font-medium text-right">{value}</span>
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon, color }: { label: string; value: any; icon: any; color: string }) {
-  const bg: Record<string, string> = {
-    blue: "bg-blue-50 dark:bg-blue-950",
-    green: "bg-green-50 dark:bg-green-950",
-    red: "bg-red-50 dark:bg-red-950",
-    orange: "bg-orange-50 dark:bg-orange-950",
-    purple: "bg-purple-50 dark:bg-purple-950",
-    amber: "bg-amber-50 dark:bg-amber-950",
-    pink: "bg-pink-50 dark:bg-pink-950",
-  };
-  return (
-    <div className={`rounded-lg p-3 ${bg[color] || "bg-muted"}`}>
-      <div className="flex items-center gap-2 mb-1">{icon}<span className="text-xs text-muted-foreground">{label}</span></div>
-      <div className="font-bold text-lg">{value}</div>
-    </div>
-  );
-}
-
-function BreedingEvent({ event }: { event: any }) {
-  const icons: Record<string, string> = { heat: "🌡️", ai: "💉", pt: "🔬", calving: "🐄" };
-  const labels: Record<string, string> = { heat: "Heat Detected", ai: "Insemination (AI)", pt: "Pregnancy Test", calving: "Calving" };
-  const colors: Record<string, string> = {
-    heat: "border-pink-200 bg-pink-50 dark:bg-pink-950/30",
-    ai: "border-blue-200 bg-blue-50 dark:bg-blue-950/30",
-    pt: "border-purple-200 bg-purple-50 dark:bg-purple-950/30",
-    calving: "border-green-200 bg-green-50 dark:bg-green-950/30",
-  };
-  return (
-    <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${colors[event.type] || ""}`}>
-      <div className="text-xl flex-shrink-0">{icons[event.type]}</div>
-      <div>
-        <div className="font-medium">{labels[event.type]}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">
-          {event.date ? format(parseISO(event.date), "dd MMM yyyy") : "—"}
-          {event.type === "pt" && event.data?.result && ` · Result: ${event.data.result}`}
-          {event.type === "ai" && event.data?.method && ` · ${event.data.method?.toUpperCase()}`}
-          {event.type === "heat" && event.data?.intensity && ` · ${event.data.intensity}`}
-        </div>
-      </div>
     </div>
   );
 }

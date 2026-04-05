@@ -17,21 +17,25 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Plus,
   Search,
-  Filter,
   Grid3X3,
   List,
   Milk,
   Heart,
-  Stethoscope,
   ChevronRight,
   TrendingUp,
+  X,
 } from "lucide-react";
 import type { Cattle, Breed } from "@shared/schema";
 
+function getUrlParam(key: string) {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 export default function CattleListPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [stageFilter, setStageFilter] = useState<string>(getUrlParam("stage") || "all");
+  const [statusFilter, setStatusFilter] = useState<string>(getUrlParam("status") || "active");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const { data: cattle, isLoading } = useQuery<Cattle[]>({
@@ -58,33 +62,31 @@ export default function CattleListPage() {
 
   const getStageColor = (stage: string) => {
     switch (stage) {
-      case "milking":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
-      case "dry":
-        return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
-      case "pregnant":
-        return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400";
-      case "heifer":
-        return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-      case "calf":
-        return "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400";
-      default:
-        return "bg-muted text-muted-foreground";
+      case "milking": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+      case "dry": return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+      case "pregnant": return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400";
+      case "heifer": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+      case "calf": return "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400";
+      default: return "bg-muted text-muted-foreground";
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "active":
-        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400";
-      case "sold":
-        return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
-      case "dead":
-        return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
-      default:
-        return "bg-muted text-muted-foreground";
+      case "active": return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400";
+      case "sold": return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
+      case "dead": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+      default: return "bg-muted text-muted-foreground";
     }
   };
+
+  const stageStats = [
+    { label: "Milking", stage: "milking", count: cattle?.filter(c => c.stage === "milking").length || 0, color: "text-blue-600", activeRing: "ring-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-950/30" },
+    { label: "Dry", stage: "dry", count: cattle?.filter(c => c.stage === "dry").length || 0, color: "text-amber-600", activeRing: "ring-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-950/30" },
+    { label: "Pregnant", stage: "pregnant", count: cattle?.filter(c => c.stage === "pregnant").length || 0, color: "text-purple-600", activeRing: "ring-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-950/30" },
+    { label: "Heifers", stage: "heifer", count: cattle?.filter(c => c.stage === "heifer").length || 0, color: "text-green-600", activeRing: "ring-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-950/30" },
+    { label: "Calves", stage: "calf", count: cattle?.filter(c => c.stage === "calf").length || 0, color: "text-pink-600", activeRing: "ring-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-950/30" },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -111,6 +113,51 @@ export default function CattleListPage() {
           </Link>
         </div>
       </div>
+
+      {/* Clickable Stage Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {stageStats.map((stat) => {
+          const isActive = stageFilter === stat.stage;
+          return (
+            <button
+              key={stat.label}
+              onClick={() => setStageFilter(isActive ? "all" : stat.stage)}
+              className={`relative p-4 rounded-xl border text-center transition-all cursor-pointer focus:outline-none
+                ${isActive
+                  ? `ring-2 ${stat.activeRing} bg-white dark:bg-slate-900 shadow-md`
+                  : `bg-card border-border ${stat.bg}`
+                }`}
+              data-testid={`stat-card-${stat.stage}`}
+            >
+              {isActive && (
+                <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                  <X className="w-2.5 h-2.5 text-primary-foreground" />
+                </div>
+              )}
+              <p className={`text-2xl font-bold ${stat.color}`}>{stat.count}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+              {isActive && (
+                <p className="text-xs font-medium text-primary mt-1">Filtered ↑</p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active filter banner */}
+      {stageFilter !== "all" && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-lg text-sm">
+          <span className="text-muted-foreground">Showing:</span>
+          <Badge className={getStageColor(stageFilter)}>{stageFilter}</Badge>
+          <span className="text-muted-foreground">— {filteredCattle?.length || 0} cattle</span>
+          <button
+            onClick={() => setStageFilter("all")}
+            className="ml-auto text-xs text-primary hover:underline flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Clear filter
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -171,24 +218,6 @@ export default function CattleListPage() {
         </div>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-        {[
-          { label: "Milking", count: cattle?.filter(c => c.stage === "milking").length || 0, color: "text-blue-600" },
-          { label: "Dry", count: cattle?.filter(c => c.stage === "dry").length || 0, color: "text-amber-600" },
-          { label: "Pregnant", count: cattle?.filter(c => c.stage === "pregnant").length || 0, color: "text-purple-600" },
-          { label: "Heifers", count: cattle?.filter(c => c.stage === "heifer").length || 0, color: "text-green-600" },
-          { label: "Calves", count: cattle?.filter(c => c.stage === "calf").length || 0, color: "text-pink-600" },
-        ].map((stat) => (
-          <Card key={stat.label} className="p-4">
-            <div className="text-center">
-              <p className={`text-2xl font-bold ${stat.color}`}>{stat.count}</p>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
-
       {/* Cattle Grid/List */}
       {isLoading ? (
         <div className={viewMode === "grid" ? "grid sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4"}>
@@ -220,9 +249,18 @@ export default function CattleListPage() {
                               Tag: {cow.tagNumber}
                             </p>
                           </div>
-                          <Badge className={getStageColor(cow.stage)}>
-                            {cow.stage}
-                          </Badge>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setStageFilter(stageFilter === cow.stage ? "all" : cow.stage);
+                            }}
+                            className="flex-shrink-0"
+                          >
+                            <Badge className={`${getStageColor(cow.stage)} cursor-pointer hover:opacity-80 transition-opacity`}>
+                              {cow.stage}
+                            </Badge>
+                          </button>
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
                           {getBreedName(cow.breedId)}
@@ -237,11 +275,10 @@ export default function CattleListPage() {
                     <div className="flex items-center gap-4 mt-4 pt-4 border-t">
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Milk className="w-4 h-4" />
-                        <span>12.5 L/day</span>
+                        <span className="text-xs">View details →</span>
                       </div>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Heart className="w-4 h-4" />
-                        <span>Healthy</span>
+                      <div className="ml-auto">
+                        <Badge className={`text-xs ${getStatusColor(cow.status)}`}>{cow.status}</Badge>
                       </div>
                     </div>
                   </CardContent>
@@ -276,9 +313,17 @@ export default function CattleListPage() {
                           <p className="text-sm font-medium">{getBreedName(cow.breedId)}</p>
                         </div>
                         <div>
-                          <Badge className={getStageColor(cow.stage)}>
-                            {cow.stage}
-                          </Badge>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setStageFilter(stageFilter === cow.stage ? "all" : cow.stage);
+                            }}
+                          >
+                            <Badge className={`${getStageColor(cow.stage)} cursor-pointer hover:opacity-80`}>
+                              {cow.stage}
+                            </Badge>
+                          </button>
                         </div>
                         <div className="flex items-center justify-end">
                           <ChevronRight className="w-5 h-5 text-muted-foreground" />
@@ -305,6 +350,11 @@ export default function CattleListPage() {
                 ? "Try adjusting your filters"
                 : "Get started by adding your first cow"}
             </p>
+            {stageFilter !== "all" && (
+              <Button variant="outline" onClick={() => setStageFilter("all")} className="mr-2">
+                Clear Stage Filter
+              </Button>
+            )}
             {!searchQuery && stageFilter === "all" && statusFilter === "active" && (
               <Link href="/cattle/new">
                 <Button className="gap-2" data-testid="button-add-first-cattle">

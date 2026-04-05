@@ -28,15 +28,24 @@ import {
   Calendar,
   Milk,
   TrendingUp,
-  TrendingDown,
   Download,
+  X,
+  ArrowLeft,
 } from "lucide-react";
 import type { MilkEntry, Cattle } from "@shared/schema";
 
+function getUrlParam(key: string) {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 export default function MilkRecordsPage() {
+  const urlCattleId = getUrlParam("cattleId");
+  const urlDateFilter = getUrlParam("dateFilter");
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState<string>("today");
+  const [dateFilter, setDateFilter] = useState<string>(urlDateFilter || "all");
   const [sessionFilter, setSessionFilter] = useState<string>("all");
+  const [cattleFilter, setCattleFilter] = useState<string>(urlCattleId || "all");
 
   const { data: milkEntries, isLoading } = useQuery<MilkEntry[]>({
     queryKey: ["/api/milk"],
@@ -70,16 +79,17 @@ export default function MilkRecordsPage() {
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
     const matchesSession = sessionFilter === "all" || entry.session === sessionFilter;
+    const matchesCattle = cattleFilter === "all" || entry.cattleId === cattleFilter;
     
-    if (dateFilter === "all") return matchesSearch && matchesSession;
+    if (dateFilter === "all") return matchesSearch && matchesSession && matchesCattle;
     
     const filterDate = getDateRange();
     if (dateFilter === "week") {
       const entryDate = new Date(entry.date);
       const weekAgo = subDays(new Date(), 7);
-      return matchesSearch && matchesSession && entryDate >= weekAgo;
+      return matchesSearch && matchesSession && matchesCattle && entryDate >= weekAgo;
     }
-    return matchesSearch && matchesSession && entry.date === filterDate;
+    return matchesSearch && matchesSession && matchesCattle && entry.date === filterDate;
   });
 
   const todayTotal = filteredEntries?.reduce(
@@ -90,6 +100,8 @@ export default function MilkRecordsPage() {
   const avgPerCow = filteredEntries && filteredEntries.length > 0
     ? todayTotal / filteredEntries.length
     : 0;
+
+  const filteredCow = cattleFilter !== "all" ? cattle?.find(c => c.id === cattleFilter) : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -112,6 +124,26 @@ export default function MilkRecordsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Cattle filter banner */}
+      {filteredCow && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-sm border border-blue-200 dark:border-blue-800">
+          <Link href={`/cattle/${filteredCow.id}`}>
+            <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs">
+              <ArrowLeft className="w-3 h-3" /> {filteredCow.name || filteredCow.tagNumber}
+            </Button>
+          </Link>
+          <span className="text-muted-foreground">Showing milk records for</span>
+          <Badge className="bg-blue-100 text-blue-800">{filteredCow.name || filteredCow.tagNumber}</Badge>
+          <span className="text-muted-foreground">— {filteredEntries?.length || 0} entries</span>
+          <button
+            onClick={() => setCattleFilter("all")}
+            className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Show all
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -44,16 +44,20 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Features
 - **Comprehensive Dairy Farm Management**: Cattle, Milk, Health, Breeding, Feed, Inventory, Finances.
-- **Reporting & Analytics**: Detailed reports for Milk, Cattle, Health, Finance, Breeding with CSV export.
+- **Full Drill-Down Interactivity**: Every stat card/badge navigates to filtered underlying data. Cattle stage cards filter list. Cattle detail links to breeding/milk/health with cattleId param. Health, Milk, Breeding pages all read cattleId URL params and show filter banners.
+- **Smart Alerts Engine**: Auto-generates alerts for heat due, pregnancy test due, vaccination due (within 14 days), and low inventory stock. Runs on every dashboard stats call. Sidebar badge shows live count.
+- **Reporting & Analytics**: Recharts bar/line charts for daily milk trends, finance comparison. CSV export for all reports.
 - **Bulk Import/Export**: Data import and export functionality with filtering and validation for various modules.
 - **Cattle Sale & Purchase Module**: Tracks purchases, sales, and profit/loss per animal.
 - **Byproducts Management Module**: Records transactions for byproducts (e.g., cow dung) with optional inventory tracking.
 - **Universal Attachments System**: Supports image, PDF, and audio file uploads (max 10MB) linked to various records, configurable for S3/Supabase.
-- **Dynamic Dashboard**: Provides KPIs for Herd, Expected Actions, Milk, Finance, Health, and Breeding performance.
-- **Detailed Cattle Profiles**: Individual cattle pages with basic info, breeding timeline, milking history, health, financials, and general timeline.
-- **Billing & Plans**: Manages subscription plans (Free/Starter/Basic/Pro/Enterprise) with usage tracking.
-- **Extensive Settings**: Customizable farm, milking, breeding, notifications, WhatsApp integration, and storage settings.
+- **Dynamic Dashboard**: Provides KPIs for Herd, Expected Actions, Milk, Finance, Health, and Breeding performance. All KPI cards are drill-down links. Plan usage card with cattle limit progress.
+- **Detailed Cattle Profiles**: Individual cattle pages with basic info, breeding timeline, milking history, health, financials, and general timeline. All stat cards link to filtered module views.
+- **Alerts Page**: Severity/type filtering, Mark All Read (wired), per-alert Take Action links to relevant module, cattle name links.
+- **Billing & Plans**: Manages subscription plans (Free/Starter/Basic/Pro/Enterprise) with cattle usage tracking, plan comparison grid.
+- **Extensive Settings**: Customizable farm, milking, breeding, notifications, WhatsApp integration, and storage settings (7 tabs).
 - **Master Data Management**: Pre-seeded master data for breeds, vaccines, feed items, expense/income heads, and inventory categories.
+- **Mobile UX**: MobileBottomNav for mobile devices, responsive card layouts throughout.
 
 ## External Dependencies
 

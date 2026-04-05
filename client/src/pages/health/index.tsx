@@ -13,7 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Stethoscope, AlertTriangle, CheckCircle2, Clock,
-  Syringe, Pill, Calendar, Activity, XCircle,
+  Syringe, Pill, Calendar, Activity, XCircle, X, ArrowLeft,
 } from "lucide-react";
 
 const fmtDate = (d: string | null | undefined) => {
@@ -28,10 +28,22 @@ function DaysBadge({ days }: { days: number }) {
   return <Badge variant="secondary" className="text-xs">In {days}d</Badge>;
 }
 
+function getUrlParam(key: string) {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 export default function HealthPage() {
+  const urlCattleId = getUrlParam("cattleId");
+  const urlTab = getUrlParam("tab");
+  const urlStatus = getUrlParam("status");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [statusFilter, setStatusFilter] = useState<string>(urlStatus || "active");
+  const [cattleFilter, setCattleFilter] = useState<string>(urlCattleId || "all");
+  const [activeTab, setActiveTab] = useState<string>(
+    urlTab === "vaccination" ? "vaccinations" : urlTab === "history" ? "history" : "issues"
+  );
   const { toast } = useToast();
 
   const { data: healthEvents = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/health"] });
@@ -57,8 +69,11 @@ export default function HealthPage() {
     const matchesSearch = getCowName(e.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = typeFilter === "all" || e.eventType === typeFilter;
     const matchesStatus = statusFilter === "all" || e.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
+    const matchesCattle = cattleFilter === "all" || e.cattleId === cattleFilter;
+    return matchesSearch && matchesType && matchesStatus && matchesCattle;
   });
+
+  const filteredCow = cattleFilter !== "all" ? cattle.find((c: any) => c.id === cattleFilter) : null;
 
   const now = new Date();
   const vacOverdue = vaccinationsDue.filter((v: any) => differenceInDays(parseISO(v.nextDueDate), now) < 0).length;
@@ -103,6 +118,25 @@ export default function HealthPage() {
         </div>
       </div>
 
+      {/* Cattle filter banner */}
+      {filteredCow && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 rounded-lg text-sm border border-red-200 dark:border-red-800">
+          <Link href={`/cattle/${(filteredCow as any).id}`}>
+            <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs">
+              <ArrowLeft className="w-3 h-3" /> {(filteredCow as any).name || (filteredCow as any).tagNumber}
+            </Button>
+          </Link>
+          <span className="text-muted-foreground">Showing health records for</span>
+          <Badge className="bg-red-100 text-red-800">{(filteredCow as any).name || (filteredCow as any).tagNumber}</Badge>
+          <button
+            onClick={() => setCattleFilter("all")}
+            className="ml-auto text-xs text-red-600 hover:underline flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Show all
+          </button>
+        </div>
+      )}
+
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
         <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/40 text-center">
@@ -123,9 +157,9 @@ export default function HealthPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="issues" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
-          <TabsTrigger value="issues" className="text-xs">Health Issues ({healthEvents.filter((e: any) => e.status === "active").length})</TabsTrigger>
+          <TabsTrigger value="issues" className="text-xs">Health Issues ({filteredEvents.length})</TabsTrigger>
           <TabsTrigger value="vaccinations" className="text-xs">Vaccinations Due ({vaccinationsDue.length})</TabsTrigger>
           <TabsTrigger value="history" className="text-xs">Vaccination History ({vaccinations.length})</TabsTrigger>
         </TabsList>

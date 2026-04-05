@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, Search, Heart, Syringe, Baby, Calendar, AlertCircle,
-  Thermometer, Activity, Clock, CheckCircle2, XCircle, ArrowRight
+  Thermometer, Activity, Clock, CheckCircle2, XCircle, ArrowRight, X, ArrowLeft,
 } from "lucide-react";
 
 const fmtDate = (d: string | null | undefined) => d ? format(parseISO(d), "dd MMM yyyy") : "—";
@@ -32,8 +32,14 @@ export default function BreedingPage() {
   const [location] = useLocation();
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const urlFilter = params.get("filter") || "all";
+  const urlTab = params.get("tab") || "expected";
+  const urlCattleId = params.get("cattleId");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("expected");
+  const [cattleFilter, setCattleFilter] = useState<string>(urlCattleId || "all");
+  const [activeTab, setActiveTab] = useState(
+    urlTab === "heats" ? "heats" : urlTab === "ai" ? "ai" :
+    urlTab === "pregnancy" ? "pregnancy" : urlTab === "calving" ? "calving" : "expected"
+  );
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
   const { data: heats = [], isLoading: heatsLoading } = useQuery<any[]>({ queryKey: ["/api/breeding/heats"] });
@@ -128,13 +134,31 @@ export default function BreedingPage() {
   const breedableCattle = cattle.filter((c: any) => c.gender === "female" && c.status === "active" && c.stage !== "calf");
   const pregnantCount = cattle.filter((c: any) => c.stage === "pregnant").length;
 
-  const filteredHeats = heats.filter((h: any) =>
-    getCowName(h.cattleId).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredHeats = heats.filter((h: any) => {
+    const matchesSearch = getCowName(h.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCattle = cattleFilter === "all" || String(h.cattleId) === String(cattleFilter);
+    return matchesSearch && matchesCattle;
+  });
 
-  const filteredInseminations = inseminations.filter((i: any) =>
-    getCowName(i.cattleId).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredInseminations = inseminations.filter((i: any) => {
+    const matchesSearch = getCowName(i.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCattle = cattleFilter === "all" || String(i.cattleId) === String(cattleFilter);
+    return matchesSearch && matchesCattle;
+  });
+
+  const filteredPTs = pregnancyTests.filter((pt: any) => {
+    const matchesSearch = getCowName(pt.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCattle = cattleFilter === "all" || String(pt.cattleId) === String(cattleFilter);
+    return matchesSearch && matchesCattle;
+  });
+
+  const filteredCalvings = calvings.filter((c: any) => {
+    const matchesSearch = getCowName(c.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCattle = cattleFilter === "all" || String(c.cattleId) === String(cattleFilter);
+    return matchesSearch && matchesCattle;
+  });
+
+  const filteredCow = cattleFilter !== "all" ? cattle.find((c: any) => String(c.id) === String(cattleFilter)) : null;
 
   return (
     <div className="p-3 md:p-6 space-y-4 max-w-5xl mx-auto">
@@ -157,6 +181,25 @@ export default function BreedingPage() {
         </div>
       </div>
 
+      {/* Cattle filter banner */}
+      {filteredCow && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-pink-50 dark:bg-pink-950/30 rounded-lg text-sm border border-pink-200 dark:border-pink-800">
+          <Link href={`/cattle/${(filteredCow as any).id}`}>
+            <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs">
+              <ArrowLeft className="w-3 h-3" /> {(filteredCow as any).name || (filteredCow as any).tagNumber}
+            </Button>
+          </Link>
+          <span className="text-muted-foreground">Breeding records for</span>
+          <Badge className="bg-pink-100 text-pink-800">{(filteredCow as any).name || (filteredCow as any).tagNumber}</Badge>
+          <button
+            onClick={() => setCattleFilter("all")}
+            className="ml-auto text-xs text-pink-600 hover:underline flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Show all
+          </button>
+        </div>
+      )}
+
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
         <StatCard label="Breedable" value={breedableCattle.length} color="pink" icon="🐄" />
@@ -170,10 +213,10 @@ export default function BreedingPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
           <TabsTrigger value="expected" className="text-xs">🗓️ Expected ({heatDue.length + ptDue.length + calvingDue.length})</TabsTrigger>
-          <TabsTrigger value="heats" className="text-xs" data-testid="tab-heats">Heats ({heats.length})</TabsTrigger>
-          <TabsTrigger value="ai" className="text-xs" data-testid="tab-ai">AI Records ({inseminations.length})</TabsTrigger>
-          <TabsTrigger value="pregnancy" className="text-xs" data-testid="tab-pregnancy">Pregnancy ({pregnancyTests.length})</TabsTrigger>
-          <TabsTrigger value="calving" className="text-xs" data-testid="tab-calving">Calvings ({calvings.length})</TabsTrigger>
+          <TabsTrigger value="heats" className="text-xs" data-testid="tab-heats">Heats ({filteredHeats.length})</TabsTrigger>
+          <TabsTrigger value="ai" className="text-xs" data-testid="tab-ai">AI Records ({filteredInseminations.length})</TabsTrigger>
+          <TabsTrigger value="pregnancy" className="text-xs" data-testid="tab-pregnancy">Pregnancy ({filteredPTs.length})</TabsTrigger>
+          <TabsTrigger value="calving" className="text-xs" data-testid="tab-calving">Calvings ({filteredCalvings.length})</TabsTrigger>
         </TabsList>
 
         {/* Expected Events */}
@@ -368,9 +411,9 @@ export default function BreedingPage() {
 
         {/* Pregnancy Tests Tab */}
         <TabsContent value="pregnancy">
-          {pregnancyTests.length > 0 ? (
+          {filteredPTs.length > 0 ? (
             <div className="space-y-2">
-              {pregnancyTests.map((pt: any) => (
+              {filteredPTs.map((pt: any) => (
                 <Card key={pt.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4 flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${pt.result === "positive" ? "bg-green-100" : "bg-red-100"}`}>
@@ -396,9 +439,9 @@ export default function BreedingPage() {
 
         {/* Calvings Tab */}
         <TabsContent value="calving">
-          {calvings.length > 0 ? (
+          {filteredCalvings.length > 0 ? (
             <div className="space-y-2">
-              {calvings.map((c: any) => (
+              {filteredCalvings.map((c: any) => (
                 <Card key={c.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-lg">🐄</div>

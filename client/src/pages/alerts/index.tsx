@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Link } from "wouter";
 import {
   Bell,
   AlertTriangle,
@@ -21,6 +22,7 @@ import {
   CheckCircle2,
   X,
   Filter,
+  ExternalLink,
 } from "lucide-react";
 import type { Alert, Cattle } from "@shared/schema";
 
@@ -64,6 +66,32 @@ export default function AlertsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
     },
   });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      const unread = alerts?.filter(a => !a.isRead && !a.isDismissed) || [];
+      await Promise.all(unread.map(a => apiRequest("PATCH", `/api/alerts/${a.id}`, { isRead: true })));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "All alerts marked as read" });
+    },
+  });
+
+  const getActionLink = (alert: Alert) => {
+    if (alert.referenceType === "vaccination" || alert.type === "health") {
+      return alert.cattleId ? `/health?cattleId=${alert.cattleId}&tab=vaccination` : "/health?tab=vaccination";
+    }
+    if (alert.referenceType === "heat_due" || alert.referenceType === "pt_due" || alert.type === "breeding") {
+      return alert.cattleId ? `/breeding?cattleId=${alert.cattleId}` : "/breeding";
+    }
+    if (alert.referenceType === "inventory_item" || alert.type === "inventory") {
+      return "/inventory";
+    }
+    if (alert.cattleId) return `/cattle/${alert.cattleId}`;
+    return null;
+  };
 
   const getCattleName = (cattleId: string | null) => {
     if (!cattleId) return null;
@@ -114,7 +142,13 @@ export default function AlertsPage() {
           <h1 className="text-2xl font-bold text-foreground">Alerts</h1>
           <p className="text-muted-foreground">System notifications and important reminders</p>
         </div>
-        <Button variant="outline" className="gap-2" data-testid="button-mark-all-read">
+        <Button
+          variant="outline"
+          className="gap-2"
+          data-testid="button-mark-all-read"
+          onClick={() => markAllReadMutation.mutate()}
+          disabled={markAllReadMutation.isPending}
+        >
           <CheckCircle2 className="w-4 h-4" />
           Mark All Read
         </Button>
@@ -217,17 +251,26 @@ export default function AlertsPage() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">{alert.message}</p>
-                        <div className="flex items-center gap-4 mt-2">
+                        <div className="flex items-center gap-3 mt-2 flex-wrap">
                           <Badge variant="outline" className="capitalize text-xs">
                             {alert.type}
                           </Badge>
                           {alert.cattleId && (
-                            <span className="text-xs text-muted-foreground">
-                              Cow: {getCattleName(alert.cattleId)}
-                            </span>
+                            <Link href={`/cattle/${alert.cattleId}`}>
+                              <span className="text-xs text-primary hover:underline cursor-pointer">
+                                {getCattleName(alert.cattleId) || "View Cattle"}
+                              </span>
+                            </Link>
+                          )}
+                          {getActionLink(alert) && (
+                            <Link href={getActionLink(alert)!}>
+                              <span className="text-xs text-blue-600 hover:underline flex items-center gap-1 cursor-pointer">
+                                <ExternalLink className="w-3 h-3" /> Take Action
+                              </span>
+                            </Link>
                           )}
                           <span className="text-xs text-muted-foreground">
-                            {new Date(alert.createdAt!).toLocaleDateString()}
+                            {new Date(alert.createdAt!).toLocaleDateString("en-IN")}
                           </span>
                         </div>
                       </div>

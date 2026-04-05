@@ -86,6 +86,8 @@ export async function registerRoutes(
 
   app.get("/api/dashboard/stats", isAuthenticated, withTenant, async (req, res) => {
     try {
+      // Fire smart alert generation without blocking stats response
+      storage.generateSmartAlerts(req.tenantId!).catch(e => console.warn("Alert gen error:", e));
       const stats = await storage.getDashboardStats(req.tenantId!);
       res.json(stats);
     } catch (error) {

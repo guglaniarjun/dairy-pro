@@ -134,6 +134,7 @@ export interface IStorage {
   getAlertsByTenant(tenantId: string): Promise<Alert[]>;
   createAlert(data: Partial<Alert>): Promise<Alert>;
   updateAlert(id: string, data: Partial<Alert>): Promise<Alert | undefined>;
+  generateSmartAlerts(tenantId: string): Promise<void>;
 
   // Expenses
   getExpensesByTenant(tenantId: string): Promise<Expense[]>;
@@ -1064,6 +1065,126 @@ export class DatabaseStorage implements IStorage {
   async createMilkSale(data: any): Promise<any> {
     const [created] = await db.insert(milkSales).values(data as any).returning();
     return created;
+  }
+
+  // Smart Alerts Auto-Generation
+  async generateSmartAlerts(tenantId: string): Promise<void> {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+
+    // Get existing undismissed alerts to avoid duplicates
+    const existingAlerts = await db.select().from(alerts).where(
+      and(eq(alerts.tenantId, tenantId), eq(alerts.isDismissed, false))
+    );
+
+    const existingKeys = new Set(existingAlerts.map(a => `${a.type}:${a.referenceType}:${a.referenceId || ''}:${a.cattleId || ''}`));
+
+    const toCreate: any[] = [];
+
+    const upsertAlert = (key: string, alertData: any) => {
+      if (!existingKeys.has(key)) {
+        toCreate.push({ ...alertData, tenantId, isRead: false, isDismissed: false });
+      }
+    };
+
+    // 1. Heat due: milking cows with last insemination/calving 18-28 days ago
+    const allCattle = await db.select().from(cattle).where(
+      and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active"))
+    );
+    const allInseminations = await db.select().from(inseminations).where(eq(inseminations.tenantId, tenantId));
+    const allCalvings = await db.select().from(calvings).where(eq(calvings.tenantId, tenantId));
+    const allPTs = await db.select().from(pregnancyTests).where(eq(pregnancyTests.tenantId, tenantId));
+
+    for (const cow of allCattle) {
+      if (cow.stage !== "milking" && cow.stage !== "heifer") continue;
+      const lastIns = allInseminations.filter(i => i.cattleId === cow.id).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const lastCalving = allCalvings.filter(c => c.cattleId === cow.id).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const refDate = lastIns?.date || lastCalving?.date;
+      if (!refDate) continue;
+      const daysAgo = Math.floor((now.getTime() - new Date(refDate).getTime()) / 86400000);
+      if (daysAgo >= 18 && daysAgo <= 28) {
+        const key = `breeding:heat_due:${today}:${cow.id}`;
+        upsertAlert(key, {
+          type: "breeding",
+          severity: "warning",
+          title: `Heat Due: ${cow.name || cow.tagNumber}`,
+          message: `${cow.name || cow.tagNumber} is expected to come into heat (${daysAgo}d since last event). Check and record if observed.`,
+          cattleId: cow.id,
+          referenceType: "heat_due",
+          referenceId: today,
+        });
+      }
+    }
+
+    // 2. Pregnancy test due: inseminations 28-45 days ago without PT
+    for (const ins of allInseminations) {
+      const insDate = new Date(ins.date);
+      const daysAgo = Math.floor((now.getTime() - insDate.getTime()) / 86400000);
+      if (daysAgo < 28 || daysAgo > 60) continue;
+      const hasPT = allPTs.some(pt => pt.cattleId === ins.cattleId && new Date(pt.testDate) > insDate);
+      if (!hasPT) {
+        const cow = allCattle.find(c => c.id === ins.cattleId);
+        if (!cow) continue;
+        const key = `breeding:pt_due:${ins.id}:${ins.cattleId}`;
+        upsertAlert(key, {
+          type: "breeding",
+          severity: "warning",
+          title: `Pregnancy Test Due: ${cow.name || cow.tagNumber}`,
+          message: `${cow.name || cow.tagNumber} was inseminated ${daysAgo} days ago. Schedule pregnancy test now.`,
+          cattleId: ins.cattleId,
+          referenceType: "pt_due",
+          referenceId: ins.id,
+        });
+      }
+    }
+
+    // 3. Vaccination due in next 14 days
+    const allVaccinations = await db.select().from(vaccinations).where(eq(vaccinations.tenantId, tenantId));
+    const in14Days = new Date(now.getTime() + 14 * 86400000);
+    for (const vac of allVaccinations) {
+      if (!vac.nextDueDate) continue;
+      const dueDate = new Date(vac.nextDueDate);
+      const daysUntil = Math.floor((dueDate.getTime() - now.getTime()) / 86400000);
+      if (daysUntil < 0 || daysUntil > 14) continue;
+      const cow = allCattle.find(c => c.id === vac.cattleId);
+      if (!cow) continue;
+      const key = `health:vac_due:${vac.id}:${vac.cattleId}`;
+      upsertAlert(key, {
+        type: "health",
+        severity: daysUntil <= 3 ? "critical" : "warning",
+        title: `Vaccination Due: ${vac.vaccineName} — ${cow.name || cow.tagNumber}`,
+        message: `${vac.vaccineName} vaccination is due ${daysUntil === 0 ? "today" : `in ${daysUntil} day(s)`} for ${cow.name || cow.tagNumber}.`,
+        cattleId: vac.cattleId,
+        referenceType: "vaccination",
+        referenceId: vac.id,
+      });
+    }
+
+    // 4. Low stock inventory
+    const allItems = await db.select().from(inventoryItems).where(
+      and(eq(inventoryItems.tenantId, tenantId), eq(inventoryItems.isActive, true))
+    );
+    for (const item of allItems) {
+      if (!item.minStock) continue;
+      const current = Number(item.currentStock);
+      const min = Number(item.minStock);
+      if (current <= min) {
+        const key = `inventory:low_stock:${item.id}:`;
+        upsertAlert(key, {
+          type: "inventory",
+          severity: current === 0 ? "critical" : "warning",
+          title: `Low Stock: ${item.name}`,
+          message: `${item.name} stock is at ${current} ${item.unit} (minimum: ${min} ${item.unit}). Please reorder.`,
+          referenceType: "inventory_item",
+          referenceId: item.id,
+        });
+      }
+    }
+
+    // Batch insert new alerts
+    if (toCreate.length > 0) {
+      await db.insert(alerts).values(toCreate);
+    }
   }
 }
 

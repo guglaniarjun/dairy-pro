@@ -11,6 +11,9 @@ import {
   BarChart3, Download, TrendingUp, Milk, Heart, Wallet, Calendar,
   FileText, ChevronRight, Activity, Users, Syringe,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell,
+} from "recharts";
 import { useToast } from "@/hooks/use-toast";
 
 const INR = (v: number) => `₹${v.toLocaleString("en-IN")}`;
@@ -224,23 +227,23 @@ export default function ReportsPage() {
             </Button>
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Daily summary */}
-            <Card>
+            {/* Daily milk trend chart */}
+            <Card className="md:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Daily Milk — {periodLabel}</CardTitle>
+                <CardTitle className="text-sm">Daily Milk Trend — {periodLabel}</CardTitle>
               </CardHeader>
               <CardContent>
                 {dailyMilk.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">No data</p>
+                  <p className="text-sm text-muted-foreground text-center py-8">No data for this period</p>
                 ) : (
-                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                    {dailyMilk.slice(0, 20).map(([date, qty]) => (
-                      <div key={date} className="flex justify-between text-sm py-1 border-b last:border-0">
-                        <span className="text-muted-foreground">{fmtDate(date)}</span>
-                        <span className="font-medium">{qty.toFixed(1)} L</span>
-                      </div>
-                    ))}
-                  </div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={dailyMilk.slice(0, 30).reverse().map(([date, qty]) => ({ date: format(parseISO(date), "dd/MM"), qty: Math.round(qty * 10) / 10 }))}>
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit=" L" />
+                      <Tooltip formatter={(v: any) => [`${v} L`, "Milk"]} />
+                      <Bar dataKey="qty" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 )}
               </CardContent>
             </Card>
@@ -256,12 +259,15 @@ export default function ReportsPage() {
                 ) : (
                   <div className="space-y-1.5 max-h-64 overflow-y-auto">
                     {Object.values(milkByCattle).sort((a, b) => b.total - a.total).map(({ name, total, days, sessions }) => (
-                      <div key={name} className="flex justify-between text-sm py-1 border-b last:border-0">
-                        <div>
-                          <span className="font-medium">{name}</span>
-                          <span className="text-xs text-muted-foreground ml-2">{sessions} sessions · {days.size}d</span>
+                      <div key={name} className="py-1.5 border-b last:border-0">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium truncate max-w-[120px]">{name}</span>
+                          <span className="font-medium">{total.toFixed(1)} L</span>
                         </div>
-                        <span className="font-medium">{total.toFixed(1)} L</span>
+                        <div className="h-1.5 rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-blue-500" style={{ width: `${(total / Math.max(...Object.values(milkByCattle).map(c => c.total))) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-muted-foreground">{sessions} sessions · {days.size} days</span>
                       </div>
                     ))}
                   </div>
@@ -430,7 +436,25 @@ export default function ReportsPage() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Income vs Expense</CardTitle></CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                {(totalRevenue > 0 || totalExpense > 0) && (
+                  <ResponsiveContainer width="100%" height={120}>
+                    <BarChart data={[
+                      { name: "Revenue", amount: totalRevenue, fill: "#22c55e" },
+                      { name: "Expense", amount: totalExpense, fill: "#ef4444" },
+                      { name: "Profit", amount: Math.max(0, totalRevenue - totalExpense), fill: "#3b82f6" },
+                    ]} layout="vertical">
+                      <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                      <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={60} />
+                      <Tooltip formatter={(v: any) => INR(v)} />
+                      <Bar dataKey="amount" radius={[0, 3, 3, 0]}>
+                        {[{ fill: "#22c55e" }, { fill: "#ef4444" }, { fill: "#3b82f6" }].map((entry, index) => (
+                          <Cell key={index} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="space-y-4 mt-2">
                   <div>
                     <div className="flex justify-between text-sm mb-1">
                       <span>Revenue</span>
