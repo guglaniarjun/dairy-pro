@@ -644,6 +644,20 @@ export default function CattleDetailPage() {
                 color="purple"
                 href={`/cattle/pl?cattleId=${id}`}
               />
+              <StatCard
+                label="Feed Records"
+                value="View"
+                icon={<Activity className="w-4 h-4 text-green-500" />}
+                color="green"
+                href={`/feed?cattleId=${id}`}
+              />
+              <StatCard
+                label="All Expenses"
+                value="Finances"
+                icon={<TrendingDown className="w-4 h-4 text-amber-500" />}
+                color="amber"
+                href={`/finances?tab=expenses`}
+              />
             </div>
             <Card>
               <CardHeader className="pb-2">

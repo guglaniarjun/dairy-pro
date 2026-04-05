@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { format, parseISO, startOfMonth, subMonths } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ function exportCSV(rows: string[][], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function StatCard({ label, value, icon, color }: any) {
+function StatCard({ label, value, icon, color, href }: any) {
   const bg: Record<string, string> = {
     blue: "bg-blue-100 dark:bg-blue-900/30",
     green: "bg-green-100 dark:bg-green-900/30",
@@ -43,8 +44,8 @@ function StatCard({ label, value, icon, color }: any) {
     purple: "text-purple-600 dark:text-purple-400",
     amber: "text-amber-600 dark:text-amber-400",
   };
-  return (
-    <Card>
+  const inner = (
+    <Card className={href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}>
       <CardContent className="p-4 flex items-center gap-3">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${bg[color]}`}>
           <span className={text[color]}>{icon}</span>
@@ -52,10 +53,12 @@ function StatCard({ label, value, icon, color }: any) {
         <div>
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="text-lg font-bold">{value}</p>
+          {href && <p className={`text-xs mt-0.5 ${text[color]}`}>View →</p>}
         </div>
       </CardContent>
     </Card>
   );
+  return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
 export default function ReportsPage() {
@@ -202,12 +205,12 @@ export default function ReportsPage() {
         </Select>
       </div>
 
-      {/* Quick Stats */}
+      {/* Quick Stats — click to navigate to the relevant module */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-        <StatCard label="Total Milk" value={`${totalMilk.toFixed(0)} L`} icon={<Milk className="w-5 h-5" />} color="blue" />
-        <StatCard label="Revenue" value={INR(totalRevenue)} icon={<TrendingUp className="w-5 h-5" />} color="green" />
-        <StatCard label="Expenses" value={INR(totalExpense)} icon={<Wallet className="w-5 h-5" />} color="purple" />
-        <StatCard label="Conception Rate" value={conceptionRate ? `${conceptionRate}%` : "—"} icon={<Heart className="w-5 h-5" />} color="amber" />
+        <StatCard label="Total Milk" value={`${totalMilk.toFixed(0)} L`} icon={<Milk className="w-5 h-5" />} color="blue" href="/milk" />
+        <StatCard label="Revenue" value={INR(totalRevenue)} icon={<TrendingUp className="w-5 h-5" />} color="green" href="/finances?tab=income" />
+        <StatCard label="Expenses" value={INR(totalExpense)} icon={<Wallet className="w-5 h-5" />} color="purple" href="/finances?tab=expenses" />
+        <StatCard label="Conception Rate" value={conceptionRate ? `${conceptionRate}%` : "—"} icon={<Heart className="w-5 h-5" />} color="amber" href="/breeding?tab=pregnancy" />
       </div>
 
       <Tabs defaultValue="milk" className="w-full">
@@ -258,11 +261,15 @@ export default function ReportsPage() {
                   <p className="text-sm text-muted-foreground text-center py-4">No data</p>
                 ) : (
                   <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                    {Object.values(milkByCattle).sort((a, b) => b.total - a.total).map(({ name, total, days, sessions }) => (
-                      <div key={name} className="py-1.5 border-b last:border-0">
+                    {Object.entries(milkByCattle).sort(([, a], [, b]) => b.total - a.total).map(([cattleId, { name, total, days, sessions }]) => (
+                      <div key={cattleId} className="py-1.5 border-b last:border-0">
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium truncate max-w-[120px]">{name}</span>
-                          <span className="font-medium">{total.toFixed(1)} L</span>
+                          <Link href={`/cattle/${cattleId}`}>
+                            <span className="font-medium truncate max-w-[120px] text-primary hover:underline cursor-pointer">{name}</span>
+                          </Link>
+                          <Link href={`/milk?cattleId=${cattleId}`}>
+                            <span className="font-medium text-blue-600 hover:underline cursor-pointer">{total.toFixed(1)} L →</span>
+                          </Link>
                         </div>
                         <div className="h-1.5 rounded-full bg-muted">
                           <div className="h-full rounded-full bg-blue-500" style={{ width: `${(total / Math.max(...Object.values(milkByCattle).map(c => c.total))) * 100}%` }} />
@@ -310,15 +317,17 @@ export default function ReportsPage() {
               <CardContent>
                 <div className="space-y-2">
                   {Object.entries(byStage).map(([stage, count]) => (
-                    <div key={stage} className="flex justify-between items-center">
-                      <span className="text-sm capitalize">{stage}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-blue-500" style={{ width: `${(count / cattle.length) * 100}%` }} />
+                    <Link key={stage} href={`/cattle?stage=${stage}`}>
+                      <div className="flex justify-between items-center cursor-pointer hover:opacity-80 transition-opacity py-0.5">
+                        <span className="text-sm capitalize text-primary hover:underline">{stage}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-2 rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-blue-500" style={{ width: `${(count / cattle.length) * 100}%` }} />
+                          </div>
+                          <span className="text-sm font-medium w-8 text-right">{count}</span>
                         </div>
-                        <span className="text-sm font-medium w-8 text-right">{count}</span>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </CardContent>

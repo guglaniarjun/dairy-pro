@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { format, subDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,18 +34,17 @@ import {
 } from "lucide-react";
 import type { MilkEntry, Cattle } from "@shared/schema";
 
-function getUrlParam(key: string) {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get(key);
-}
-
 export default function MilkRecordsPage() {
-  const urlCattleId = getUrlParam("cattleId");
-  const urlDateFilter = getUrlParam("dateFilter");
+  const search = useSearch();
+  const urlCattleId = new URLSearchParams(search).get("cattleId");
+  const urlDateFilter = new URLSearchParams(search).get("dateFilter");
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<string>(urlDateFilter || "all");
   const [sessionFilter, setSessionFilter] = useState<string>("all");
   const [cattleFilter, setCattleFilter] = useState<string>(urlCattleId || "all");
+
+  useEffect(() => { setCattleFilter(urlCattleId || "all"); }, [urlCattleId]);
+  useEffect(() => { setDateFilter(urlDateFilter || "all"); }, [urlDateFilter]);
 
   const { data: milkEntries, isLoading } = useQuery<MilkEntry[]>({
     queryKey: ["/api/milk"],

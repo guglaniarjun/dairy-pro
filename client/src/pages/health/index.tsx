@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { format, parseISO, differenceInDays, addDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,15 +28,11 @@ function DaysBadge({ days }: { days: number }) {
   return <Badge variant="secondary" className="text-xs">In {days}d</Badge>;
 }
 
-function getUrlParam(key: string) {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get(key);
-}
-
 export default function HealthPage() {
-  const urlCattleId = getUrlParam("cattleId");
-  const urlTab = getUrlParam("tab");
-  const urlStatus = getUrlParam("status");
+  const search = useSearch();
+  const urlCattleId = new URLSearchParams(search).get("cattleId");
+  const urlTab = new URLSearchParams(search).get("tab");
+  const urlStatus = new URLSearchParams(search).get("status");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>(urlStatus || "active");
@@ -44,6 +40,12 @@ export default function HealthPage() {
   const [activeTab, setActiveTab] = useState<string>(
     urlTab === "vaccination" ? "vaccinations" : urlTab === "history" ? "history" : "issues"
   );
+
+  useEffect(() => { setCattleFilter(urlCattleId || "all"); }, [urlCattleId]);
+  useEffect(() => { setStatusFilter(urlStatus || "active"); }, [urlStatus]);
+  useEffect(() => {
+    setActiveTab(urlTab === "vaccination" ? "vaccinations" : urlTab === "history" ? "history" : "issues");
+  }, [urlTab]);
   const { toast } = useToast();
 
   const { data: healthEvents = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/health"] });
@@ -137,24 +139,40 @@ export default function HealthPage() {
         </div>
       )}
 
-      {/* KPI Row */}
+      {/* KPI Row — clickable to filter */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-        <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/40 text-center">
+        <button
+          className="rounded-xl p-3 bg-red-50 dark:bg-red-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => { setActiveTab("issues"); setStatusFilter("active"); }}
+          data-testid="stat-active-issues"
+        >
           <div className="text-2xl font-bold text-red-600">{healthEvents.filter((e: any) => e.status === "active").length}</div>
-          <div className="text-xs text-muted-foreground">Active Issues</div>
-        </div>
-        <div className="rounded-xl p-3 bg-orange-50 dark:bg-orange-950/40 text-center">
+          <div className="text-xs text-muted-foreground">Active Issues →</div>
+        </button>
+        <button
+          className="rounded-xl p-3 bg-orange-50 dark:bg-orange-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => setActiveTab("vaccinations")}
+          data-testid="stat-vac-overdue"
+        >
           <div className="text-2xl font-bold text-orange-600">{vacOverdue}</div>
-          <div className="text-xs text-muted-foreground">Vac. Overdue</div>
-        </div>
-        <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/40 text-center">
+          <div className="text-xs text-muted-foreground">Vac. Overdue →</div>
+        </button>
+        <button
+          className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => setActiveTab("vaccinations")}
+          data-testid="stat-vac-due-soon"
+        >
           <div className="text-2xl font-bold text-amber-600">{vacDueSoon}</div>
-          <div className="text-xs text-muted-foreground">Due This Week</div>
-        </div>
-        <div className="rounded-xl p-3 bg-green-50 dark:bg-green-950/40 text-center">
+          <div className="text-xs text-muted-foreground">Due This Week →</div>
+        </button>
+        <button
+          className="rounded-xl p-3 bg-green-50 dark:bg-green-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => { setActiveTab("issues"); setStatusFilter("resolved"); }}
+          data-testid="stat-resolved"
+        >
           <div className="text-2xl font-bold text-green-600">{healthEvents.filter((e: any) => e.status === "resolved").length}</div>
-          <div className="text-xs text-muted-foreground">Resolved</div>
-        </div>
+          <div className="text-xs text-muted-foreground">Resolved →</div>
+        </button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

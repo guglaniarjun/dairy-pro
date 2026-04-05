@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { format, parseISO, differenceInDays, addDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,8 @@ function DaysChip({ days, label }: { days: number; label: string }) {
 
 export default function BreedingPage() {
   const [location] = useLocation();
-  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const search = useSearch();
+  const params = new URLSearchParams(search);
   const urlFilter = params.get("filter") || "all";
   const urlTab = params.get("tab") || "expected";
   const urlCattleId = params.get("cattleId");
@@ -40,6 +41,12 @@ export default function BreedingPage() {
     urlTab === "heats" ? "heats" : urlTab === "ai" ? "ai" :
     urlTab === "pregnancy" ? "pregnancy" : urlTab === "calving" ? "calving" : "expected"
   );
+
+  useEffect(() => { setCattleFilter(urlCattleId || "all"); }, [urlCattleId]);
+  useEffect(() => {
+    setActiveTab(urlTab === "heats" ? "heats" : urlTab === "ai" ? "ai" :
+      urlTab === "pregnancy" ? "pregnancy" : urlTab === "calving" ? "calving" : "expected");
+  }, [urlTab]);
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
   const { data: heats = [], isLoading: heatsLoading } = useQuery<any[]>({ queryKey: ["/api/breeding/heats"] });
@@ -202,11 +209,11 @@ export default function BreedingPage() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
-        <StatCard label="Breedable" value={breedableCattle.length} color="pink" icon="🐄" />
-        <StatCard label="Pregnant" value={pregnantCount} color="purple" icon="🤰" />
-        <StatCard label="Heat Due" value={heatDue.length} color="orange" icon="🌡️" />
-        <StatCard label="PT Due" value={ptDue.length} color="amber" icon="🔬" />
-        <StatCard label="Calving Soon" value={calvingDue.length} color="green" icon="🐄" />
+        <StatCard label="Breedable" value={breedableCattle.length} color="pink" icon="🐄" href="/breeding?tab=heats" />
+        <StatCard label="Pregnant" value={pregnantCount} color="purple" icon="🤰" href="/breeding?tab=pregnancy" />
+        <StatCard label="Heat Due" value={heatDue.length} color="orange" icon="🌡️" href="/breeding?filter=heat-due" />
+        <StatCard label="PT Due" value={ptDue.length} color="amber" icon="🔬" href="/breeding?filter=pt-due" />
+        <StatCard label="Calving Soon" value={calvingDue.length} color="green" icon="🐄" href="/breeding?filter=calving-due" />
       </div>
 
       {/* Main Tabs */}
@@ -467,7 +474,7 @@ export default function BreedingPage() {
   );
 }
 
-function StatCard({ label, value, color, icon }: { label: string; value: number; color: string; icon: string }) {
+function StatCard({ label, value, color, icon, href }: { label: string; value: number; color: string; icon: string; href?: string }) {
   const bg: Record<string, string> = {
     pink: "bg-pink-50 dark:bg-pink-950/40",
     purple: "bg-purple-50 dark:bg-purple-950/40",
@@ -476,13 +483,14 @@ function StatCard({ label, value, color, icon }: { label: string; value: number;
     green: "bg-green-50 dark:bg-green-950/40",
     teal: "bg-teal-50 dark:bg-teal-950/40",
   };
-  return (
-    <div className={`rounded-xl p-3 text-center ${bg[color] || "bg-muted"}`}>
+  const inner = (
+    <div className={`rounded-xl p-3 text-center ${bg[color] || "bg-muted"} ${href ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}>
       <div className="text-xl mb-1">{icon}</div>
       <div className="text-2xl font-bold">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
+  return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
 function ExpectedSection({ title, count, color, items, renderItem }: any) {

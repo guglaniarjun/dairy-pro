@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +14,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useSearch } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, ShoppingCart, DollarSign, Package, TrendingUp, TrendingDown, Loader2, Recycle, BarChart3, Calendar, Users } from "lucide-react";
@@ -70,7 +71,20 @@ export default function ByproductsPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [createdTransactionId, setCreatedTransactionId] = useState<string | null>(null);
-  const [selectedTab, setSelectedTab] = useState("transactions");
+  const search = useSearch();
+  const rawTab = new URLSearchParams(search).get("tab") || "transactions";
+  const [selectedTab, setSelectedTab] = useState(rawTab);
+
+  useEffect(() => {
+    setSelectedTab(rawTab);
+  }, [rawTab]);
+
+  const handleTabChange = (tab: string) => {
+    setSelectedTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState({}, "", url.toString());
+  };
 
   const { data: byproductTypes, isLoading: typesLoading } = useQuery<ByproductType[]>({
     queryKey: ["/api/byproduct-types"],
@@ -514,7 +528,7 @@ export default function ByproductsPage() {
         </Card>
       </div>
 
-      <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+      <Tabs value={selectedTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="transactions" data-testid="tab-transactions">Transactions</TabsTrigger>
           <TabsTrigger value="reports" data-testid="tab-reports">Reports</TabsTrigger>

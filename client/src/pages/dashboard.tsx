@@ -174,9 +174,9 @@ export default function DashboardPage() {
       <div>
         <SectionHeader title="💰 Finance Snapshot" href="/finances" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-          <KPICard label="This Month Revenue" value={`₹${(s.monthRevenue || 0).toLocaleString("en-IN")}`} sub="Milk + byproducts" icon={TrendingUp} color="green" href="/finances" loading={isLoading} />
-          <KPICard label="This Month Expense" value={`₹${(s.monthExpense || 0).toLocaleString("en-IN")}`} sub="All categories" icon={TrendingDown} color="red" href="/finances" loading={isLoading} />
-          <KPICard label="Receivables" value={`₹${(s.pendingReceivables || 0).toLocaleString("en-IN")}`} sub="Unpaid milk sales" icon={Wallet} color="orange" href="/finances?tab=receivables" loading={isLoading} />
+          <KPICard label="This Month Revenue" value={`₹${(s.monthRevenue || 0).toLocaleString("en-IN")}`} sub="Milk + byproducts" icon={TrendingUp} color="green" href="/finances?tab=income" loading={isLoading} />
+          <KPICard label="This Month Expense" value={`₹${(s.monthExpense || 0).toLocaleString("en-IN")}`} sub="All categories" icon={TrendingDown} color="red" href="/finances?tab=expenses" loading={isLoading} />
+          <KPICard label="Receivables" value={`₹${(s.pendingReceivables || 0).toLocaleString("en-IN")}`} sub="Unpaid milk sales" icon={Wallet} color="orange" href="/finances?tab=income" loading={isLoading} />
           <KPICard label="Cost/kg Milk" value={s.costPerKgMilk ? `₹${Number(s.costPerKgMilk).toFixed(2)}` : "—"} sub="Feed+health/milk" icon={BarChart3} color="purple" href="/reports" loading={isLoading} />
         </div>
       </div>

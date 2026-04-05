@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,16 +27,17 @@ import {
 } from "lucide-react";
 import type { Cattle, Breed } from "@shared/schema";
 
-function getUrlParam(key: string) {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get(key);
-}
-
 export default function CattleListPage() {
+  const search = useSearch();
+  const urlStage = new URLSearchParams(search).get("stage") || "all";
+  const urlStatus = new URLSearchParams(search).get("status") || "active";
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string>(getUrlParam("stage") || "all");
-  const [statusFilter, setStatusFilter] = useState<string>(getUrlParam("status") || "active");
+  const [stageFilter, setStageFilter] = useState<string>(urlStage);
+  const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  useEffect(() => { setStageFilter(urlStage); }, [urlStage]);
+  useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
 
   const { data: cattle, isLoading } = useQuery<Cattle[]>({
     queryKey: ["/api/cattle"],

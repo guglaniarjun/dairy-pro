@@ -44,7 +44,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Features
 - **Comprehensive Dairy Farm Management**: Cattle, Milk, Health, Breeding, Feed, Inventory, Finances.
-- **Full Drill-Down Interactivity**: Every stat card/badge navigates to filtered underlying data. Cattle stage cards filter list. Cattle detail links to breeding/milk/health with cattleId param. Health, Milk, Breeding pages all read cattleId URL params and show filter banners.
+- **Full Drill-Down Interactivity**: Every stat card/badge navigates to filtered underlying data. All pages use `useSearch()` from wouter for reactive URL params (no stale reads). Finance/Inventory/Byproducts tabs driven by `?tab=` URL param. Feed/Health/Milk/Cattle/Breeding filter via `?cattleId=`/`?stage=`/`?filter=` params. Health stat buttons do in-page filtering. All drill-down tested E2E.
 - **Smart Alerts Engine**: Auto-generates alerts for heat due, pregnancy test due, vaccination due (within 14 days), and low inventory stock. Runs on every dashboard stats call. Sidebar badge shows live count.
 - **Reporting & Analytics**: Recharts bar/line charts for daily milk trends, finance comparison. CSV export for all reports.
 - **Bulk Import/Export**: Data import and export functionality with filtering and validation for various modules.
