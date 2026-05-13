@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "-7aXvvLvgT3T409I1G98-"
+uri = "file://docs/README.md"
+type = "text"
+title = "DairyFlow — Complete Documentation"
