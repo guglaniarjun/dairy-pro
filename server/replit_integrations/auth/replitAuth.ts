@@ -102,17 +102,31 @@ export async function setupAuth(app: Express) {
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
+  const getCallbackDomain = (req: any): string => {
+    // REPLIT_DOMAINS is the authoritative domain in both dev and production.
+    // Falling back to req.hostname can produce an IP address (e.g. 168.x.x.x)
+    // when the request arrives through a load balancer without a Host header,
+    // which Replit's OIDC server rejects as an invalid redirect_uri.
+    const replitDomains = process.env.REPLIT_DOMAINS;
+    if (replitDomains) {
+      return replitDomains.split(",")[0].trim();
+    }
+    return req.hostname;
+  };
+
   app.get("/api/login", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
+    const domain = getCallbackDomain(req);
+    ensureStrategy(domain);
+    passport.authenticate(`replitauth:${domain}`, {
       prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
 
   app.get("/api/callback", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
+    const domain = getCallbackDomain(req);
+    ensureStrategy(domain);
+    passport.authenticate(`replitauth:${domain}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login",
     })(req, res, next);
@@ -120,10 +134,11 @@ export async function setupAuth(app: Express) {
 
   app.get("/api/logout", (req, res) => {
     req.logout(() => {
+      const domain = getCallbackDomain(req);
       res.redirect(
         client.buildEndSessionUrl(config, {
           client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
+          post_logout_redirect_uri: `https://${domain}`,
         }).href
       );
     });
