@@ -5,19 +5,12 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
 import { upload, uploadFile, deleteFile, getFileType } from "./upload";
 
-// Extend Express Request to include user with Replit Auth claims
+import type { User } from "@shared/models/auth";
+
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        claims: {
-          sub: string;
-          email?: string | null;
-          first_name?: string | null;
-          last_name?: string | null;
-          profile_image_url?: string | null;
-        };
-      };
+      user?: User;
       tenantId?: string;
     }
   }
@@ -25,17 +18,17 @@ declare global {
 
 // Middleware to get current user's tenant
 async function withTenant(req: any, res: Response, next: NextFunction) {
-  if (!req.user || !req.user.claims) {
+  if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
-    const userId = req.user.claims.sub;
+    const userId = req.user.id;
     let tenant = await storage.getTenantByOwnerId(userId);
     
     if (!tenant) {
       // Create default tenant for new user
-      const firstName = req.user.claims.first_name || "My";
+      const firstName = req.user.firstName || "My";
       const slugSuffix = `${userId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6)}-${Date.now().toString(36)}`;
       tenant = await storage.createTenant({
         name: `${firstName}'s Farm`,
@@ -68,12 +61,8 @@ export async function registerRoutes(
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      res.json(user);
+      const { passwordHash, ...safeUser } = req.user as any;
+      res.json(safeUser);
     } catch (error) {
       console.error("Auth user error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -233,7 +222,7 @@ export async function registerRoutes(
       const entry = await storage.createMilkEntry({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.claims.sub,
+        recordedBy: req.user!.id,
       });
       res.status(201).json(entry);
     } catch (error) {
@@ -359,7 +348,7 @@ export async function registerRoutes(
       const expense = await storage.createExpense({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.claims.sub,
+        recordedBy: req.user!.id,
       });
       res.status(201).json(expense);
     } catch (error) {
@@ -383,7 +372,7 @@ export async function registerRoutes(
       const income = await storage.createIncome({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.claims.sub,
+        recordedBy: req.user!.id,
       });
       res.status(201).json(income);
     } catch (error) {
@@ -434,7 +423,7 @@ export async function registerRoutes(
       const txn = await storage.createInventoryTransaction({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user?.claims?.sub,
+        recordedBy: req.user?.id,
       });
       res.status(201).json(txn);
     } catch (error) {
@@ -482,7 +471,7 @@ export async function registerRoutes(
       const record = await storage.createFeedingRecord({
         ...req.body,
         tenantId: req.tenantId,
-        recordedBy: req.user!.claims.sub,
+        recordedBy: req.user!.id,
       });
       res.status(201).json(record);
     } catch (error) {
@@ -510,7 +499,7 @@ export async function registerRoutes(
       const heat = await storage.createHeat({
         ...req.body,
         tenantId: req.tenantId,
-        detectedBy: req.user!.claims.sub,
+        detectedBy: req.user!.id,
         detectedAt: new Date(req.body.detectedAt),
       });
       res.status(201).json(heat);
@@ -660,7 +649,7 @@ export async function registerRoutes(
       const transaction = await storage.createCattleTransaction({
         ...req.body,
         tenantId: req.tenantId,
-        createdBy: req.user!.claims.sub,
+        createdBy: req.user!.id,
       });
       res.status(201).json(transaction);
     } catch (error) {
@@ -699,7 +688,7 @@ export async function registerRoutes(
         ...req.body,
         transactionId: req.params.id,
         tenantId: req.tenantId,
-        createdBy: req.user!.claims.sub,
+        createdBy: req.user!.id,
       });
       
       // Update transaction paid amount
@@ -818,7 +807,7 @@ export async function registerRoutes(
         ...req.body,
         cattleId: req.params.id,
         tenantId: req.tenantId,
-        createdBy: req.user!.claims.sub,
+        createdBy: req.user!.id,
       });
       res.status(201).json(cost);
     } catch (error) {
@@ -846,7 +835,7 @@ export async function registerRoutes(
       const transaction = await storage.createByproductTransaction({
         ...req.body,
         tenantId: req.tenantId,
-        createdBy: req.user!.claims.sub,
+        createdBy: req.user!.id,
       });
       
       // Update inventory if enabled
@@ -919,7 +908,7 @@ export async function registerRoutes(
         fileSize: req.file.size,
         storageUrl: url,
         storageKey: storageKey,
-        uploadedBy: (req as any).user.claims.sub,
+        uploadedBy: (req as any).user.id,
       });
 
       // Create link to entity

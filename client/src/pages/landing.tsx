@@ -36,7 +36,7 @@ export default function LandingPage() {
 
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <a href="/api/login">
+              <a href="/login">
                 <Button data-testid="button-login">Sign In</Button>
               </a>
             </div>
@@ -68,7 +68,7 @@ export default function LandingPage() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4">
-                <a href="/api/login">
+                <a href="/register">
                   <Button size="lg" className="gap-2" data-testid="button-get-started">
                     Get Started Free
                     <ArrowRight className="w-4 h-4" />
@@ -307,7 +307,7 @@ export default function LandingPage() {
                     Offline support
                   </li>
                 </ul>
-                <a href="/api/login" className="block">
+                <a href="/register" className="block">
                   <Button variant="outline" className="w-full" data-testid="button-free-plan">
                     Get Started
                   </Button>
@@ -351,7 +351,7 @@ export default function LandingPage() {
                     Priority support
                   </li>
                 </ul>
-                <a href="/api/login" className="block">
+                <a href="/register" className="block">
                   <Button className="w-full" data-testid="button-pro-plan">
                     Start 14-day Trial
                   </Button>
@@ -406,7 +406,7 @@ export default function LandingPage() {
             Join hundreds of dairy farmers who are already using DairyFlow 
             to increase productivity and profitability.
           </p>
-          <a href="/api/login">
+          <a href="/register">
             <Button size="lg" className="gap-2" data-testid="button-cta">
               Start Your Free Account
               <ArrowRight className="w-4 h-4" />

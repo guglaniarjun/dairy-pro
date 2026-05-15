@@ -12,6 +12,8 @@ import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import LandingPage from "@/pages/landing";
+import LoginPage from "@/pages/auth/login";
+import RegisterPage from "@/pages/auth/register";
 import DashboardPage from "@/pages/dashboard";
 import CattleListPage from "@/pages/cattle/index";
 import AddCattlePage from "@/pages/cattle/new";
@@ -115,6 +117,9 @@ function AppRouter() {
   }
 
   if (!isAuthenticated) {
+    const path = window.location.pathname;
+    if (path === "/login") return <LoginPage />;
+    if (path === "/register") return <RegisterPage />;
     return <LandingPage />;
   }
 
