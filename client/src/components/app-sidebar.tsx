@@ -195,7 +195,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       {/* User Footer */}
-      <SidebarFooter className="p-3 border-t border-sidebar-border">
+      <SidebarFooter className="p-3 border-t border-sidebar-border pt-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -238,6 +238,11 @@ export function AppSidebar() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <div className="flex items-center justify-center pt-1 pb-0.5">
+          <span className="text-[10px] text-muted-foreground/50 font-medium tracking-wide" data-testid="text-version">
+            DairyFlow v1.0.0
+          </span>
+        </div>
       </SidebarFooter>
     </Sidebar>
   );
