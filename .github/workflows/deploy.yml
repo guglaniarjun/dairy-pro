@@ -1,0 +1,42 @@
+name: Deploy to Webyne VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: dairy-pro-vps-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Dairy Pro
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DEPLOY_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: GITHUB_TOKEN,GITHUB_REPOSITORY,DEPLOY_SHA
+          command_timeout: 20m
+          script: |
+            set -eu
+            cd /var/www/dairypro
+            if [ ! -d .git ]; then git init; fi
+            git remote remove origin 2>/dev/null || true
+            git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            git fetch "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" main
+            git reset --hard "$DEPLOY_SHA"
+            printf '%s\n' '.deploy-state/' >> .git/info/exclude
+            unset GITHUB_TOKEN
+            bash scripts/deploy-vps.sh

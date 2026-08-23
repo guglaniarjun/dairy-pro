@@ -23,7 +23,7 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.SESSION_COOKIE_SECURE === "true",
       maxAge: sessionTtl,
     },
   });
