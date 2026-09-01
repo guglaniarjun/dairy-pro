@@ -53,10 +53,10 @@
 ### Advanced Capabilities
 
 - **Full Drill-Down Interactivity** — Every KPI card, badge, and stat button navigates to filtered underlying data via reactive URL params
-- **Smart Alerts Engine** — Runs automatically on every dashboard load; generates contextual alerts with severity levels
+- **Smart Alerts Engine** — Runs continuously in the server, with customizable event timing, cattle scope, conditions, recipients, and delivery channels
 - **Offline-First PWA** — Service worker caching for core data (mobile-friendly)
 - **Universal Attachments** — Image, PDF, and audio uploads (max 10 MB) linked to any record; configurable for S3/Supabase
-- **WhatsApp Notifications** — Configurable alerts via WhatsApp Web or API mode
+- **WhatsApp Notifications** — One persistent Super Admin WhatsApp Web session, QR pairing, queued delivery, retries, tests, and tenant-owner broadcasts
 - **Cattle P&L Dashboard** — Per-animal profitability: purchase cost, feed costs, vet costs, milk revenue, sale proceeds
 - **Master Data Pre-seeded** — Breeds, vaccines, feed items, expense/income heads, inventory categories ready out of the box
 
@@ -655,7 +655,9 @@ Plan upgrades are managed via the `/billing` page. Stripe integration is pre-wir
 
 ## Smart Alerts Engine
 
-The alerts engine runs automatically every time `/api/dashboard/stats` is called. It scans for:
+The alerts engine runs in the server every five minutes by default. Dashboard loads can also trigger an evaluation, and a farm owner can run rules immediately from Settings → Notifications. Alert creation is idempotent, so repeated evaluations do not duplicate the same occurrence.
+
+Each tenant can create multiple independent rules with day offsets (for example birth day `0`, then days `10`, `20`, and `30`), a specific animal or cattle stage, severity, app and WhatsApp channels, recipient scope, and an optional message template.
 
 | Alert Type | Trigger Condition |
 |---|---|
@@ -663,8 +665,18 @@ The alerts engine runs automatically every time `/api/dashboard/stats` is called
 | **Pregnancy Test Due** | Insemination date + 30 days is within the next 7 days |
 | **Vaccination Due** | `nextDueDate` within the next 14 days |
 | **Low Inventory** | `currentStock` ≤ `minStock` for any inventory item |
+| **Birth Follow-up** | Configured day offsets after a calving record |
+| **Death Recorded** | Configured day offsets after cattle is marked dead |
+| **Milk Drop** | Latest daily yield drops by the configured percentage versus its lookback average |
+| **Cattle Parameter** | A numeric cattle field or age in days matches the configured operator and value |
 
-Generated alerts are stored in the `alerts` table with `severity` (`info`, `warning`, `critical`) and `type` (`breeding`, `health`, `inventory`). The sidebar navigation badge shows the live unread count by polling `/api/alerts/active`.
+Generated alerts are stored in the `alerts` table. WhatsApp deliveries are placed in `whatsapp_logs` and processed by a background outbox with retry/backoff. The sidebar navigation badge shows the live unread count by polling `/api/alerts/active`.
+
+### WhatsApp Web session
+
+Only the Super Admin can open Settings → WhatsApp. Click **Connect / show QR**, then scan the QR from WhatsApp → Linked devices on the sending phone. `LocalAuth` stores the browser session under `.whatsapp-auth/`, so that directory must persist across PM2 restarts and deployments. Farm owners enable WhatsApp per alert rule and choose their own farm number or custom recipients; only the Super Admin can select all tenant owners or send a manual broadcast.
+
+This integration automates WhatsApp Web rather than using the official WhatsApp Business API. WhatsApp can log out, change its web client, or restrict accounts that send automated/bulk messages. Use conservative message volume and obtain recipient consent.
 
 ---
 
@@ -699,6 +711,7 @@ All stat cards and KPI badges are clickable links that navigate to the relevant 
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | Auto | PostgreSQL connection parts (auto-set on Replit) |
 | `REPL_ID` | Auto | Replit project identifier |
 | `REPLIT_DOMAINS` | Auto | Allowed domains for OIDC callback |
+| `SUPER_ADMIN_EMAILS` | Yes for admin features | Comma-separated emails allowed to pair WhatsApp and broadcast; defaults to `admin@dairyflow.com` |
 
 ### Optional Integrations
 
@@ -711,6 +724,11 @@ All stat cards and KPI badges are clickable links that navigate to the relevant 
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | Email notifications |
 | `STRIPE_SECRET_KEY` | Payment processing |
 | `OPENAI_API_KEY` | AI features |
+| `WHATSAPP_WEB_ENABLED` | Set to `false` to disable the WhatsApp Web process; enabled by default |
+| `WHATSAPP_AUTH_PATH` | Persistent WhatsApp session directory; defaults to `<app>/.whatsapp-auth` |
+| `CHROMIUM_EXECUTABLE_PATH` | Optional path to the VPS Chromium/Chrome executable |
+| `NOTIFICATION_EVALUATION_INTERVAL_MS` | Rule evaluation interval; defaults to 300000 (5 minutes) |
+| `WHATSAPP_DELIVERY_INTERVAL_MS` | WhatsApp outbox interval; defaults to 30000 (30 seconds) |
 
 ---
 
@@ -796,6 +814,8 @@ The production build serves the compiled frontend as static files from the Expre
 
 ### Manual / VPS
 
+Install Chromium before starting the app (package name varies by Linux distribution). The server runs it headlessly for WhatsApp Web. Keep `WHATSAPP_AUTH_PATH` on persistent local storage and ensure the PM2 user can read and write it.
+
 ```bash
 # Build
 npm run build
@@ -803,6 +823,9 @@ npm run build
 # Set production env vars
 export DATABASE_URL=...
 export SESSION_SECRET=...
+export SUPER_ADMIN_EMAILS=admin@dairyflow.com
+export WHATSAPP_AUTH_PATH=/var/www/dairypro/.whatsapp-auth
+export CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 export NODE_ENV=production
 
 # Start
@@ -818,6 +841,8 @@ npm run db:push
 ```
 
 For production database migrations, run this command against your production `DATABASE_URL`.
+
+This alert release changes `alerts`, `whatsapp_logs`, and `notification_rules`, so `npm run db:push` is required before restarting the new build. The repository's VPS deploy script intentionally stops when `shared/schema.ts` changes; apply and review the schema update explicitly, then rerun deployment.
 
 ---
 

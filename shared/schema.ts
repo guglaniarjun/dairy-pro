@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -421,10 +421,16 @@ export const alerts = pgTable("alerts", {
   cattleId: varchar("cattle_id").references(() => cattle.id),
   referenceType: text("reference_type"),
   referenceId: varchar("reference_id"),
+  ruleId: varchar("rule_id"),
+  dedupeKey: text("dedupe_key"),
+  scheduledFor: timestamp("scheduled_for"),
   isRead: boolean("is_read").notNull().default(false),
   isDismissed: boolean("is_dismissed").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("alerts_tenant_idx").on(table.tenantId),
+  uniqueIndex("alerts_dedupe_key_idx").on(table.dedupeKey),
+]);
 
 // =====================================================
 // SYSTEM SETTINGS (Super Admin - Global Storage Config)
@@ -678,6 +684,8 @@ export const whatsappLogs = pgTable("whatsapp_logs", {
   status: text("status").notNull().default("pending"), // pending, sent, delivered, failed, read
   externalMessageId: text("external_message_id"),
   errorMessage: text("error_message"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow(),
   triggerType: text("trigger_type"), // heat_due, pregnancy_due, vaccination_due, payment_reminder, test
   referenceType: text("reference_type"),
   referenceId: varchar("reference_id"),
@@ -695,14 +703,29 @@ export const whatsappLogs = pgTable("whatsapp_logs", {
 export const notificationRules = pgTable("notification_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").notNull().references(() => tenants.id),
-  ruleType: text("rule_type").notNull(), // heat_due, pregnancy_test_due, calving_due, dry_due, vaccination_due, low_stock, milk_drop, payment_reminder
+  name: text("name").notNull().default("Notification rule"),
+  ruleType: text("rule_type").notNull(), // birth_followup, death, milk_drop, heat_due, pregnancy_test_due, vaccination_due, low_stock, cattle_parameter
   isEnabled: boolean("is_enabled").notNull().default(true),
   daysBeforeEvent: integer("days_before_event").default(1),
+  offsetsDays: jsonb("offsets_days").$type<number[]>().default([0]),
+  cattleId: varchar("cattle_id").references(() => cattle.id),
+  cattleStage: text("cattle_stage"),
+  conditions: jsonb("conditions").$type<{
+    parameter?: string;
+    operator?: "lt" | "lte" | "eq" | "gte" | "gt" | "drop_percent";
+    value?: number | string;
+    lookbackDays?: number;
+  }>().default({}),
+  severity: text("severity").notNull().default("warning"),
   channels: jsonb("channels").$type<string[]>().default(["app"]), // app, whatsapp, email
+  recipientScope: text("recipient_scope").notNull().default("tenant_owner"), // tenant_owner, custom, all_tenant_owners
+  customRecipients: jsonb("custom_recipients").$type<string[]>().default([]),
+  messageTemplate: text("message_template"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("notif_rules_tenant_idx").on(table.tenantId),
+  index("notif_rules_type_idx").on(table.ruleType),
 ]);
 
 // =====================================================

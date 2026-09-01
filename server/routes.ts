@@ -4,17 +4,21 @@ import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
 import { upload, uploadFile, deleteFile, getFileType } from "./upload";
+import { whatsappWebGateway } from "./whatsapp-web";
+import { evaluateTenantRules, processWhatsappOutbox, queueWhatsappBroadcast, queueWhatsappMessage } from "./notification-engine";
 
-import type { User } from "@shared/models/auth";
+import type { User as AppUser } from "@shared/models/auth";
 
 declare global {
   namespace Express {
+    interface User extends AppUser {}
     interface Request {
-      user?: User;
       tenantId?: string;
     }
   }
 }
+
+const routeParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
 
 // Middleware to get current user's tenant
 async function withTenant(req: any, res: Response, next: NextFunction) {
@@ -48,6 +52,46 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
   }
 }
 
+function isSuperAdminUser(user: Partial<AppUser> | undefined) {
+  const configured = process.env.SUPER_ADMIN_EMAILS || "admin@dairyflow.com";
+  const allowed = configured.split(",").map(email => email.trim().toLowerCase()).filter(Boolean);
+  return !!user?.email && allowed.includes(user.email.toLowerCase());
+}
+
+function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!isSuperAdminUser(req.user)) return res.status(403).json({ error: "Super Admin access required" });
+  next();
+}
+
+const notificationRuleTypes = new Set(["birth_followup", "death", "milk_drop", "heat_due", "pregnancy_test_due", "vaccination_due", "low_stock", "cattle_parameter"]);
+
+function normalizeNotificationRule(body: any, allowGlobalRecipients: boolean) {
+  if (!notificationRuleTypes.has(body?.ruleType)) throw new Error("Invalid notification rule type");
+  const offsetsDays = Array.from(new Set<number>((Array.isArray(body.offsetsDays) ? body.offsetsDays : [0]).map(Number)))
+    .filter(value => Number.isInteger(value) && value >= -365 && value <= 365)
+    .slice(0, 20);
+  if (!offsetsDays.length) throw new Error("At least one valid day offset is required");
+  const channels = (Array.isArray(body.channels) ? body.channels : ["app"]).filter((channel: string) => ["app", "whatsapp"].includes(channel));
+  const recipientScope = body.recipientScope === "all_tenant_owners" && !allowGlobalRecipients ? "tenant_owner" : (["tenant_owner", "custom", "all_tenant_owners"].includes(body.recipientScope) ? body.recipientScope : "tenant_owner");
+  const customRecipients = (Array.isArray(body.customRecipients) ? body.customRecipients : [])
+    .map((phone: unknown) => String(phone).trim()).filter(Boolean).slice(0, 50);
+  return {
+    name: String(body.name || body.ruleType).trim().slice(0, 120),
+    ruleType: body.ruleType,
+    isEnabled: body.isEnabled !== false,
+    offsetsDays,
+    daysBeforeEvent: offsetsDays[0],
+    cattleId: body.cattleId || null,
+    cattleStage: body.cattleStage || null,
+    conditions: typeof body.conditions === "object" && body.conditions ? body.conditions : {},
+    severity: ["info", "warning", "critical"].includes(body.severity) ? body.severity : "warning",
+    channels: channels.length ? channels : ["app"],
+    recipientScope,
+    customRecipients,
+    messageTemplate: body.messageTemplate ? String(body.messageTemplate).slice(0, 2000) : null,
+  };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -62,7 +106,7 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const { passwordHash, ...safeUser } = req.user as any;
-      res.json(safeUser);
+      res.json({ ...safeUser, isSuperAdmin: isSuperAdminUser(req.user) });
     } catch (error) {
       console.error("Auth user error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -165,7 +209,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const cattle = await storage.getCattleById(req.params.id);
+      const cattle = await storage.getCattleById(routeParam(req.params.id));
       if (!cattle || cattle.tenantId !== req.tenantId) {
         return res.status(404).json({ error: "Cattle not found" });
       }
@@ -191,11 +235,11 @@ export async function registerRoutes(
 
   app.patch("/api/cattle/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const existing = await storage.getCattleById(req.params.id);
+      const existing = await storage.getCattleById(routeParam(req.params.id));
       if (!existing || existing.tenantId !== req.tenantId) {
         return res.status(404).json({ error: "Cattle not found" });
       }
-      const updated = await storage.updateCattle(req.params.id, req.body);
+      const updated = await storage.updateCattle(routeParam(req.params.id), req.body);
       res.json(updated);
     } catch (error) {
       console.error("Cattle update error:", error);
@@ -260,7 +304,7 @@ export async function registerRoutes(
 
   app.patch("/api/health/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateHealthEvent(req.params.id, req.body);
+      const updated = await storage.updateHealthEvent(routeParam(req.params.id), req.body);
       res.json(updated);
     } catch (error) {
       console.error("Health update error:", error);
@@ -297,7 +341,7 @@ export async function registerRoutes(
 
   app.patch("/api/tasks/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateTask(req.params.id, req.body);
+      const updated = await storage.updateTask(routeParam(req.params.id), req.body);
       res.json(updated);
     } catch (error) {
       console.error("Task update error:", error);
@@ -321,7 +365,7 @@ export async function registerRoutes(
 
   app.patch("/api/alerts/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateAlert(req.params.id, req.body);
+      const updated = await storage.updateAlert(routeParam(req.params.id), req.body);
       res.json(updated);
     } catch (error) {
       console.error("Alert update error:", error);
@@ -546,7 +590,7 @@ export async function registerRoutes(
   // SYSTEM SETTINGS (Super Admin - Storage Config)
   // =====================================================
 
-  app.get("/api/admin/system-settings", isAuthenticated, async (req, res) => {
+  app.get("/api/admin/system-settings", isAuthenticated, requireSuperAdmin, async (req, res) => {
     try {
       const settings = await storage.getAllSystemSettings();
       // Mask secret values
@@ -561,7 +605,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/system-settings", isAuthenticated, async (req, res) => {
+  app.post("/api/admin/system-settings", isAuthenticated, requireSuperAdmin, async (req, res) => {
     try {
       const { key, value, isSecret } = req.body;
       if (!key) {
@@ -576,7 +620,7 @@ export async function registerRoutes(
   });
 
   // Get storage config (for client to know if storage is configured)
-  app.get("/api/admin/storage-config", isAuthenticated, async (req, res) => {
+  app.get("/api/admin/storage-config", isAuthenticated, requireSuperAdmin, async (req, res) => {
     try {
       const provider = await storage.getSystemSetting("storage_provider");
       const bucket = await storage.getSystemSetting("storage_bucket");
@@ -660,7 +704,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle-transactions/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const transaction = await storage.getCattleTransactionById(req.params.id);
+      const transaction = await storage.getCattleTransactionById(routeParam(req.params.id));
       if (!transaction || transaction.tenantId !== req.tenantId) {
         return res.status(404).json({ error: "Transaction not found" });
       }
@@ -674,7 +718,7 @@ export async function registerRoutes(
   // Cattle Payments
   app.get("/api/cattle-transactions/:id/payments", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const payments = await storage.getCattlePaymentsByTransaction(req.params.id);
+      const payments = await storage.getCattlePaymentsByTransaction(routeParam(req.params.id));
       res.json(payments);
     } catch (error) {
       console.error("Cattle payments fetch error:", error);
@@ -692,12 +736,12 @@ export async function registerRoutes(
       });
       
       // Update transaction paid amount
-      const transaction = await storage.getCattleTransactionById(req.params.id);
+      const transaction = await storage.getCattleTransactionById(routeParam(req.params.id));
       if (transaction) {
-        const payments = await storage.getCattlePaymentsByTransaction(req.params.id);
+        const payments = await storage.getCattlePaymentsByTransaction(routeParam(req.params.id));
         const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
         const status = totalPaid >= Number(transaction.amount) ? "paid" : "partial";
-        await storage.updateCattleTransaction(req.params.id, {
+        await storage.updateCattleTransaction(routeParam(req.params.id), {
           paidAmount: totalPaid.toString(),
           paymentStatus: status,
         });
@@ -765,7 +809,7 @@ export async function registerRoutes(
   // Get P/L summary for a cattle (for sale form)
   app.get("/api/cattle/:id/pl-summary", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const cattleId = req.params.id;
+      const cattleId = routeParam(req.params.id);
       
       // Get purchase cost from cattle transactions
       const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
@@ -793,7 +837,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/costs", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const costs = await storage.getCattleCostsByCattle(req.params.id);
+      const costs = await storage.getCattleCostsByCattle(routeParam(req.params.id));
       res.json(costs);
     } catch (error) {
       console.error("Cattle costs fetch error:", error);
@@ -897,7 +941,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid entity type" });
       }
 
-      const { url, storageKey } = await uploadFile(req.file, req.tenantId!);
+      const { storageKey } = await uploadFile(req.file, req.tenantId!);
       
       const attachment = await storage.createAttachment({
         id: crypto.randomUUID(),
@@ -906,8 +950,8 @@ export async function registerRoutes(
         fileType: getFileType(req.file.mimetype),
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
-        storageUrl: url,
         storageKey: storageKey,
+        originalName: req.file.originalname,
         uploadedBy: (req as any).user.id,
       });
 
@@ -928,7 +972,8 @@ export async function registerRoutes(
   // Get attachments for entity
   app.get("/api/attachments/:entityType/:entityId", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const { entityType, entityId } = req.params;
+      const entityType = routeParam(req.params.entityType);
+      const entityId = routeParam(req.params.entityId);
       
       // Validate entityType
       const validEntityTypes = ["cattle", "milk_record", "milk_entry", "health_record", "breeding_record", "heat_record", "cattle_transaction", "byproduct_transaction"];
@@ -949,7 +994,7 @@ export async function registerRoutes(
   // Delete attachment
   app.delete("/api/attachments/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const attachment = await storage.getAttachmentById(req.params.id);
+      const attachment = await storage.getAttachmentById(routeParam(req.params.id));
       if (!attachment) {
         return res.status(404).json({ error: "Attachment not found" });
       }
@@ -964,7 +1009,7 @@ export async function registerRoutes(
         await deleteFile(attachment.storageKey);
       }
 
-      await storage.deleteAttachment(req.params.id);
+      await storage.deleteAttachment(routeParam(req.params.id));
       res.status(204).send();
     } catch (error) {
       console.error("Attachment delete error:", error);
@@ -973,7 +1018,7 @@ export async function registerRoutes(
   });
 
   // Check storage configuration
-  app.get("/api/storage/status", isAuthenticated, async (req, res) => {
+  app.get("/api/storage/status", isAuthenticated, requireSuperAdmin, async (req, res) => {
     try {
       const settings = await storage.getAllSystemSettings();
       const provider = settings.find(s => s.key === "storage_provider")?.value;
@@ -995,7 +1040,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/milk-entries", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const entries = await storage.getMilkEntriesByCattle(req.params.id);
+      const entries = await storage.getMilkEntriesByCattle(routeParam(req.params.id));
       res.json(entries);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch milk entries" });
@@ -1004,7 +1049,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/health-events", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const events = await storage.getHealthEventsByCattle(req.params.id);
+      const events = await storage.getHealthEventsByCattle(routeParam(req.params.id));
       res.json(events);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch health events" });
@@ -1013,7 +1058,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/inseminations", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const records = await storage.getInseminationsByCattle(req.params.id);
+      const records = await storage.getInseminationsByCattle(routeParam(req.params.id));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch inseminations" });
@@ -1022,7 +1067,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/heats", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const records = await storage.getHeatsByCattle(req.params.id);
+      const records = await storage.getHeatsByCattle(routeParam(req.params.id));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch heats" });
@@ -1031,7 +1076,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/pregnancy-tests", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const records = await storage.getPregnancyTestsByCattle(req.params.id);
+      const records = await storage.getPregnancyTestsByCattle(routeParam(req.params.id));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pregnancy tests" });
@@ -1040,7 +1085,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/calvings", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const records = await storage.getCalvingsByCattle(req.params.id);
+      const records = await storage.getCalvingsByCattle(routeParam(req.params.id));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch calvings" });
@@ -1049,7 +1094,7 @@ export async function registerRoutes(
 
   app.get("/api/cattle/:id/vaccinations", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const records = await storage.getVaccinationsByCattle(req.params.id);
+      const records = await storage.getVaccinationsByCattle(routeParam(req.params.id));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch vaccinations" });
@@ -1219,6 +1264,41 @@ export async function registerRoutes(
   // WHATSAPP CONFIG & LOGS
   // =====================================================
 
+  // One global WhatsApp Web session, controlled only by the Super Admin.
+  app.get("/api/admin/whatsapp-web/status", isAuthenticated, requireSuperAdmin, async (_req, res) => {
+    res.json(whatsappWebGateway.getStatus());
+  });
+
+  app.get("/api/admin/whatsapp-web/logs", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+    res.json(await storage.getAllWhatsappLogs(limit));
+  });
+
+  app.post("/api/admin/whatsapp-web/connect", isAuthenticated, requireSuperAdmin, async (_req, res) => {
+    whatsappWebGateway.start().catch(error => console.error("WhatsApp Web start failed:", error));
+    res.status(202).json({ message: "WhatsApp Web is starting. Scan the QR code when it appears." });
+  });
+
+  app.post("/api/admin/whatsapp-web/logout", isAuthenticated, requireSuperAdmin, async (_req, res) => {
+    await whatsappWebGateway.logout();
+    res.json({ message: "WhatsApp Web session disconnected and cleared" });
+  });
+
+  app.post("/api/admin/whatsapp-web/test", isAuthenticated, requireSuperAdmin, withTenant, async (req, res) => {
+    const { phone, message } = req.body || {};
+    if (!phone || !message) return res.status(400).json({ error: "phone and message are required" });
+    const log = await queueWhatsappMessage(req.tenantId!, phone, message, "test");
+    await processWhatsappOutbox(1);
+    res.status(202).json({ message: "Test message queued", logId: log.id });
+  });
+
+  app.post("/api/admin/whatsapp-web/broadcast", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    const { message } = req.body || {};
+    if (!message?.trim()) return res.status(400).json({ error: "message is required" });
+    const queued = await queueWhatsappBroadcast(message.trim());
+    res.status(202).json({ message: "Broadcast queued", recipients: queued });
+  });
+
   app.get("/api/whatsapp/config", isAuthenticated, withTenant, async (req, res) => {
     try {
       const config = await storage.getWhatsappConfig(req.tenantId!);
@@ -1264,11 +1344,6 @@ export async function registerRoutes(
       if (!phone || !message) {
         return res.status(400).json({ error: "phone and message required" });
       }
-      const config = await storage.getWhatsappConfig(req.tenantId!);
-      if (!config || config.mode === "disabled") {
-        return res.status(400).json({ error: "WhatsApp not configured" });
-      }
-
       const log = await storage.createWhatsappLog({
         tenantId: req.tenantId,
         toPhone: phone,
@@ -1278,15 +1353,7 @@ export async function registerRoutes(
         triggerType: "test",
       });
 
-      // In production: call actual WhatsApp API here
-      // For now, simulate success after 1s
-      setTimeout(async () => {
-        await storage.updateWhatsappLog(log.id, {
-          status: config.mode === "api" ? "sent" : "sent",
-          sentAt: new Date(),
-        });
-      }, 1000);
-
+      await processWhatsappOutbox(1);
       res.json({ success: true, logId: log.id, message: "Test message queued" });
     } catch (error) {
       res.status(500).json({ error: "Failed to send test message" });
@@ -1306,16 +1373,42 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/notification-rules/:ruleType", isAuthenticated, withTenant, async (req, res) => {
+  app.post("/api/notification-rules", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const rule = await storage.upsertNotificationRule({
-        ...req.body,
+      const rule = await storage.createNotificationRule({
+        ...normalizeNotificationRule(req.body, isSuperAdminUser(req.user)),
         tenantId: req.tenantId,
-        ruleType: req.params.ruleType,
       });
+      res.status(201).json(rule);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || "Failed to create notification rule" });
+    }
+  });
+
+  app.put("/api/notification-rules/:id", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const existing = await storage.getNotificationRuleById(req.params.id as string);
+      if (!existing || existing.tenantId !== req.tenantId) return res.status(404).json({ error: "Notification rule not found" });
+      const rule = await storage.updateNotificationRule(existing.id, normalizeNotificationRule({ ...existing, ...req.body, ruleType: req.body.ruleType || existing.ruleType }, isSuperAdminUser(req.user)));
       res.json(rule);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to update notification rule" });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || "Failed to update notification rule" });
+    }
+  });
+
+  app.delete("/api/notification-rules/:id", isAuthenticated, withTenant, async (req, res) => {
+    const existing = await storage.getNotificationRuleById(req.params.id as string);
+    if (!existing || existing.tenantId !== req.tenantId) return res.status(404).json({ error: "Notification rule not found" });
+    await storage.deleteNotificationRule(existing.id);
+    res.status(204).send();
+  });
+
+  app.post("/api/notification-rules/run", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      await evaluateTenantRules(req.tenantId!);
+      res.json({ message: "Notification rules evaluated" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to evaluate notification rules" });
     }
   });
 

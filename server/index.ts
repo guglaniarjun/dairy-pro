@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { startNotificationWorkers } from "./notification-engine";
+import { whatsappWebGateway } from "./whatsapp-web";
 
 const app = express();
 const httpServer = createServer(app);
@@ -61,6 +63,10 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+  startNotificationWorkers();
+  if (process.env.WHATSAPP_WEB_ENABLED !== "false") {
+    whatsappWebGateway.start().catch(error => console.error("WhatsApp Web initialization failed:", error));
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -11,13 +12,16 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTheme, COLOR_THEMES } from "@/components/theme-provider";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Loader2, Cloud, Building2, Milk, Stethoscope,
-  Bell, MessageCircle, Save, Send, Eye, EyeOff,
-  Palette, Sun, Moon, Monitor, Check,
+  Bell, MessageCircle, Save, Send, Palette, Sun, Moon, Monitor, Check,
+  Plus, Trash2, RefreshCw, LogOut,
 } from "lucide-react";
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const isSuperAdmin = !!(user as any)?.isSuperAdmin;
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
       <div>
@@ -41,21 +45,21 @@ export default function SettingsPage() {
           <TabsTrigger value="notifications" className="text-xs gap-1.5">
             <Bell className="w-3 h-3" />Notifications
           </TabsTrigger>
-          <TabsTrigger value="whatsapp" className="text-xs gap-1.5">
+          {isSuperAdmin && <TabsTrigger value="whatsapp" className="text-xs gap-1.5">
             <MessageCircle className="w-3 h-3" />WhatsApp
-          </TabsTrigger>
-          <TabsTrigger value="storage" className="text-xs gap-1.5" data-testid="tab-storage-settings">
+          </TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="storage" className="text-xs gap-1.5" data-testid="tab-storage-settings">
             <Cloud className="w-3 h-3" />Storage
-          </TabsTrigger>
+          </TabsTrigger>}
         </TabsList>
 
         <TabsContent value="appearance"><AppearanceTab /></TabsContent>
         <TabsContent value="farm"><FarmTab /></TabsContent>
         <TabsContent value="milk"><MilkingTab /></TabsContent>
         <TabsContent value="breeding"><BreedingTab /></TabsContent>
-        <TabsContent value="notifications"><NotificationsTab /></TabsContent>
-        <TabsContent value="whatsapp"><WhatsAppTab /></TabsContent>
-        <TabsContent value="storage"><StorageTab /></TabsContent>
+        <TabsContent value="notifications"><NotificationsTab isSuperAdmin={isSuperAdmin} /></TabsContent>
+        {isSuperAdmin && <TabsContent value="whatsapp"><WhatsAppTab /></TabsContent>}
+        {isSuperAdmin && <TabsContent value="storage"><StorageTab /></TabsContent>}
       </Tabs>
     </div>
   );
@@ -409,208 +413,117 @@ function BreedingTab() {
   );
 }
 
-function NotificationsTab() {
+const RULE_TYPES = [
+  ["birth_followup", "Birth & calf follow-up"], ["death", "Death recorded"],
+  ["milk_drop", "Milk production drop"], ["heat_due", "Heat due"],
+  ["pregnancy_test_due", "Pregnancy test due"], ["vaccination_due", "Vaccination due"],
+  ["low_stock", "Low inventory"], ["cattle_parameter", "Cattle parameter"],
+] as const;
+
+const newRule = () => ({
+  name: "New calf follow-ups", ruleType: "birth_followup", isEnabled: true,
+  offsetsDays: [0, 10, 20, 30], cattleId: null, cattleStage: null,
+  conditions: { operator: "lt", value: 20, lookbackDays: 7 }, severity: "warning",
+  channels: ["app", "whatsapp"], recipientScope: "tenant_owner", customRecipients: [], messageTemplate: "",
+});
+
+function NotificationsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: rules = [] } = useQuery<any[]>({ queryKey: ["/api/notification-rules"] });
+  const { data: rules = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/notification-rules"] });
+  const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
+  const [draft, setDraft] = useState<any | null>(null);
 
-  const notifTypes = [
-    { type: "heat_due", label: "Heat Due Reminder", desc: "Alert when a cow is expected to come into heat" },
-    { type: "pregnancy_test_due", label: "Pregnancy Test Due", desc: "Alert after insemination when pregnancy test is due" },
-    { type: "calving_due", label: "Calving Due", desc: "Alert when calving is approaching (within 14 days)" },
-    { type: "dry_due", label: "Dry Period Due", desc: "Alert when cow should be dried off" },
-    { type: "vaccination_due", label: "Vaccination Due", desc: "Alert for upcoming vaccine schedules" },
-    { type: "low_stock", label: "Low Stock Alert", desc: "Alert when inventory is below minimum level" },
-    { type: "milk_drop", label: "Milk Drop Alert", desc: "Alert when daily milk production drops significantly" },
-    { type: "payment_reminder", label: "Payment Reminder", desc: "Alert for pending receivables and payables" },
-  ];
+  const save = useMutation({
+    mutationFn: (rule: any) => apiRequest(rule.id ? "PUT" : "POST", rule.id ? `/api/notification-rules/${rule.id}` : "/api/notification-rules", rule),
+    onSuccess: () => { setDraft(null); queryClient.invalidateQueries({ queryKey: ["/api/notification-rules"] }); toast({ title: "Alert rule saved" }); },
+    onError: (error: Error) => toast({ title: "Could not save rule", description: error.message, variant: "destructive" }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/notification-rules/${id}`),
+    onSuccess: () => { setDraft(null); queryClient.invalidateQueries({ queryKey: ["/api/notification-rules"] }); toast({ title: "Alert rule deleted" }); },
+  });
+  const run = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/notification-rules/run"),
+    onSuccess: () => toast({ title: "Rules evaluated", description: "New matching alerts and WhatsApp messages were queued." }),
+  });
 
-  const toggle = async (type: string, enabled: boolean) => {
-    await apiRequest("PUT", `/api/notification-rules/${type}`, { isEnabled: enabled, channels: ["app"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/notification-rules"] });
-  };
-
-  return (
+  if (isLoading) return <Loader2 className="w-6 h-6 animate-spin mx-auto mt-8" />;
+  return <div className="space-y-4">
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Notification Rules</CardTitle>
-        <CardDescription>Configure which events trigger alerts</CardDescription>
+      <CardHeader className="flex-row items-start justify-between gap-3">
+        <div><CardTitle className="text-base">Custom Alert Rules</CardTitle><CardDescription>Create several rules for the same event, animal, stage, timing, and recipient.</CardDescription></div>
+        <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => run.mutate()} disabled={run.isPending}><RefreshCw className={`w-4 h-4 mr-1 ${run.isPending ? "animate-spin" : ""}`} />Run now</Button><Button size="sm" onClick={() => setDraft(newRule())}><Plus className="w-4 h-4 mr-1" />Add rule</Button></div>
       </CardHeader>
-      <CardContent className="space-y-1">
-        {notifTypes.map(rule => {
-          const existing = rules.find((r: any) => r.ruleType === rule.type);
-          return (
-            <div key={rule.type} className="flex items-center justify-between py-3 border-b last:border-0">
-              <div className="flex-1 mr-4">
-                <p className="text-sm font-medium">{rule.label}</p>
-                <p className="text-xs text-muted-foreground">{rule.desc}</p>
-              </div>
-              <Switch
-                checked={existing?.isEnabled !== false}
-                onCheckedChange={v => toggle(rule.type, v)}
-              />
-            </div>
-          );
-        })}
+      <CardContent className="space-y-2">
+        {!rules.length && !draft && <p className="text-sm text-muted-foreground text-center py-6">No custom rules yet. Built-in app alerts continue until you add your first custom rule.</p>}
+        {rules.map(rule => <button key={rule.id} className="w-full text-left rounded-lg border p-3 hover:bg-muted/40" onClick={() => setDraft({ ...rule })}>
+          <div className="flex items-center gap-2"><span className="font-medium text-sm flex-1">{rule.name}</span><Badge variant={rule.isEnabled ? "default" : "secondary"}>{rule.isEnabled ? "Active" : "Paused"}</Badge></div>
+          <p className="text-xs text-muted-foreground mt-1">{RULE_TYPES.find(([value]) => value === rule.ruleType)?.[1]} · days {(rule.offsetsDays || [0]).join(", ")} · {(rule.channels || ["app"]).join(" + ")}</p>
+        </button>)}
       </CardContent>
     </Card>
-  );
+    {draft && <RuleEditor rule={draft} setRule={setDraft} cattle={cattle} isSuperAdmin={isSuperAdmin} saving={save.isPending} onSave={() => save.mutate(draft)} onDelete={draft.id ? () => remove.mutate(draft.id) : undefined} />}
+  </div>;
+}
+
+function RuleEditor({ rule, setRule, cattle, isSuperAdmin, saving, onSave, onDelete }: any) {
+  const set = (key: string, value: any) => setRule((current: any) => ({ ...current, [key]: value }));
+  const channel = (name: string, enabled: boolean) => set("channels", enabled ? Array.from(new Set([...(rule.channels || []), name])) : (rule.channels || []).filter((x: string) => x !== name));
+  const conditions = rule.conditions || {};
+  return <Card>
+    <CardHeader><CardTitle className="text-base">{rule.id ? "Edit alert rule" : "Create alert rule"}</CardTitle><CardDescription>Phone numbers must include the country code, for example 919876543210.</CardDescription></CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Rule name"><Input value={rule.name || ""} onChange={e => set("name", e.target.value)} /></Field>
+        <Field label="Event"><Select value={rule.ruleType} onValueChange={v => set("ruleType", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RULE_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field>
+        <Field label="Alert on day(s)"><Input value={(rule.offsetsDays || []).join(", ")} onChange={e => set("offsetsDays", e.target.value.split(",").map(v => Number(v.trim())).filter(Number.isFinite))} placeholder="0, 10, 20, 30" /><p className="text-xs text-muted-foreground">0 means event day; use comma-separated days.</p></Field>
+        <Field label="Specific cattle"><Select value={rule.cattleId || "all"} onValueChange={v => set("cattleId", v === "all" ? null : v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All cattle</SelectItem>{cattle.map((cow: any) => <SelectItem key={cow.id} value={cow.id}>{cow.name || cow.tagNumber} ({cow.tagNumber})</SelectItem>)}</SelectContent></Select></Field>
+        <Field label="Cattle stage"><Select value={rule.cattleStage || "all"} onValueChange={v => set("cattleStage", v === "all" ? null : v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All stages</SelectItem>{["calf", "heifer", "milking", "dry", "bull"].map(stage => <SelectItem key={stage} value={stage}>{stage}</SelectItem>)}</SelectContent></Select></Field>
+        <Field label="Severity"><Select value={rule.severity || "warning"} onValueChange={v => set("severity", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="info">Info</SelectItem><SelectItem value="warning">Warning</SelectItem><SelectItem value="critical">Critical</SelectItem></SelectContent></Select></Field>
+        {(rule.ruleType === "milk_drop" || rule.ruleType === "low_stock") && <Field label={rule.ruleType === "milk_drop" ? "Drop threshold (%)" : "Quantity threshold"}><Input type="number" value={conditions.value ?? 20} onChange={e => set("conditions", { ...conditions, value: Number(e.target.value) })} /></Field>}
+        {rule.ruleType === "milk_drop" && <Field label="Comparison period (days)"><Input type="number" min="1" value={conditions.lookbackDays ?? 7} onChange={e => set("conditions", { ...conditions, lookbackDays: Number(e.target.value) })} /></Field>}
+        {rule.ruleType === "cattle_parameter" && <><Field label="Parameter"><Input value={conditions.parameter || "ageDays"} onChange={e => set("conditions", { ...conditions, parameter: e.target.value })} placeholder="ageDays or lactationNumber" /></Field><Field label="Condition"><div className="flex gap-2"><Select value={conditions.operator || "lt"} onValueChange={v => set("conditions", { ...conditions, operator: v })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent>{["lt", "lte", "eq", "gte", "gt"].map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Input type="number" value={conditions.value ?? 0} onChange={e => set("conditions", { ...conditions, value: Number(e.target.value) })} /></div></Field></>}
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <ToggleRow label="In-app alert" desc="Show in DairyFlow" checked={(rule.channels || []).includes("app")} onChange={(v) => channel("app", v)} />
+        <ToggleRow label="WhatsApp" desc="Send from Super Admin session" checked={(rule.channels || []).includes("whatsapp")} onChange={(v) => channel("whatsapp", v)} />
+      </div>
+      {(rule.channels || []).includes("whatsapp") && <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Recipients"><Select value={rule.recipientScope || "tenant_owner"} onValueChange={v => set("recipientScope", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tenant_owner">This farm owner</SelectItem><SelectItem value="custom">Custom numbers</SelectItem>{isSuperAdmin && <SelectItem value="all_tenant_owners">All tenant owners</SelectItem>}</SelectContent></Select></Field>
+        {rule.recipientScope === "custom" && <Field label="Custom phone numbers"><Input value={(rule.customRecipients || []).join(", ")} onChange={e => set("customRecipients", e.target.value.split(",").map(v => v.trim()).filter(Boolean))} placeholder="919876543210, 919812345678" /></Field>}
+      </div>}
+      <Field label="WhatsApp message template (optional)"><Textarea value={rule.messageTemplate || ""} onChange={e => set("messageTemplate", e.target.value)} placeholder={'{{farm}}: {{title}}\n{{message}}'} /><p className="text-xs text-muted-foreground">Available variables: {'{{farm}}'}, {'{{title}}'}, {'{{message}}'}, {'{{cattle}}'}.</p></Field>
+      <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><Switch checked={rule.isEnabled !== false} onCheckedChange={v => set("isEnabled", v)} /><Label>Rule active</Label></div><div className="flex gap-2">{onDelete && <Button variant="destructive" onClick={onDelete}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>}<Button onClick={onSave} disabled={saving || !rule.name}><Save className="w-4 h-4 mr-1" />Save rule</Button></div></div>
+    </CardContent>
+  </Card>;
 }
 
 function WhatsAppTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: config } = useQuery<any>({ queryKey: ["/api/whatsapp/config"] });
-  const { data: logs = [] } = useQuery<any[]>({ queryKey: ["/api/whatsapp/logs"] });
-  const [form, setForm] = useState<any>({});
-  const [showKey, setShowKey] = useState(false);
+  const { data: status } = useQuery<any>({ queryKey: ["/api/admin/whatsapp-web/status"], refetchInterval: 3000 });
+  const { data: logs = [] } = useQuery<any[]>({ queryKey: ["/api/admin/whatsapp-web/logs"], refetchInterval: 5000 });
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("Hello from DairyFlow! This is a test message.");
-  const [sending, setSending] = useState(false);
-
-  useEffect(() => { if (config) setForm({ ...config }); }, [config]);
-
-  const save = useMutation({
-    mutationFn: (d: any) => apiRequest("PUT", "/api/whatsapp/config", d),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/config"] }); toast({ title: "WhatsApp settings saved" }); },
+  const [broadcast, setBroadcast] = useState("");
+  const action = useMutation({
+    mutationFn: ({ url, data }: any) => apiRequest("POST", url, data),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/whatsapp-web/status"] }); queryClient.invalidateQueries({ queryKey: ["/api/admin/whatsapp-web/logs"] }); toast({ title: "Request accepted" }); },
+    onError: (error: Error) => toast({ title: "WhatsApp action failed", description: error.message, variant: "destructive" }),
   });
-
-  const sendTest = async () => {
-    if (!testPhone || !testMsg) return;
-    setSending(true);
-    try {
-      await apiRequest("POST", "/api/whatsapp/test", { phone: testPhone, message: testMsg });
-      toast({ title: "Test message queued!", description: "Check the log below." });
-      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/logs"] });
-    } catch (e: any) {
-      toast({ title: "Failed", description: e.message, variant: "destructive" });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const mode = form.mode || "disabled";
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">WhatsApp Configuration</CardTitle>
-          <CardDescription>Configure WhatsApp notifications for farm events</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Field label="WhatsApp Mode">
-            <Select value={mode} onValueChange={v => setForm((p: any) => ({ ...p, mode: v }))} data-testid="select-whatsapp-mode">
-              <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="disabled">Disabled</SelectItem>
-                <SelectItem value="web">WhatsApp Web (QR Scan)</SelectItem>
-                <SelectItem value="api">WhatsApp Business API</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          {mode === "web" && (
-            <div className="p-4 bg-muted/40 rounded-lg space-y-3">
-              <h3 className="font-medium text-sm">WhatsApp Web Mode</h3>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${form.webSessionStatus === "connected" ? "bg-green-500" : "bg-gray-400"}`} />
-                <span className="text-sm">Status: {form.webSessionStatus || "Disconnected"}</span>
-              </div>
-              <div className="w-40 h-40 border-2 border-dashed rounded-lg flex items-center justify-center text-muted-foreground text-xs text-center p-2">
-                QR Code will appear here when WhatsApp Web library is connected
-              </div>
-              <Field label="From Phone Number">
-                <Input value={form.fromPhoneNumber || ""} onChange={e => setForm((p: any) => ({ ...p, fromPhoneNumber: e.target.value }))} placeholder="+91 9876543210" />
-              </Field>
-            </div>
-          )}
-
-          {mode === "api" && (
-            <div className="p-4 bg-muted/40 rounded-lg space-y-3">
-              <h3 className="font-medium text-sm">WhatsApp Business API</h3>
-              <Field label="API Provider">
-                <Select value={form.apiProvider || "meta"} onValueChange={v => setForm((p: any) => ({ ...p, apiProvider: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="meta">Meta (Official)</SelectItem>
-                    <SelectItem value="360dialog">360dialog</SelectItem>
-                    <SelectItem value="twilio">Twilio</SelectItem>
-                    <SelectItem value="wati">WATI</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="API Key">
-                <div className="flex gap-2">
-                  <Input type={showKey ? "text" : "password"} value={form.apiKey || ""} onChange={e => setForm((p: any) => ({ ...p, apiKey: e.target.value }))} placeholder="Enter API key" />
-                  <Button variant="outline" size="icon" onClick={() => setShowKey(p => !p)}>
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </Field>
-              <Field label="Phone Number ID">
-                <Input value={form.apiPhoneNumberId || ""} onChange={e => setForm((p: any) => ({ ...p, apiPhoneNumberId: e.target.value }))} placeholder="Meta Phone Number ID" />
-              </Field>
-              <Field label="From Number">
-                <Input value={form.fromPhoneNumber || ""} onChange={e => setForm((p: any) => ({ ...p, fromPhoneNumber: e.target.value }))} placeholder="+91 9876543210" />
-              </Field>
-            </div>
-          )}
-
-          <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-            {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-            Save WhatsApp Settings
-          </Button>
-        </CardContent>
-      </Card>
-
-      {mode !== "disabled" && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Send Test Message</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <Field label="Phone Number">
-              <Input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+91 9876543210" data-testid="input-test-phone" />
-            </Field>
-            <Field label="Message">
-              <Input value={testMsg} onChange={e => setTestMsg(e.target.value)} data-testid="input-test-message" />
-            </Field>
-            <Button onClick={sendTest} disabled={sending || !testPhone} data-testid="button-send-test">
-              <Send className="w-4 h-4 mr-2" />
-              {sending ? "Sending..." : "Send Test Message"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Message Log</CardTitle></CardHeader>
-        <CardContent>
-          {logs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No messages sent yet</p>
-          ) : (
-            <div className="space-y-2">
-              {logs.slice(0, 20).map((log: any, i: number) => (
-                <div key={i} className="flex items-start gap-3 p-2.5 rounded-lg bg-muted/30 text-sm">
-                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                    log.status === "delivered" ? "bg-green-500" :
-                    log.status === "sent" ? "bg-blue-500" :
-                    log.status === "failed" ? "bg-red-500" : "bg-gray-400"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">To: {log.toPhone}</div>
-                    <div className="text-muted-foreground truncate text-xs">{log.message}</div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <Badge variant="outline" className="text-xs">{log.status}</Badge>
-                      <span className="text-xs text-muted-foreground">{log.createdAt ? new Date(log.createdAt).toLocaleString("en-IN") : ""}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+  const connected = status?.state === "connected";
+  return <div className="space-y-4">
+    <Card><CardHeader><CardTitle className="text-base">Super Admin WhatsApp Web</CardTitle><CardDescription>One persistent session sends messages for every DairyFlow tenant. This is an unofficial WhatsApp Web integration; WhatsApp can log out or restrict automated accounts.</CardDescription></CardHeader><CardContent className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3"><Badge variant={connected ? "default" : status?.state === "error" ? "destructive" : "secondary"}>{status?.state || "loading"}</Badge>{status?.phoneNumber && <span className="text-sm">Connected number: +{status.phoneNumber}</span>}{status?.lastConnectedAt && <span className="text-xs text-muted-foreground">Since {new Date(status.lastConnectedAt).toLocaleString("en-IN")}</span>}</div>
+      {status?.lastError && <p className="text-sm text-destructive">{status.lastError}</p>}
+      {status?.qrDataUrl && <div className="space-y-2"><img src={status.qrDataUrl} alt="WhatsApp Web QR code" className="w-64 h-64 border rounded-lg" /><p className="text-sm text-muted-foreground">On the Super Admin phone: WhatsApp → Linked devices → Link a device, then scan this QR.</p></div>}
+      <div className="flex gap-2">{!connected && <Button onClick={() => action.mutate({ url: "/api/admin/whatsapp-web/connect" })} disabled={action.isPending}><RefreshCw className="w-4 h-4 mr-1" />Connect / show QR</Button>}{connected && <Button variant="outline" onClick={() => action.mutate({ url: "/api/admin/whatsapp-web/logout" })} disabled={action.isPending}><LogOut className="w-4 h-4 mr-1" />Disconnect</Button>}</div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Test delivery</CardTitle></CardHeader><CardContent className="space-y-3"><Field label="Destination phone"><Input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="919876543210" /></Field><Field label="Message"><Textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} /></Field><Button disabled={!connected || !testPhone || action.isPending} onClick={() => action.mutate({ url: "/api/admin/whatsapp-web/test", data: { phone: testPhone, message: testMsg } })}><Send className="w-4 h-4 mr-1" />Send test</Button></CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Broadcast to all tenant owners</CardTitle><CardDescription>Queues one message for every active farm with a configured phone number.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea value={broadcast} onChange={e => setBroadcast(e.target.value)} placeholder="Message for all farm owners" /><Button variant="destructive" disabled={!connected || !broadcast.trim() || action.isPending} onClick={() => action.mutate({ url: "/api/admin/whatsapp-web/broadcast", data: { message: broadcast } })}><Send className="w-4 h-4 mr-1" />Queue broadcast</Button></CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Recent deliveries</CardTitle></CardHeader><CardContent>{!logs.length ? <p className="text-sm text-muted-foreground text-center py-4">No messages queued yet</p> : <div className="space-y-2">{logs.slice(0, 30).map((log: any) => <div key={log.id} className="flex gap-3 p-2.5 rounded-lg bg-muted/30 text-sm"><div className={`w-2 h-2 rounded-full mt-1.5 ${log.status === "sent" ? "bg-green-500" : log.status.startsWith("failed") ? "bg-red-500" : "bg-amber-500"}`} /><div className="min-w-0 flex-1"><div className="font-medium">To: {log.toPhone}</div><div className="text-xs text-muted-foreground truncate">{log.message}</div><Badge variant="outline" className="mt-1 text-xs">{log.status} · attempt {log.attempts || 0}</Badge></div></div>)}</div>}</CardContent></Card>
+  </div>;
 }
 
 function StorageTab() {

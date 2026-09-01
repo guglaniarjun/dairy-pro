@@ -46,7 +46,7 @@ import {
   notificationRules,
   farmSettings,
   type User,
-  type InsertUser,
+  type UpsertUser,
   type Tenant,
   type Cattle,
   type MilkEntry,
@@ -84,7 +84,7 @@ import {
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
 
   // Tenants
   getTenantByOwnerId(ownerId: string): Promise<Tenant | undefined>;
@@ -222,11 +222,16 @@ export interface IStorage {
   getWhatsappConfig(tenantId: string): Promise<WhatsappConfig | undefined>;
   upsertWhatsappConfig(data: Partial<WhatsappConfig>): Promise<WhatsappConfig>;
   getWhatsappLogs(tenantId: string, limit?: number): Promise<WhatsappLog[]>;
+  getAllWhatsappLogs(limit?: number): Promise<WhatsappLog[]>;
   createWhatsappLog(data: Partial<WhatsappLog>): Promise<WhatsappLog>;
   updateWhatsappLog(id: string, data: Partial<WhatsappLog>): Promise<WhatsappLog | undefined>;
 
   // Notification Rules
   getNotificationRules(tenantId: string): Promise<NotificationRule[]>;
+  getNotificationRuleById(id: string): Promise<NotificationRule | undefined>;
+  createNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule>;
+  updateNotificationRule(id: string, data: Partial<NotificationRule>): Promise<NotificationRule | undefined>;
+  deleteNotificationRule(id: string): Promise<void>;
   upsertNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule>;
 
   // Farm Settings
@@ -261,14 +266,19 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async upsertUser(userData: InsertUser): Promise<User> {
-    const existing = await db.select().from(users).where(eq(users.id, userData.id)).limit(1);
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    if (!userData.id) {
+      const [created] = await db.insert(users).values(userData).returning();
+      return created;
+    }
+    const userId = userData.id;
+    const existing = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     
     if (existing[0]) {
       const [updated] = await db
         .update(users)
         .set({ ...userData, updatedAt: new Date() })
-        .where(eq(users.id, userData.id))
+        .where(eq(users.id, userId))
         .returning();
       return updated;
     }
@@ -449,10 +459,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Feed
-  async getAllFeedItems(): Promise<FeedItem[]> {
-    return db.select().from(feedItems).where(eq(feedItems.isActive, true));
-  }
-
   async getFeedInventoryByTenant(tenantId: string): Promise<FeedInventory[]> {
     return db.select().from(feedInventory).where(eq(feedInventory.tenantId, tenantId));
   }
@@ -549,7 +555,7 @@ export class DatabaseStorage implements IStorage {
     );
 
     // PT due: inseminations 28-45 days ago with no positive pregnancy test
-    const ptDueCattleIds = new Set<number>();
+    const ptDueCattleIds = new Set<string>();
     for (const ins of recentInseminations) {
       const insDate = new Date(ins.date);
       const daysAgo = Math.floor((now.getTime() - insDate.getTime()) / 86400000);
@@ -561,8 +567,8 @@ export class DatabaseStorage implements IStorage {
 
     // Expected calving: pregnant cattle with expected date in next 30 days
     // Use last insemination + 280 days
-    const calvingDueCattleIds = new Set<number>();
-    const dryOffDueCattleIds = new Set<number>();
+    const calvingDueCattleIds = new Set<string>();
+    const dryOffDueCattleIds = new Set<string>();
     for (const ins of recentInseminations) {
       const cattle_rec = allCattle.find(c => c.id === ins.cattleId);
       if (!cattle_rec || cattle_rec.stage !== "pregnant") continue;
@@ -584,7 +590,7 @@ export class DatabaseStorage implements IStorage {
     });
 
     // Repeat breeders: 3+ failed inseminations
-    const insCountByCattle: Record<number, number> = {};
+    const insCountByCattle: Record<string, number> = {};
     for (const ins of recentInseminations) {
       if (ins.cattleId) insCountByCattle[ins.cattleId] = (insCountByCattle[ins.cattleId] || 0) + 1;
     }
@@ -886,6 +892,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(whatsappLogs).where(eq(whatsappLogs.tenantId, tenantId)).orderBy(desc(whatsappLogs.createdAt)).limit(limit);
   }
 
+  async getAllWhatsappLogs(limit = 100): Promise<WhatsappLog[]> {
+    return db.select().from(whatsappLogs).orderBy(desc(whatsappLogs.createdAt)).limit(limit);
+  }
+
   async createWhatsappLog(data: Partial<WhatsappLog>): Promise<WhatsappLog> {
     const [created] = await db.insert(whatsappLogs).values(data as any).returning();
     return created;
@@ -899,6 +909,25 @@ export class DatabaseStorage implements IStorage {
   // Notification Rules
   async getNotificationRules(tenantId: string): Promise<NotificationRule[]> {
     return db.select().from(notificationRules).where(eq(notificationRules.tenantId, tenantId));
+  }
+
+  async getNotificationRuleById(id: string): Promise<NotificationRule | undefined> {
+    const [rule] = await db.select().from(notificationRules).where(eq(notificationRules.id, id)).limit(1);
+    return rule;
+  }
+
+  async createNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule> {
+    const [created] = await db.insert(notificationRules).values(data as any).returning();
+    return created;
+  }
+
+  async updateNotificationRule(id: string, data: Partial<NotificationRule>): Promise<NotificationRule | undefined> {
+    const [updated] = await db.update(notificationRules).set({ ...data, updatedAt: new Date() }).where(eq(notificationRules.id, id)).returning();
+    return updated;
+  }
+
+  async deleteNotificationRule(id: string): Promise<void> {
+    await db.delete(notificationRules).where(eq(notificationRules.id, id));
   }
 
   async upsertNotificationRule(data: Partial<NotificationRule>): Promise<NotificationRule> {
@@ -1069,122 +1098,8 @@ export class DatabaseStorage implements IStorage {
 
   // Smart Alerts Auto-Generation
   async generateSmartAlerts(tenantId: string): Promise<void> {
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-
-    // Get existing undismissed alerts to avoid duplicates
-    const existingAlerts = await db.select().from(alerts).where(
-      and(eq(alerts.tenantId, tenantId), eq(alerts.isDismissed, false))
-    );
-
-    const existingKeys = new Set(existingAlerts.map(a => `${a.type}:${a.referenceType}:${a.referenceId || ''}:${a.cattleId || ''}`));
-
-    const toCreate: any[] = [];
-
-    const upsertAlert = (key: string, alertData: any) => {
-      if (!existingKeys.has(key)) {
-        toCreate.push({ ...alertData, tenantId, isRead: false, isDismissed: false });
-      }
-    };
-
-    // 1. Heat due: milking cows with last insemination/calving 18-28 days ago
-    const allCattle = await db.select().from(cattle).where(
-      and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active"))
-    );
-    const allInseminations = await db.select().from(inseminations).where(eq(inseminations.tenantId, tenantId));
-    const allCalvings = await db.select().from(calvings).where(eq(calvings.tenantId, tenantId));
-    const allPTs = await db.select().from(pregnancyTests).where(eq(pregnancyTests.tenantId, tenantId));
-
-    for (const cow of allCattle) {
-      if (cow.stage !== "milking" && cow.stage !== "heifer") continue;
-      const lastIns = allInseminations.filter(i => i.cattleId === cow.id).sort((a, b) => b.date.localeCompare(a.date))[0];
-      const lastCalving = allCalvings.filter(c => c.cattleId === cow.id).sort((a, b) => b.date.localeCompare(a.date))[0];
-      const refDate = lastIns?.date || lastCalving?.date;
-      if (!refDate) continue;
-      const daysAgo = Math.floor((now.getTime() - new Date(refDate).getTime()) / 86400000);
-      if (daysAgo >= 18 && daysAgo <= 28) {
-        const key = `breeding:heat_due:${today}:${cow.id}`;
-        upsertAlert(key, {
-          type: "breeding",
-          severity: "warning",
-          title: `Heat Due: ${cow.name || cow.tagNumber}`,
-          message: `${cow.name || cow.tagNumber} is expected to come into heat (${daysAgo}d since last event). Check and record if observed.`,
-          cattleId: cow.id,
-          referenceType: "heat_due",
-          referenceId: today,
-        });
-      }
-    }
-
-    // 2. Pregnancy test due: inseminations 28-45 days ago without PT
-    for (const ins of allInseminations) {
-      const insDate = new Date(ins.date);
-      const daysAgo = Math.floor((now.getTime() - insDate.getTime()) / 86400000);
-      if (daysAgo < 28 || daysAgo > 60) continue;
-      const hasPT = allPTs.some(pt => pt.cattleId === ins.cattleId && new Date(pt.testDate) > insDate);
-      if (!hasPT) {
-        const cow = allCattle.find(c => c.id === ins.cattleId);
-        if (!cow) continue;
-        const key = `breeding:pt_due:${ins.id}:${ins.cattleId}`;
-        upsertAlert(key, {
-          type: "breeding",
-          severity: "warning",
-          title: `Pregnancy Test Due: ${cow.name || cow.tagNumber}`,
-          message: `${cow.name || cow.tagNumber} was inseminated ${daysAgo} days ago. Schedule pregnancy test now.`,
-          cattleId: ins.cattleId,
-          referenceType: "pt_due",
-          referenceId: ins.id,
-        });
-      }
-    }
-
-    // 3. Vaccination due in next 14 days
-    const allVaccinations = await db.select().from(vaccinations).where(eq(vaccinations.tenantId, tenantId));
-    const in14Days = new Date(now.getTime() + 14 * 86400000);
-    for (const vac of allVaccinations) {
-      if (!vac.nextDueDate) continue;
-      const dueDate = new Date(vac.nextDueDate);
-      const daysUntil = Math.floor((dueDate.getTime() - now.getTime()) / 86400000);
-      if (daysUntil < 0 || daysUntil > 14) continue;
-      const cow = allCattle.find(c => c.id === vac.cattleId);
-      if (!cow) continue;
-      const key = `health:vac_due:${vac.id}:${vac.cattleId}`;
-      upsertAlert(key, {
-        type: "health",
-        severity: daysUntil <= 3 ? "critical" : "warning",
-        title: `Vaccination Due: ${vac.vaccineName} — ${cow.name || cow.tagNumber}`,
-        message: `${vac.vaccineName} vaccination is due ${daysUntil === 0 ? "today" : `in ${daysUntil} day(s)`} for ${cow.name || cow.tagNumber}.`,
-        cattleId: vac.cattleId,
-        referenceType: "vaccination",
-        referenceId: vac.id,
-      });
-    }
-
-    // 4. Low stock inventory
-    const allItems = await db.select().from(inventoryItems).where(
-      and(eq(inventoryItems.tenantId, tenantId), eq(inventoryItems.isActive, true))
-    );
-    for (const item of allItems) {
-      if (!item.minStock) continue;
-      const current = Number(item.currentStock);
-      const min = Number(item.minStock);
-      if (current <= min) {
-        const key = `inventory:low_stock:${item.id}:`;
-        upsertAlert(key, {
-          type: "inventory",
-          severity: current === 0 ? "critical" : "warning",
-          title: `Low Stock: ${item.name}`,
-          message: `${item.name} stock is at ${current} ${item.unit} (minimum: ${min} ${item.unit}). Please reorder.`,
-          referenceType: "inventory_item",
-          referenceId: item.id,
-        });
-      }
-    }
-
-    // Batch insert new alerts
-    if (toCreate.length > 0) {
-      await db.insert(alerts).values(toCreate);
-    }
+    const { evaluateTenantRules } = await import("./notification-engine");
+    await evaluateTenantRules(tenantId);
   }
 }
 
