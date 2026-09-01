@@ -31,12 +31,15 @@ if [ -d dist ]; then cp -a dist "$backup_dir"; fi
 
 npm ci --no-audit --no-fund
 
-if [ "$schema_changed" = 1 ]; then
+if [ "$schema_changed" = 1 ] || [ "${RESET_SUPER_ADMIN:-0}" = 1 ]; then
   set -a
   # shellcheck disable=SC1091
   . ./.env
   set +a
   test -n "${DATABASE_URL:-}" || { echo 'DATABASE_URL is missing from the production environment.' >&2; exit 1; }
+fi
+
+if [ "$schema_changed" = 1 ]; then
   database_backup="$STATE_DIR/database-$(date -u +%Y%m%dT%H%M%SZ)-before-${current_commit:0:12}.dump"
   command -v psql >/dev/null || { echo 'psql is required to identify the production PostgreSQL version.' >&2; exit 1; }
   server_version_num=$(psql "$DATABASE_URL" --tuples-only --no-align --command='SHOW server_version_num')
