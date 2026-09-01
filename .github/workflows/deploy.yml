@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      apply_schema:
+        description: Back up the production database and apply reviewed schema changes
+        required: true
+        type: boolean
+        default: false
 
 concurrency:
   group: dairy-pro-vps-deploy
@@ -22,12 +28,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DEPLOY_SHA: ${{ github.sha }}
+          APPLY_SCHEMA_CHANGES: ${{ inputs.apply_schema && '1' || '0' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          envs: GITHUB_TOKEN,GITHUB_REPOSITORY,DEPLOY_SHA
+          envs: GITHUB_TOKEN,GITHUB_REPOSITORY,DEPLOY_SHA,APPLY_SCHEMA_CHANGES
           command_timeout: 20m
           script: |
             set -eu
