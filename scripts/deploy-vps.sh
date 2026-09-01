@@ -55,6 +55,14 @@ if [ "$schema_changed" = 1 ]; then
   npm run db:push
 fi
 
+if [ "${RESET_SUPER_ADMIN:-0}" = 1 ]; then
+  test -n "${SUPER_ADMIN_BOOTSTRAP_PASSWORD:-}" || { echo 'The temporary Super Admin bootstrap secret is missing.' >&2; exit 1; }
+  SUPER_ADMIN_EMAIL="${SUPER_ADMIN_EMAIL:-admin@dairyflow.com}" \
+    SUPER_ADMIN_PASSWORD="$SUPER_ADMIN_BOOTSTRAP_PASSWORD" \
+    npm exec tsx script/reset-superadmin.ts
+  unset SUPER_ADMIN_BOOTSTRAP_PASSWORD SUPER_ADMIN_PASSWORD
+fi
+
 npm run build
 
 rollback() {
