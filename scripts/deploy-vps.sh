@@ -37,9 +37,19 @@ if [ "$schema_changed" = 1 ]; then
   . ./.env
   set +a
   test -n "${DATABASE_URL:-}" || { echo 'DATABASE_URL is missing from the production environment.' >&2; exit 1; }
-  command -v pg_dump >/dev/null || { echo 'pg_dump is required before applying a production schema change.' >&2; exit 1; }
   database_backup="$STATE_DIR/database-$(date -u +%Y%m%dT%H%M%SZ)-before-${current_commit:0:12}.dump"
-  pg_dump "$DATABASE_URL" --format=custom --file="$database_backup"
+  command -v psql >/dev/null || { echo 'psql is required to identify the production PostgreSQL version.' >&2; exit 1; }
+  server_version_num=$(psql "$DATABASE_URL" --tuples-only --no-align --command='SHOW server_version_num')
+  server_major=$((server_version_num / 10000))
+  pg_dump_major=$(pg_dump --version 2>/dev/null | sed -nE 's/.* ([0-9]+)(\.[0-9]+)?.*/\1/p')
+  if [ "$pg_dump_major" = "$server_major" ]; then
+    pg_dump "$DATABASE_URL" --format=custom --file="$database_backup"
+  else
+    command -v docker >/dev/null || { echo "PostgreSQL $server_major backup requires a matching pg_dump or Docker." >&2; exit 1; }
+    backup_name=$(basename "$database_backup")
+    docker run --rm --network host --user "$(id -u):$(id -g)" -v "$STATE_DIR:/backup" "postgres:$server_major" \
+      pg_dump "$DATABASE_URL" --format=custom --file="/backup/$backup_name"
+  fi
   test -s "$database_backup" || { echo 'Production database backup is empty; migration cancelled.' >&2; exit 1; }
   echo "Database backup created at $database_backup"
   npm run db:push
