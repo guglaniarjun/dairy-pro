@@ -1274,9 +1274,11 @@ export async function registerRoutes(
     res.json(await storage.getAllWhatsappLogs(limit));
   });
 
-  app.post("/api/admin/whatsapp-web/connect", isAuthenticated, requireSuperAdmin, async (_req, res) => {
-    whatsappWebGateway.start().catch(error => console.error("WhatsApp Web start failed:", error));
-    res.status(202).json({ message: "WhatsApp Web is starting. Scan the QR code when it appears." });
+  app.post("/api/admin/whatsapp-web/connect", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    const phone = String(req.body?.phone || "").trim();
+    const start = phone ? whatsappWebGateway.startWithPhoneNumber(phone) : whatsappWebGateway.start();
+    start.catch(error => console.error("WhatsApp Web start failed:", error));
+    res.status(202).json({ message: phone ? "Phone-number pairing is starting. Use the code when it appears." : "WhatsApp Web is starting. Scan the QR code when it appears." });
   });
 
   app.post("/api/admin/whatsapp-web/logout", isAuthenticated, requireSuperAdmin, async (_req, res) => {

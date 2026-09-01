@@ -4,8 +4,10 @@ import whatsappWeb from "whatsapp-web.js";
 const { Client, LocalAuth } = whatsappWeb;
 
 export type WhatsappWebStatus = {
-  state: "disabled" | "starting" | "qr_pending" | "authenticated" | "connected" | "disconnected" | "error";
+  state: "disabled" | "starting" | "qr_pending" | "pairing_code_pending" | "authenticated" | "connected" | "disconnected" | "error";
   qrDataUrl: string | null;
+  qrUpdatedAt: string | null;
+  pairingCode: string | null;
   phoneNumber: string | null;
   lastConnectedAt: string | null;
   lastError: string | null;
@@ -16,9 +18,12 @@ class WhatsappWebGateway {
   private starting: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionallyStopped = false;
+  private pairingPhone: string | null = null;
   private status: WhatsappWebStatus = {
     state: process.env.WHATSAPP_WEB_ENABLED === "false" ? "disabled" : "disconnected",
     qrDataUrl: null,
+    qrUpdatedAt: null,
+    pairingCode: null,
     phoneNumber: null,
     lastConnectedAt: null,
     lastError: null,
@@ -33,7 +38,7 @@ class WhatsappWebGateway {
       this.status.state = "disabled";
       throw new Error("WhatsApp Web is disabled by WHATSAPP_WEB_ENABLED=false");
     }
-    if (this.status.state === "connected" || this.status.state === "qr_pending") return;
+    if (this.status.state === "connected" || this.status.state === "qr_pending" || this.status.state === "pairing_code_pending") return;
     if (this.starting) return this.starting;
     this.intentionallyStopped = false;
 
@@ -53,12 +58,13 @@ class WhatsappWebGateway {
       await this.client.destroy().catch(() => undefined);
     }
 
-    this.status = { ...this.status, state: "starting", qrDataUrl: null, lastError: null };
+    this.status = { ...this.status, state: "starting", qrDataUrl: null, qrUpdatedAt: null, pairingCode: null, lastError: null };
     const authPath = process.env.WHATSAPP_AUTH_PATH || `${process.cwd()}/.whatsapp-auth`;
     const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH || undefined;
 
     const client = new Client({
       authStrategy: new LocalAuth({ clientId: "dairyflow-super-admin", dataPath: authPath }),
+      ...(this.pairingPhone ? { pairWithPhoneNumber: { phoneNumber: this.pairingPhone, showNotification: true, intervalMs: 180000 } } : {}),
       puppeteer: {
         headless: true,
         executablePath,
@@ -70,15 +76,26 @@ class WhatsappWebGateway {
     client.on("qr", async (qr: string) => {
       this.status.state = "qr_pending";
       this.status.qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
+      this.status.qrUpdatedAt = new Date().toISOString();
+      this.status.pairingCode = null;
+      this.status.lastError = null;
+    });
+    client.on("code", (code: string) => {
+      this.status.state = "pairing_code_pending";
+      this.status.qrDataUrl = null;
+      this.status.qrUpdatedAt = null;
+      this.status.pairingCode = code;
       this.status.lastError = null;
     });
     client.on("authenticated", () => {
       this.status.state = "authenticated";
       this.status.qrDataUrl = null;
+      this.status.pairingCode = null;
     });
     client.on("ready", () => {
       this.status.state = "connected";
       this.status.qrDataUrl = null;
+      this.status.pairingCode = null;
       this.status.phoneNumber = client.info?.wid?.user || null;
       this.status.lastConnectedAt = new Date().toISOString();
       this.status.lastError = null;
@@ -95,6 +112,15 @@ class WhatsappWebGateway {
     });
 
     await client.initialize();
+  }
+
+  async startWithPhoneNumber(phone: string): Promise<void> {
+    if (this.status.state === "connected") throw new Error("WhatsApp Web is already connected");
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 15) throw new Error("Enter a valid phone number with country code");
+    await this.logout();
+    this.pairingPhone = digits;
+    await this.start();
   }
 
   private scheduleReconnect() {
@@ -129,9 +155,12 @@ class WhatsappWebGateway {
       await this.client.destroy().catch(() => undefined);
     }
     this.client = null;
+    this.pairingPhone = null;
     this.status = {
       state: "disconnected",
       qrDataUrl: null,
+      qrUpdatedAt: null,
+      pairingCode: null,
       phoneNumber: null,
       lastConnectedAt: null,
       lastError: null,
