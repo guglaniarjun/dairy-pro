@@ -15,23 +15,23 @@ import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard, Milk, Heart, Stethoscope, Leaf, Package, Wallet,
   Bell, BarChart3, Settings, ChevronUp, LogOut, CreditCard,
-  Baby, Recycle, ArrowLeftRight, ShieldCheck, X,
+  Baby, Recycle, ArrowLeftRight, ShieldCheck, X, Users,
 } from "lucide-react";
 
 const mainNavItems = [
-  { title: "Dashboard",    url: "/",          icon: LayoutDashboard, color: "text-blue-500" },
-  { title: "Cattle",       url: "/cattle",    icon: Heart,           color: "text-red-500" },
-  { title: "Milk Records", url: "/milk",      icon: Milk,            color: "text-sky-500" },
-  { title: "Breeding",     url: "/breeding",  icon: Baby,            color: "text-pink-500" },
-  { title: "Health",       url: "/health",    icon: Stethoscope,     color: "text-emerald-500" },
-  { title: "Feed",         url: "/feed",      icon: Leaf,            color: "text-lime-600" },
+  { title: "Dashboard",    url: "/",          icon: LayoutDashboard, color: "text-blue-500", permission: "dashboard.view" },
+  { title: "Cattle",       url: "/cattle",    icon: Heart,           color: "text-red-500", permission: "cattle.view" },
+  { title: "Milk Records", url: "/milk",      icon: Milk,            color: "text-sky-500", permission: "milk.view" },
+  { title: "Breeding",     url: "/breeding",  icon: Baby,            color: "text-pink-500", permission: "breeding.view" },
+  { title: "Health",       url: "/health",    icon: Stethoscope,     color: "text-emerald-500", permission: "health.view" },
+  { title: "Feed",         url: "/feed",      icon: Leaf,            color: "text-lime-600", permission: "feed.view" },
 ];
 
 const managementNavItems = [
-  { title: "Byproducts", url: "/byproducts",  icon: Recycle,   color: "text-teal-500" },
-  { title: "Inventory",  url: "/inventory",   icon: Package,   color: "text-orange-500" },
-  { title: "Finances",   url: "/finances",    icon: Wallet,    color: "text-yellow-600" },
-  { title: "Reports",    url: "/reports",     icon: BarChart3, color: "text-violet-500" },
+  { title: "Byproducts", url: "/byproducts",  icon: Recycle,   color: "text-teal-500", permission: "byproducts.view" },
+  { title: "Inventory",  url: "/inventory",   icon: Package,   color: "text-orange-500", permission: "inventory.view" },
+  { title: "Finances",   url: "/finances",    icon: Wallet,    color: "text-yellow-600", permission: "finances.view" },
+  { title: "Reports",    url: "/reports",     icon: BarChart3, color: "text-violet-500", permission: "reports.view" },
 ];
 
 export function AppSidebar() {
@@ -39,6 +39,9 @@ export function AppSidebar() {
   const { user, logout } = useAuth();
   const isSuperAdmin = !!(user as any)?.isSuperAdmin;
   const actingTenantName = (user as any)?.actingTenantName as string | null;
+  const tenantRole = (user as any)?.tenantRole as string | null;
+  const tenantPermissions = ((user as any)?.tenantPermissions || []) as string[];
+  const can = (permission: string) => !tenantRole || tenantRole === "owner" || tenantRole === "super_admin" || tenantPermissions.includes(permission);
 
   const leaveTenant = useMutation({
     mutationFn: () => apiRequest("DELETE", "/api/admin/tenant-access"),
@@ -109,7 +112,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {mainNavItems.map((item) => {
+              {mainNavItems.filter(item => can(item.permission)).map((item) => {
                 const active = isActive(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -141,7 +144,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {managementNavItems.map((item) => {
+              {managementNavItems.filter(item => can(item.permission)).map((item) => {
                 const active = isActive(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -180,7 +183,15 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              <SidebarMenuItem>
+              {can("team.manage") && <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/team")} className="h-9 rounded-lg">
+                  <Link href="/team" data-testid="nav-team" className="flex items-center gap-3 px-3">
+                    <Users className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/team") ? "text-primary" : "text-cyan-600"}`} />
+                    <span className="text-[13px] font-medium">Users & Roles</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>}
+              {can("alerts.view") && <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/alerts")} className="h-9 rounded-lg">
                   <Link href="/alerts" data-testid="nav-alerts" className="flex items-center gap-3 px-3">
                     <Bell className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/alerts") ? "text-primary" : "text-amber-500"} opacity-90`} />
@@ -195,31 +206,31 @@ export function AppSidebar() {
                     )}
                   </Link>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
+              </SidebarMenuItem>}
+              {can("billing.manage") && <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/billing")} className="h-9 rounded-lg">
                   <Link href="/billing" data-testid="nav-billing" className="flex items-center gap-3 px-3">
                     <CreditCard className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/billing") ? "text-primary" : "text-purple-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Billing</span>
                   </Link>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
+              </SidebarMenuItem>}
+              {can("import_export.manage") && <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/import-export")} className="h-9 rounded-lg">
                   <Link href="/import-export" data-testid="nav-import-export" className="flex items-center gap-3 px-3">
                     <ArrowLeftRight className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/import-export") ? "text-primary" : "text-indigo-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Import / Export</span>
                   </Link>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
+              </SidebarMenuItem>}
+              {can("settings.manage") && <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/settings")} className="h-9 rounded-lg">
                   <Link href="/settings" data-testid="nav-settings" className="flex items-center gap-3 px-3">
                     <Settings className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/settings") ? "text-primary" : "text-gray-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Settings</span>
                   </Link>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
+              </SidebarMenuItem>}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -249,16 +260,16 @@ export function AppSidebar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="top" className="w-52 mb-1">
-            <DropdownMenuItem asChild>
+            {can("settings.manage") && <DropdownMenuItem asChild>
               <Link href="/settings" className="cursor-pointer gap-2" data-testid="menu-settings">
                 <Settings className="w-4 h-4" /> Settings
               </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
+            </DropdownMenuItem>}
+            {can("billing.manage") && <DropdownMenuItem asChild>
               <Link href="/billing" className="cursor-pointer gap-2" data-testid="menu-billing">
                 <CreditCard className="w-4 h-4" /> Billing
               </Link>
-            </DropdownMenuItem>
+            </DropdownMenuItem>}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => logout()}

@@ -50,6 +50,7 @@ import ByproductsPage from "@/pages/byproducts/index";
 import BillingPage from "@/pages/billing/index";
 import ImportExportPage from "@/pages/import-export/index";
 import SuperAdminPage from "@/pages/admin/index";
+import TeamPage from "@/pages/team/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -163,6 +164,7 @@ function AppRouter() {
         <Route path="/feed/formulation" component={FeedFormulationPage} />
         <Route path="/alerts" component={AlertsPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/team" component={TeamPage} />
         <Route path="/import-export" component={ImportExportPage} />
         {(user as any)?.isSuperAdmin && <Route path="/admin" component={SuperAdminPage} />}
         <Route component={NotFound} />

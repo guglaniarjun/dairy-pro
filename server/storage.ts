@@ -93,6 +93,11 @@ export interface IStorage {
   getAllTenants(): Promise<Tenant[]>;
   updateTenant(id: string, data: Partial<Tenant>): Promise<Tenant | undefined>;
   getTenantMemberCount(tenantId: string): Promise<number>;
+  getTenantMemberByUserId(userId: string): Promise<any | undefined>;
+  getTenantMemberById(id: string): Promise<any | undefined>;
+  getTenantMembersWithUsers(tenantId: string): Promise<any[]>;
+  createTenantMember(data: any): Promise<any>;
+  updateTenantMember(id: string, data: any): Promise<any | undefined>;
 
   // Cattle
   getCattleByTenant(tenantId: string): Promise<Cattle[]>;
@@ -324,8 +329,38 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.select({ count: sql<number>`count(*)::int` })
       .from(tenantMembers)
       .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.isActive, true)));
-    // The tenant owner is an active user even when they are not duplicated in tenant_members.
-    return Math.max(1, result?.count || 0);
+    // Owners are stored on tenants, while additional users live in tenant_members.
+    return 1 + (result?.count || 0);
+  }
+
+  async getTenantMemberByUserId(userId: string): Promise<any | undefined> {
+    const [membership] = await db.select().from(tenantMembers)
+      .where(eq(tenantMembers.userId, userId))
+      .limit(1);
+    return membership;
+  }
+
+  async getTenantMemberById(id: string): Promise<any | undefined> {
+    const [membership] = await db.select().from(tenantMembers).where(eq(tenantMembers.id, id)).limit(1);
+    return membership;
+  }
+
+  async getTenantMembersWithUsers(tenantId: string): Promise<any[]> {
+    return db.select({ membership: tenantMembers, user: users })
+      .from(tenantMembers)
+      .innerJoin(users, eq(tenantMembers.userId, users.id))
+      .where(eq(tenantMembers.tenantId, tenantId))
+      .orderBy(asc(users.firstName), asc(users.email));
+  }
+
+  async createTenantMember(data: any): Promise<any> {
+    const [created] = await db.insert(tenantMembers).values(data).returning();
+    return created;
+  }
+
+  async updateTenantMember(id: string, data: any): Promise<any | undefined> {
+    const [updated] = await db.update(tenantMembers).set(data).where(eq(tenantMembers.id, id)).returning();
+    return updated;
   }
 
   // Cattle

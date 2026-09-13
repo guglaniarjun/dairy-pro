@@ -1,26 +1,57 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
+import { authStorage } from "./replit_integrations/auth/storage";
 import { upload, uploadFile, deleteFile, getFileType } from "./upload";
 import { whatsappWebGateway } from "./whatsapp-web";
 import { evaluateTenantRules, processWhatsappOutbox, queueWhatsappBroadcast, queueWhatsappMessage } from "./notification-engine";
 
 import type { User as AppUser } from "@shared/models/auth";
+import { allTenantPermissions, effectivePermissions, tenantRoles, type TenantPermission } from "@shared/rbac";
 
 declare global {
   namespace Express {
     interface User extends AppUser {}
     interface Request {
       tenantId?: string;
+      tenantRole?: string;
+      tenantPermissions?: string[];
     }
   }
 }
 
 const routeParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
 
-// Middleware to get current user's tenant
+function permissionForRequest(req: Request): TenantPermission | null {
+  const path = req.path;
+  const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+  const match = (module: string) => `${module}.${write ? "manage" : "view"}` as TenantPermission;
+  if (path.startsWith("/api/team")) return "team.manage";
+  if (path.startsWith("/api/billing")) return "billing.manage";
+  if (path.startsWith("/api/import") || path.startsWith("/api/export")) return "import_export.manage";
+  if (path.startsWith("/api/settings") || path.startsWith("/api/farm-settings") || path.startsWith("/api/notification-rules") || path.startsWith("/api/whatsapp")) return "settings.manage";
+  if (path.startsWith("/api/dashboard")) return "dashboard.view";
+  if (/^\/api\/cattle\/[^/]+\/milk-entries/.test(path)) return "milk.view";
+  if (/^\/api\/cattle\/[^/]+\/(health-events|vaccinations)/.test(path)) return "health.view";
+  if (/^\/api\/cattle\/[^/]+\/(heats|inseminations|pregnancy-tests|calvings)/.test(path)) return "breeding.view";
+  if (/^\/api\/cattle\/[^/]+\/(costs|pl-summary)/.test(path) || path.startsWith("/api/cattle-pl")) return match("finances");
+  if (path.startsWith("/api/cattle")) return match("cattle");
+  if (path.startsWith("/api/milk")) return match("milk");
+  if (path.startsWith("/api/breeding")) return match("breeding");
+  if (path.startsWith("/api/health") || path.startsWith("/api/vaccinations")) return match("health");
+  if (path.startsWith("/api/feed")) return match("feed");
+  if (path.startsWith("/api/inventory")) return match("inventory");
+  if (path.startsWith("/api/expenses") || path.startsWith("/api/incomes") || path.startsWith("/api/finance")) return match("finances");
+  if (path.startsWith("/api/byproduct")) return match("byproducts");
+  if (path.startsWith("/api/tasks")) return match("tasks");
+  if (path.startsWith("/api/alerts")) return write ? "alerts.view" : "alerts.view";
+  return null;
+}
+
+// Resolve the user's tenant and enforce role permissions for every tenant-scoped route.
 async function withTenant(req: any, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -33,11 +64,25 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
       const selectedTenant = await storage.getTenantById(selectedTenantId);
       if (selectedTenant) {
         req.tenantId = selectedTenant.id;
+        req.tenantRole = "super_admin";
+        req.tenantPermissions = allTenantPermissions;
         return next();
       }
       delete req.session.adminTenantId;
     }
     let tenant = await storage.getTenantByOwnerId(userId);
+    let role = "owner";
+    let permissionOverrides: string[] = [];
+
+    if (!tenant) {
+      const membership = await storage.getTenantMemberByUserId(userId);
+      if (membership) {
+        if (!membership.isActive) return res.status(403).json({ error: "Your farm account has been deactivated" });
+        tenant = await storage.getTenantById(membership.tenantId);
+        role = membership.role;
+        permissionOverrides = Array.isArray(membership.permissions) ? membership.permissions : [];
+      }
+    }
     
     if (!tenant) {
       // Create default tenant for new user
@@ -58,6 +103,12 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
     }
 
     req.tenantId = tenant.id;
+    req.tenantRole = role;
+    req.tenantPermissions = effectivePermissions(role, permissionOverrides);
+    const requiredPermission = permissionForRequest(req);
+    if (requiredPermission && !req.tenantPermissions.includes(requiredPermission)) {
+      return res.status(403).json({ error: `Your ${role} role does not have permission to perform this action` });
+    }
     next();
   } catch (error) {
     console.error("Tenant middleware error:", error);
@@ -148,11 +199,20 @@ export async function registerRoutes(
       const actingTenant = isSuperAdmin && req.session?.adminTenantId
         ? await storage.getTenantById(req.session.adminTenantId)
         : undefined;
+      const ownedTenant = !actingTenant ? await storage.getTenantByOwnerId(req.user.id) : undefined;
+      const membership = !actingTenant && !ownedTenant ? await storage.getTenantMemberByUserId(req.user.id) : undefined;
+      const tenantRole = actingTenant ? "super_admin" : ownedTenant ? "owner" : membership?.role || null;
+      const tenantPermissions = tenantRole
+        ? (tenantRole === "super_admin" ? allTenantPermissions : effectivePermissions(tenantRole, membership?.permissions as string[] | undefined))
+        : [];
       res.json({
         ...safeUser,
         isSuperAdmin,
         actingTenantId: actingTenant?.id || null,
         actingTenantName: actingTenant?.name || null,
+        tenantId: actingTenant?.id || ownedTenant?.id || membership?.tenantId || null,
+        tenantRole,
+        tenantPermissions,
       });
     } catch (error) {
       console.error("Auth user error:", error);
@@ -363,7 +423,10 @@ export async function registerRoutes(
 
   app.patch("/api/health/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateHealthEvent(routeParam(req.params.id), req.body);
+      const id = routeParam(req.params.id);
+      const existing = (await storage.getHealthEventsByTenant(req.tenantId!)).find(item => item.id === id);
+      if (!existing) return res.status(404).json({ error: "Health event not found" });
+      const updated = await storage.updateHealthEvent(id, req.body);
       res.json(updated);
     } catch (error) {
       console.error("Health update error:", error);
@@ -400,7 +463,10 @@ export async function registerRoutes(
 
   app.patch("/api/tasks/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateTask(routeParam(req.params.id), req.body);
+      const id = routeParam(req.params.id);
+      const existing = (await storage.getTasksByTenant(req.tenantId!)).find(item => item.id === id);
+      if (!existing) return res.status(404).json({ error: "Task not found" });
+      const updated = await storage.updateTask(id, req.body);
       res.json(updated);
     } catch (error) {
       console.error("Task update error:", error);
@@ -424,7 +490,10 @@ export async function registerRoutes(
 
   app.patch("/api/alerts/:id", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const updated = await storage.updateAlert(routeParam(req.params.id), req.body);
+      const id = routeParam(req.params.id);
+      const existing = (await storage.getAlertsByTenant(req.tenantId!)).find(item => item.id === id);
+      if (!existing) return res.status(404).json({ error: "Alert not found" });
+      const updated = await storage.updateAlert(id, req.body);
       res.json(updated);
     } catch (error) {
       console.error("Alert update error:", error);
@@ -680,6 +749,136 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Super admin overview error:", error);
       res.status(500).json({ error: "Failed to load the control centre" });
+    }
+  });
+
+  // =====================================================
+  // FARM TEAM & ROLE MANAGEMENT
+  // =====================================================
+
+  app.get("/api/team", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const tenant = await storage.getTenantById(req.tenantId!);
+      if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+      const [owner, memberRows, plan] = await Promise.all([
+        storage.getUser(tenant.ownerId),
+        storage.getTenantMembersWithUsers(tenant.id),
+        storage.getSubscriptionPlanByCode(tenant.plan),
+      ]);
+      const members = memberRows
+        .filter(row => row.user.id !== tenant.ownerId)
+        .map(row => ({
+          id: row.membership.id,
+          userId: row.user.id,
+          email: row.user.email,
+          firstName: row.user.firstName,
+          lastName: row.user.lastName,
+          role: row.membership.role,
+          permissions: row.membership.permissions || [],
+          effectivePermissions: effectivePermissions(row.membership.role, row.membership.permissions),
+          isActive: row.membership.isActive,
+          createdAt: row.membership.createdAt,
+          isOwner: false,
+        }));
+      res.json({
+        owner: owner ? { id: `owner-${owner.id}`, userId: owner.id, email: owner.email, firstName: owner.firstName, lastName: owner.lastName, role: "owner", permissions: allTenantPermissions, effectivePermissions: allTenantPermissions, isActive: true, isOwner: true } : null,
+        members,
+        usage: { current: 1 + members.filter(item => item.isActive).length, limit: plan?.maxUsers || 5, plan: plan?.name || tenant.plan },
+      });
+    } catch (error) {
+      console.error("Team fetch error:", error);
+      res.status(500).json({ error: "Failed to load farm users" });
+    }
+  });
+
+  app.post("/api/team", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const email = String(req.body.email || "").trim().toLowerCase();
+      const role = String(req.body.role || "worker");
+      const password = String(req.body.password || "");
+      if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "A valid email address is required" });
+      if (!tenantRoles.includes(role as any)) return res.status(400).json({ error: "Invalid farm role" });
+
+      const tenant = await storage.getTenantById(req.tenantId!);
+      const plan = tenant ? await storage.getSubscriptionPlanByCode(tenant.plan) : undefined;
+      const currentUsers = await storage.getTenantMemberCount(req.tenantId!);
+      const userLimit = plan?.maxUsers || 5;
+      if (currentUsers >= userLimit) return res.status(409).json({ error: `The ${plan?.name || tenant?.plan || "current"} plan allows ${userLimit} users` });
+
+      let user = await authStorage.getUserByEmail(email);
+      if (user) {
+        const [ownedTenant, existingMembership] = await Promise.all([
+          storage.getTenantByOwnerId(user.id),
+          storage.getTenantMemberByUserId(user.id),
+        ]);
+        if (ownedTenant || existingMembership) return res.status(409).json({ error: "This email already belongs to a DairyFlow farm" });
+      } else {
+        if (password.length < 8) return res.status(400).json({ error: "A temporary password of at least 8 characters is required" });
+        user = await authStorage.createUser({
+          id: crypto.randomUUID(),
+          email,
+          firstName: String(req.body.firstName || "").trim() || null,
+          lastName: String(req.body.lastName || "").trim() || null,
+          passwordHash: await bcrypt.hash(password, 12),
+        });
+      }
+
+      const requestedPermissions = Array.isArray(req.body.permissions) ? req.body.permissions : [];
+      const permissions = requestedPermissions.filter((item: unknown) => allTenantPermissions.includes(String(item) as TenantPermission));
+      const membership = await storage.createTenantMember({ tenantId: req.tenantId, userId: user.id, role, permissions, isActive: true });
+      res.status(201).json({ id: membership.id, userId: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role, permissions, effectivePermissions: effectivePermissions(role, permissions), isActive: true });
+    } catch (error) {
+      console.error("Team create error:", error);
+      res.status(500).json({ error: "Failed to create farm user" });
+    }
+  });
+
+  app.patch("/api/team/:id", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const membership = await storage.getTenantMemberById(routeParam(req.params.id));
+      if (!membership || membership.tenantId !== req.tenantId) return res.status(404).json({ error: "Farm user not found" });
+      const updates: Record<string, unknown> = {};
+      if (req.body.role !== undefined) {
+        if (!tenantRoles.includes(req.body.role)) return res.status(400).json({ error: "Invalid farm role" });
+        updates.role = req.body.role;
+      }
+      if (req.body.permissions !== undefined) {
+        if (!Array.isArray(req.body.permissions)) return res.status(400).json({ error: "Permissions must be an array" });
+        updates.permissions = req.body.permissions.filter((item: unknown) => allTenantPermissions.includes(String(item) as TenantPermission));
+      }
+      if (req.body.isActive !== undefined) {
+        if (req.body.isActive === true && !membership.isActive) {
+          const tenant = await storage.getTenantById(req.tenantId!);
+          const plan = tenant ? await storage.getSubscriptionPlanByCode(tenant.plan) : undefined;
+          const userLimit = plan?.maxUsers || 5;
+          if (await storage.getTenantMemberCount(req.tenantId!) >= userLimit) return res.status(409).json({ error: `The current plan allows ${userLimit} users` });
+        }
+        updates.isActive = req.body.isActive === true;
+      }
+      if (req.body.firstName !== undefined || req.body.lastName !== undefined) {
+        await authStorage.updateUser(membership.userId, {
+          ...(req.body.firstName !== undefined ? { firstName: String(req.body.firstName).trim() || null } : {}),
+          ...(req.body.lastName !== undefined ? { lastName: String(req.body.lastName).trim() || null } : {}),
+        });
+      }
+      res.json(await storage.updateTenantMember(membership.id, updates));
+    } catch (error) {
+      console.error("Team update error:", error);
+      res.status(500).json({ error: "Failed to update farm user" });
+    }
+  });
+
+  app.post("/api/team/:id/reset-password", isAuthenticated, withTenant, async (req, res) => {
+    try {
+      const membership = await storage.getTenantMemberById(routeParam(req.params.id));
+      if (!membership || membership.tenantId !== req.tenantId) return res.status(404).json({ error: "Farm user not found" });
+      const password = String(req.body.password || "");
+      if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+      await authStorage.updateUser(membership.userId, { passwordHash: await bcrypt.hash(password, 12) });
+      res.status(204).end();
+    } catch (error) {
+      console.error("Password reset error:", error);
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 

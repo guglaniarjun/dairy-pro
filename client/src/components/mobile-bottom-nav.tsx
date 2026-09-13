@@ -1,21 +1,27 @@
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, Heart, Milk, Baby, Bell } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 const navItems = [
-  { title: "Home",     url: "/",         icon: LayoutDashboard, exact: true },
-  { title: "Cattle",   url: "/cattle",   icon: Heart },
-  { title: "Milk",     url: "/milk",     icon: Milk },
-  { title: "Breeding", url: "/breeding", icon: Baby },
-  { title: "Alerts",   url: "/alerts",   icon: Bell },
+  { title: "Home",     url: "/",         icon: LayoutDashboard, exact: true, permission: "dashboard.view" },
+  { title: "Cattle",   url: "/cattle",   icon: Heart, permission: "cattle.view" },
+  { title: "Milk",     url: "/milk",     icon: Milk, permission: "milk.view" },
+  { title: "Breeding", url: "/breeding", icon: Baby, permission: "breeding.view" },
+  { title: "Alerts",   url: "/alerts",   icon: Bell, permission: "alerts.view" },
 ];
 
 export function MobileBottomNav() {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const role = (user as any)?.tenantRole as string | null;
+  const permissions = ((user as any)?.tenantPermissions || []) as string[];
+  const can = (permission: string) => !role || role === "owner" || role === "super_admin" || permissions.includes(permission);
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/dashboard/stats"],
     staleTime: 60_000,
+    enabled: can("dashboard.view"),
   });
 
   const alertCount = stats?.activeAlerts || 0;
@@ -41,7 +47,7 @@ export function MobileBottomNav() {
           background: "hsl(var(--background) / 0.92)",
         }}
       >
-        {navItems.map((item) => {
+        {navItems.filter(item => can(item.permission)).map((item) => {
           const active = isActive(item.url, item.exact);
           return (
             <Link key={item.url} href={item.url}>
