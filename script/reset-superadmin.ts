@@ -2,12 +2,12 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import pg from "pg";
 
-const email = (process.env.SUPER_ADMIN_EMAIL || "admin@dairyflow.com").trim().toLowerCase();
+const email = (process.env.SUPER_ADMIN_EMAIL || "guglaniarjun").trim().toLowerCase();
 const password = process.env.SUPER_ADMIN_PASSWORD;
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
-if (!password || password.length < 10) throw new Error("A Super Admin password of at least 10 characters is required");
+if (!password || password.length < 8) throw new Error("A Super Admin password of at least 8 characters is required");
 
 const client = new pg.Client({ connectionString: databaseUrl });
 await client.connect();

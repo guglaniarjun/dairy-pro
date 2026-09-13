@@ -49,6 +49,7 @@ import CattleDetailPage from "@/pages/cattle/detail";
 import ByproductsPage from "@/pages/byproducts/index";
 import BillingPage from "@/pages/billing/index";
 import ImportExportPage from "@/pages/import-export/index";
+import SuperAdminPage from "@/pages/admin/index";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -126,7 +127,9 @@ function AppRouter() {
   return (
     <AuthenticatedLayout>
       <Switch>
-        <Route path="/" component={DashboardPage} />
+        <Route path="/">
+          {(user as any)?.isSuperAdmin && !(user as any)?.actingTenantId ? <SuperAdminPage /> : <DashboardPage />}
+        </Route>
         <Route path="/cattle" component={CattleListPage} />
         <Route path="/cattle/new" component={AddCattlePage} />
         <Route path="/cattle/purchase" component={CattlePurchasePage} />
@@ -161,6 +164,7 @@ function AppRouter() {
         <Route path="/alerts" component={AlertsPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/import-export" component={ImportExportPage} />
+        {(user as any)?.isSuperAdmin && <Route path="/admin" component={SuperAdminPage} />}
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>

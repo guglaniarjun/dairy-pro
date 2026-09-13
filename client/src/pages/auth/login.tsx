@@ -13,7 +13,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { apiRequest } from "@/lib/queryClient";
 
 const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
+  email: z.string().trim().min(1, "Username or email is required"),
   password: z.string().min(1, "Password is required"),
 });
 type LoginForm = z.infer<typeof loginSchema>;
@@ -73,7 +73,7 @@ export default function LoginPage() {
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
-                    type="email"
+                    type="text"
                     placeholder="you@example.com"
                     autoComplete="email"
                     data-testid="input-email"

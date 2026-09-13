@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,12 +51,22 @@ type CattleFormData = z.infer<typeof cattleFormSchema>;
 export default function AddCattlePage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const editId = new URLSearchParams(window.location.search).get("edit");
+  const isEditing = !!editId;
   const [createdCattleId, setCreatedCattleId] = useState<string | null>(null);
   const [showAttachments, setShowAttachments] = useState(false);
 
   const { data: breeds } = useQuery<Breed[]>({ queryKey: ["/api/breeds"] });
   const { data: allCattle } = useQuery<Cattle[]>({ queryKey: ["/api/cattle"] });
-  const femaleCattle = allCattle?.filter((c) => c.gender === "female" && c.status === "active");
+  const { data: cattleToEdit, isLoading: isLoadingCattle, isError: cattleLoadFailed } = useQuery<Cattle>({
+    queryKey: ["/api/cattle", editId],
+    queryFn: () => fetch(`/api/cattle/${editId}`, { credentials: "include" }).then(async response => {
+      if (!response.ok) throw new Error("Unable to load cattle");
+      return response.json();
+    }),
+    enabled: isEditing,
+  });
+  const femaleCattle = allCattle?.filter((c) => c.id !== editId && c.gender === "female" && c.status === "active");
 
   const form = useForm<CattleFormData>({
     resolver: zodResolver(cattleFormSchema),
@@ -75,20 +85,49 @@ export default function AddCattlePage() {
     },
   });
 
-  const createMutation = useMutation({
+  useEffect(() => {
+    if (!cattleToEdit) return;
+    form.reset({
+      tagNumber: cattleToEdit.tagNumber,
+      name: cattleToEdit.name || "",
+      breedId: cattleToEdit.breedId || "",
+      gender: cattleToEdit.gender as "male" | "female",
+      dateOfBirth: cattleToEdit.dateOfBirth || "",
+      dateOfEntry: cattleToEdit.dateOfEntry,
+      source: cattleToEdit.source as "born" | "purchased",
+      purchasePrice: cattleToEdit.purchasePrice ? String(cattleToEdit.purchasePrice) : "",
+      status: cattleToEdit.status as CattleFormData["status"],
+      stage: cattleToEdit.stage as CattleFormData["stage"],
+      lactationNumber: cattleToEdit.lactationNumber === null ? "" : String(cattleToEdit.lactationNumber),
+      motherId: cattleToEdit.motherId || "",
+      fatherId: cattleToEdit.fatherId || "",
+      notes: cattleToEdit.notes || "",
+    });
+  }, [cattleToEdit, form]);
+
+  const saveMutation = useMutation({
     mutationFn: async (data: CattleFormData) => {
-      const response = await apiRequest("POST", "/api/cattle", {
+      const response = await apiRequest(isEditing ? "PATCH" : "POST", isEditing ? `/api/cattle/${editId}` : "/api/cattle", {
         ...data,
-        purchasePrice: data.purchasePrice ? parseFloat(data.purchasePrice) : undefined,
-        lactationNumber: data.lactationNumber ? parseInt(data.lactationNumber) : undefined,
-        motherId: data.motherId || undefined,
-        fatherId: data.fatherId || undefined,
-        breedId: data.breedId || undefined,
+        name: data.name || null,
+        dateOfBirth: data.dateOfBirth || null,
+        purchasePrice: data.purchasePrice ? parseFloat(data.purchasePrice) : null,
+        lactationNumber: data.lactationNumber ? parseInt(data.lactationNumber) : 0,
+        motherId: data.motherId || null,
+        fatherId: data.fatherId || null,
+        breedId: data.breedId || null,
+        notes: data.notes || null,
       });
       return response.json();
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cattle"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cattle", editId] });
+      if (isEditing) {
+        toast({ title: "Cattle updated", description: "The cattle details have been saved." });
+        navigate(`/cattle/${editId}`);
+        return;
+      }
       setCreatedCattleId(result.id);
       setShowAttachments(true);
       toast({
@@ -99,15 +138,17 @@ export default function AddCattlePage() {
     onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to add cattle. Please try again.",
+        description: `Failed to ${isEditing ? "update" : "add"} cattle. Please try again.`,
         variant: "destructive",
       });
     },
   });
 
   const onSubmit = (data: CattleFormData) => {
-    createMutation.mutate(data);
+    saveMutation.mutate(data);
   };
+
+  const backUrl = isEditing ? `/cattle/${editId}` : "/cattle";
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -115,19 +156,28 @@ export default function AddCattlePage() {
         <Button
           variant="ghost"
           className="gap-2 mb-4"
-          onClick={() => navigate("/cattle")}
+          onClick={() => navigate(backUrl)}
           data-testid="button-back"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Cattle
+          {isEditing ? "Back to Cattle Details" : "Back to Cattle"}
         </Button>
-        <h1 className="text-2xl font-bold text-foreground">Add New Cattle</h1>
-        <p className="text-muted-foreground">Register a new cow or calf in your herd</p>
+        <h1 className="text-2xl font-bold text-foreground">{isEditing ? "Edit Cattle" : "Add New Cattle"}</h1>
+        <p className="text-muted-foreground">{isEditing ? "Update this animal's identification and herd details" : "Register a new cow or calf in your herd"}</p>
       </div>
 
       <Card>
         <CardContent className="p-6">
-          <Form {...form}>
+          {isEditing && isLoadingCattle ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Loading cattle details…
+            </div>
+          ) : isEditing && cattleLoadFailed ? (
+            <div className="py-12 text-center space-y-4">
+              <p className="font-medium">This cattle record could not be loaded.</p>
+              <Button variant="outline" onClick={() => navigate("/cattle")}>Return to cattle list</Button>
+            </div>
+          ) : <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <div className="grid sm:grid-cols-2 gap-4">
                 <FormField
@@ -411,26 +461,26 @@ export default function AddCattlePage() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => navigate("/cattle")}
+                    onClick={() => navigate(backUrl)}
                     data-testid="button-cancel"
                   >
                     Cancel
                   </Button>
                   <Button
                     type="submit"
-                    disabled={createMutation.isPending}
+                    disabled={saveMutation.isPending}
                     className="flex-1"
                     data-testid="button-submit"
                   >
-                    {createMutation.isPending && (
+                    {saveMutation.isPending && (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     )}
-                    Add Cattle
+                    {isEditing ? "Save Changes" : "Add Cattle"}
                   </Button>
                 </div>
               )}
             </form>
-          </Form>
+          </Form>}
 
           {showAttachments && createdCattleId && (
             <div className="mt-6 pt-6 border-t">

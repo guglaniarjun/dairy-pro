@@ -1,6 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
@@ -14,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard, Milk, Heart, Stethoscope, Leaf, Package, Wallet,
   Bell, BarChart3, Settings, ChevronUp, LogOut, CreditCard,
-  Baby, Recycle, ArrowLeftRight,
+  Baby, Recycle, ArrowLeftRight, ShieldCheck, X,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -36,10 +37,21 @@ const managementNavItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const isSuperAdmin = !!(user as any)?.isSuperAdmin;
+  const actingTenantName = (user as any)?.actingTenantName as string | null;
+
+  const leaveTenant = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/admin/tenant-access"),
+    onSuccess: async () => {
+      queryClient.clear();
+      window.location.href = "/admin";
+    },
+  });
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/dashboard/stats"],
     staleTime: 60_000,
+    enabled: !isSuperAdmin || !!actingTenantName,
   });
 
   const alertCount = stats?.activeAlerts || 0;
@@ -81,6 +93,15 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="pt-2 px-2">
+        {isSuperAdmin && actingTenantName && (
+          <div className="mx-1 mb-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-2.5">
+            <div className="flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 mt-0.5 text-amber-700 dark:text-amber-300" />
+              <div className="min-w-0 flex-1"><p className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 dark:text-amber-300">Admin access</p><p className="text-xs font-medium truncate">{actingTenantName}</p></div>
+              <button title="Return to Super Admin" disabled={leaveTenant.isPending} onClick={() => leaveTenant.mutate()} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+        )}
         {/* Main Nav */}
         <SidebarGroup className="p-0">
           <SidebarGroupLabel className="px-3 text-[10px] tracking-widest uppercase font-semibold text-muted-foreground/70 mb-1">
@@ -149,6 +170,16 @@ export function AppSidebar() {
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
+              {isSuperAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/admin")} className="h-9 rounded-lg">
+                    <Link href="/admin" data-testid="nav-super-admin" className="flex items-center gap-3 px-3">
+                      <ShieldCheck className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/admin") ? "text-primary" : "text-emerald-600"}`} />
+                      <span className="text-[13px] font-medium">Super Admin</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/alerts")} className="h-9 rounded-lg">
                   <Link href="/alerts" data-testid="nav-alerts" className="flex items-center gap-3 px-3">

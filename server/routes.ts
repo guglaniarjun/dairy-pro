@@ -28,6 +28,15 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
 
   try {
     const userId = req.user.id;
+    const selectedTenantId = isSuperAdminUser(req.user) ? req.session?.adminTenantId : undefined;
+    if (selectedTenantId) {
+      const selectedTenant = await storage.getTenantById(selectedTenantId);
+      if (selectedTenant) {
+        req.tenantId = selectedTenant.id;
+        return next();
+      }
+      delete req.session.adminTenantId;
+    }
     let tenant = await storage.getTenantByOwnerId(userId);
     
     if (!tenant) {
@@ -44,6 +53,10 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
       });
     }
 
+    if (!tenant.isActive && !isSuperAdminUser(req.user)) {
+      return res.status(403).json({ error: "This DairyFlow tenant has been suspended. Contact the administrator." });
+    }
+
     req.tenantId = tenant.id;
     next();
   } catch (error) {
@@ -53,7 +66,7 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
 }
 
 function isSuperAdminUser(user: Partial<AppUser> | undefined) {
-  const configured = process.env.SUPER_ADMIN_EMAILS || "admin@dairyflow.com";
+  const configured = process.env.SUPER_ADMIN_EMAILS || "guglaniarjun";
   const allowed = configured.split(",").map(email => email.trim().toLowerCase()).filter(Boolean);
   return !!user?.email && allowed.includes(user.email.toLowerCase());
 }
@@ -61,6 +74,31 @@ function isSuperAdminUser(user: Partial<AppUser> | undefined) {
 function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   if (!isSuperAdminUser(req.user)) return res.status(403).json({ error: "Super Admin access required" });
   next();
+}
+
+function subscriptionPlanPayload(body: any, partial = false) {
+  const payload: Record<string, unknown> = {};
+  const textFields = ["name", "code", "priceMonthly"] as const;
+  for (const field of textFields) {
+    if (body[field] !== undefined) payload[field] = String(body[field]).trim();
+  }
+  if (body.priceYearly !== undefined) payload.priceYearly = body.priceYearly === null || body.priceYearly === "" ? null : String(body.priceYearly).trim();
+  for (const field of ["maxCattle", "maxUsers", "sortOrder"] as const) {
+    if (body[field] !== undefined) {
+      const value = Number(body[field]);
+      if (!Number.isInteger(value) || value < 0) throw new Error(`${field} must be a non-negative integer`);
+      payload[field] = value;
+    }
+  }
+  if (body.features !== undefined) {
+    if (!Array.isArray(body.features)) throw new Error("features must be an array");
+    payload.features = body.features.map((item: unknown) => String(item).trim()).filter(Boolean).slice(0, 50);
+  }
+  if (body.isActive !== undefined) payload.isActive = body.isActive === true;
+  if (!partial && (!payload.name || !payload.code || payload.maxCattle === undefined || payload.maxUsers === undefined || payload.priceMonthly === undefined)) {
+    throw new Error("name, code, limits, and monthly price are required");
+  }
+  return payload;
 }
 
 const notificationRuleTypes = new Set(["birth_followup", "death", "milk_drop", "heat_due", "pregnancy_test_due", "vaccination_due", "low_stock", "cattle_parameter"]);
@@ -106,7 +144,16 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const { passwordHash, ...safeUser } = req.user as any;
-      res.json({ ...safeUser, isSuperAdmin: isSuperAdminUser(req.user) });
+      const isSuperAdmin = isSuperAdminUser(req.user);
+      const actingTenant = isSuperAdmin && req.session?.adminTenantId
+        ? await storage.getTenantById(req.session.adminTenantId)
+        : undefined;
+      res.json({
+        ...safeUser,
+        isSuperAdmin,
+        actingTenantId: actingTenant?.id || null,
+        actingTenantName: actingTenant?.name || null,
+      });
     } catch (error) {
       console.error("Auth user error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -222,6 +269,11 @@ export async function registerRoutes(
 
   app.post("/api/cattle", isAuthenticated, withTenant, async (req, res) => {
     try {
+      const tenant = await storage.getTenantById(req.tenantId!);
+      const activeCattle = (await storage.getCattleByTenant(req.tenantId!)).filter(item => item.status === "active").length;
+      if (req.body.status !== "sold" && req.body.status !== "dead" && req.body.status !== "culled" && tenant && activeCattle >= tenant.maxCattle) {
+        return res.status(409).json({ error: `This tenant has reached its ${tenant.maxCattle}-cattle plan limit` });
+      }
       const cattle = await storage.createCattle({
         ...req.body,
         tenantId: req.tenantId,
@@ -238,6 +290,13 @@ export async function registerRoutes(
       const existing = await storage.getCattleById(routeParam(req.params.id));
       if (!existing || existing.tenantId !== req.tenantId) {
         return res.status(404).json({ error: "Cattle not found" });
+      }
+      if (req.body.status === "active" && existing.status !== "active") {
+        const tenant = await storage.getTenantById(req.tenantId!);
+        const activeCattle = (await storage.getCattleByTenant(req.tenantId!)).filter(item => item.status === "active").length;
+        if (tenant && activeCattle >= tenant.maxCattle) {
+          return res.status(409).json({ error: `This tenant has reached its ${tenant.maxCattle}-cattle plan limit` });
+        }
       }
       const updated = await storage.updateCattle(routeParam(req.params.id), req.body);
       res.json(updated);
@@ -583,6 +642,142 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Pregnancy tests fetch error:", error);
       res.status(500).json({ error: "Failed to fetch pregnancy tests" });
+    }
+  });
+
+  // =====================================================
+  // SUPER ADMIN CONTROL CENTRE
+  // =====================================================
+
+  app.get("/api/admin/overview", isAuthenticated, requireSuperAdmin, async (_req, res) => {
+    try {
+      const tenantRows = await storage.getAllTenants();
+      const tenantsWithUsage = await Promise.all(tenantRows.map(async tenant => {
+        const [owner, cattleRows, memberCount, subscription] = await Promise.all([
+          storage.getUser(tenant.ownerId),
+          storage.getCattleByTenant(tenant.id),
+          storage.getTenantMemberCount(tenant.id),
+          storage.getTenantSubscription(tenant.id),
+        ]);
+        return {
+          ...tenant,
+          owner: owner ? { id: owner.id, email: owner.email, firstName: owner.firstName, lastName: owner.lastName } : null,
+          cattleCount: cattleRows.length,
+          activeCattleCount: cattleRows.filter(item => item.status === "active").length,
+          memberCount,
+          subscriptionStatus: subscription?.status || null,
+        };
+      }));
+      res.json({
+        summary: {
+          totalTenants: tenantRows.length,
+          activeTenants: tenantRows.filter(item => item.isActive).length,
+          totalCattle: tenantsWithUsage.reduce((sum, item) => sum + item.cattleCount, 0),
+          paidTenants: tenantRows.filter(item => !["free", "demo"].includes(item.plan)).length,
+        },
+        tenants: tenantsWithUsage,
+      });
+    } catch (error) {
+      console.error("Super admin overview error:", error);
+      res.status(500).json({ error: "Failed to load the control centre" });
+    }
+  });
+
+  app.get("/api/admin/tenants/:id", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    try {
+      const tenant = await storage.getTenantById(routeParam(req.params.id));
+      if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+      const [owner, subscription, stats, settings] = await Promise.all([
+        storage.getUser(tenant.ownerId),
+        storage.getTenantSubscription(tenant.id),
+        storage.getDashboardStats(tenant.id),
+        storage.getTenantSettings(tenant.id),
+      ]);
+      res.json({
+        tenant,
+        owner: owner ? { id: owner.id, email: owner.email, firstName: owner.firstName, lastName: owner.lastName } : null,
+        subscription,
+        stats,
+        settings,
+      });
+    } catch (error) {
+      console.error("Super admin tenant detail error:", error);
+      res.status(500).json({ error: "Failed to load tenant" });
+    }
+  });
+
+  app.patch("/api/admin/tenants/:id", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    try {
+      const tenantId = routeParam(req.params.id);
+      const existing = await storage.getTenantById(tenantId);
+      if (!existing) return res.status(404).json({ error: "Tenant not found" });
+
+      const allowed: Record<string, unknown> = {};
+      for (const field of ["name", "address", "phone", "language"] as const) {
+        if (req.body[field] !== undefined) allowed[field] = req.body[field] === null ? null : String(req.body[field]).trim();
+      }
+      if (req.body.isActive !== undefined) allowed.isActive = req.body.isActive === true;
+      if (req.body.planExpiresAt !== undefined) {
+        allowed.planExpiresAt = req.body.planExpiresAt ? new Date(req.body.planExpiresAt) : null;
+      }
+      if (req.body.maxCattle !== undefined) {
+        const maxCattle = Number(req.body.maxCattle);
+        if (!Number.isInteger(maxCattle) || maxCattle < 0) return res.status(400).json({ error: "Invalid cattle limit" });
+        allowed.maxCattle = maxCattle;
+      }
+      if (req.body.plan !== undefined) {
+        const plan = await storage.getSubscriptionPlanByCode(String(req.body.plan));
+        if (!plan) return res.status(400).json({ error: "Unknown subscription plan" });
+        allowed.plan = plan.code;
+        allowed.maxCattle = plan.maxCattle;
+      }
+      const updated = await storage.updateTenant(tenantId, allowed);
+      res.json(updated);
+    } catch (error) {
+      console.error("Super admin tenant update error:", error);
+      res.status(500).json({ error: "Failed to update tenant" });
+    }
+  });
+
+  app.post("/api/admin/tenants/:id/access", isAuthenticated, requireSuperAdmin, async (req: any, res) => {
+    const tenant = await storage.getTenantById(routeParam(req.params.id));
+    if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+    req.session.adminTenantId = tenant.id;
+    res.json({ tenantId: tenant.id, tenantName: tenant.name });
+  });
+
+  app.delete("/api/admin/tenant-access", isAuthenticated, requireSuperAdmin, async (req: any, res) => {
+    delete req.session.adminTenantId;
+    res.status(204).end();
+  });
+
+  app.get("/api/admin/subscription-plans", isAuthenticated, requireSuperAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getAllSubscriptionPlansForAdmin());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load subscription plans" });
+    }
+  });
+
+  app.post("/api/admin/subscription-plans", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    try {
+      const plan = await storage.createSubscriptionPlan(subscriptionPlanPayload(req.body) as any);
+      res.status(201).json(plan);
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || "Failed to create subscription plan" });
+    }
+  });
+
+  app.patch("/api/admin/subscription-plans/:id", isAuthenticated, requireSuperAdmin, async (req, res) => {
+    try {
+      const payload = subscriptionPlanPayload(req.body, true);
+      // Plan codes are stable identifiers referenced by tenant records.
+      delete payload.code;
+      const plan = await storage.updateSubscriptionPlan(routeParam(req.params.id), payload as any);
+      if (!plan) return res.status(404).json({ error: "Subscription plan not found" });
+      res.json(plan);
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || "Failed to update subscription plan" });
     }
   });
 

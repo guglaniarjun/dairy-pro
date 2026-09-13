@@ -90,6 +90,9 @@ export interface IStorage {
   getTenantByOwnerId(ownerId: string): Promise<Tenant | undefined>;
   createTenant(data: Partial<Tenant>): Promise<Tenant>;
   getTenantById(id: string): Promise<Tenant | undefined>;
+  getAllTenants(): Promise<Tenant[]>;
+  updateTenant(id: string, data: Partial<Tenant>): Promise<Tenant | undefined>;
+  getTenantMemberCount(tenantId: string): Promise<number>;
 
   // Cattle
   getCattleByTenant(tenantId: string): Promise<Cattle[]>;
@@ -210,8 +213,10 @@ export interface IStorage {
 
   // Subscription Plans
   getAllSubscriptionPlans(): Promise<SubscriptionPlan[]>;
+  getAllSubscriptionPlansForAdmin(): Promise<SubscriptionPlan[]>;
   getSubscriptionPlanByCode(code: string): Promise<SubscriptionPlan | undefined>;
   createSubscriptionPlan(data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan>;
+  updateSubscriptionPlan(id: string, data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan | undefined>;
 
   // Tenant Subscriptions
   getTenantSubscription(tenantId: string): Promise<TenantSubscription | undefined>;
@@ -301,6 +306,26 @@ export class DatabaseStorage implements IStorage {
   async getTenantById(id: string): Promise<Tenant | undefined> {
     const result = await db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
     return result[0];
+  }
+
+  async getAllTenants(): Promise<Tenant[]> {
+    return db.select().from(tenants).orderBy(desc(tenants.createdAt));
+  }
+
+  async updateTenant(id: string, data: Partial<Tenant>): Promise<Tenant | undefined> {
+    const [updated] = await db.update(tenants)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tenants.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getTenantMemberCount(tenantId: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(tenantMembers)
+      .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.isActive, true)));
+    // The tenant owner is an active user even when they are not duplicated in tenant_members.
+    return Math.max(1, result?.count || 0);
   }
 
   // Cattle
@@ -842,6 +867,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(subscriptionPlans).where(eq(subscriptionPlans.isActive, true)).orderBy(subscriptionPlans.sortOrder);
   }
 
+  async getAllSubscriptionPlansForAdmin(): Promise<SubscriptionPlan[]> {
+    return db.select().from(subscriptionPlans).orderBy(subscriptionPlans.sortOrder);
+  }
+
   async getSubscriptionPlanByCode(code: string): Promise<SubscriptionPlan | undefined> {
     const result = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.code, code)).limit(1);
     return result[0];
@@ -850,6 +879,11 @@ export class DatabaseStorage implements IStorage {
   async createSubscriptionPlan(data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan> {
     const [created] = await db.insert(subscriptionPlans).values(data as any).returning();
     return created;
+  }
+
+  async updateSubscriptionPlan(id: string, data: Partial<SubscriptionPlan>): Promise<SubscriptionPlan | undefined> {
+    const [updated] = await db.update(subscriptionPlans).set(data).where(eq(subscriptionPlans.id, id)).returning();
+    return updated;
   }
 
   // Tenant Subscriptions
