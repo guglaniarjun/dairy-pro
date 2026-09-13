@@ -220,7 +220,11 @@ function FarmTab() {
 
   const saveFarm = useMutation({
     mutationFn: (d: any) => apiRequest("PUT", "/api/farm-settings", d),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/farm-settings"] }); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/farm-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/overview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    },
   });
 
   const handleSave = () => {

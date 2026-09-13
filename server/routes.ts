@@ -199,6 +199,7 @@ export async function registerRoutes(
       const actingTenant = isSuperAdmin && req.session?.adminTenantId
         ? await storage.getTenantById(req.session.adminTenantId)
         : undefined;
+      const actingFarmProfile = actingTenant ? await storage.getFarmSettings(actingTenant.id) : undefined;
       const ownedTenant = !actingTenant ? await storage.getTenantByOwnerId(req.user.id) : undefined;
       const membership = !actingTenant && !ownedTenant ? await storage.getTenantMemberByUserId(req.user.id) : undefined;
       const tenantRole = actingTenant ? "super_admin" : ownedTenant ? "owner" : membership?.role || null;
@@ -209,7 +210,7 @@ export async function registerRoutes(
         ...safeUser,
         isSuperAdmin,
         actingTenantId: actingTenant?.id || null,
-        actingTenantName: actingTenant?.name || null,
+        actingTenantName: actingFarmProfile?.farmName?.trim() || actingTenant?.name || null,
         tenantId: actingTenant?.id || ownedTenant?.id || membership?.tenantId || null,
         tenantRole,
         tenantPermissions,
@@ -722,14 +723,18 @@ export async function registerRoutes(
     try {
       const tenantRows = await storage.getAllTenants();
       const tenantsWithUsage = await Promise.all(tenantRows.map(async tenant => {
-        const [owner, cattleRows, memberCount, subscription] = await Promise.all([
+        const [owner, cattleRows, memberCount, subscription, farmProfile] = await Promise.all([
           storage.getUser(tenant.ownerId),
           storage.getCattleByTenant(tenant.id),
           storage.getTenantMemberCount(tenant.id),
           storage.getTenantSubscription(tenant.id),
+          storage.getFarmSettings(tenant.id),
         ]);
         return {
           ...tenant,
+          name: farmProfile?.farmName?.trim() || tenant.name,
+          address: farmProfile?.address ?? tenant.address,
+          phone: farmProfile?.phone ?? tenant.phone,
           owner: owner ? { id: owner.id, email: owner.email, firstName: owner.firstName, lastName: owner.lastName } : null,
           cattleCount: cattleRows.length,
           activeCattleCount: cattleRows.filter(item => item.status === "active").length,
@@ -886,18 +891,25 @@ export async function registerRoutes(
     try {
       const tenant = await storage.getTenantById(routeParam(req.params.id));
       if (!tenant) return res.status(404).json({ error: "Tenant not found" });
-      const [owner, subscription, stats, settings] = await Promise.all([
+      const [owner, subscription, stats, settings, farmProfile] = await Promise.all([
         storage.getUser(tenant.ownerId),
         storage.getTenantSubscription(tenant.id),
         storage.getDashboardStats(tenant.id),
         storage.getTenantSettings(tenant.id),
+        storage.getFarmSettings(tenant.id),
       ]);
       res.json({
-        tenant,
+        tenant: {
+          ...tenant,
+          name: farmProfile?.farmName?.trim() || tenant.name,
+          address: farmProfile?.address ?? tenant.address,
+          phone: farmProfile?.phone ?? tenant.phone,
+        },
         owner: owner ? { id: owner.id, email: owner.email, firstName: owner.firstName, lastName: owner.lastName } : null,
         subscription,
         stats,
         settings,
+        farmProfile,
       });
     } catch (error) {
       console.error("Super admin tenant detail error:", error);
@@ -1631,11 +1643,18 @@ export async function registerRoutes(
 
   app.get("/api/farm-settings", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const settings = await storage.getFarmSettings(req.tenantId!);
-      res.json(settings || {
+      const [settings, tenant] = await Promise.all([
+        storage.getFarmSettings(req.tenantId!),
+        storage.getTenantById(req.tenantId!),
+      ]);
+      res.json({
         currency: "INR", currencySymbol: "₹", timezone: "Asia/Kolkata",
         milkingSessions: 2, session1Name: "Morning", session2Name: "Evening",
         heatIntervalDays: 21, gestationDays: 280, dryPeriodDays: 60, pregnancyTestDays: 30,
+        ...settings,
+        farmName: settings?.farmName?.trim() || tenant?.name || "My Dairy Farm",
+        address: settings?.address ?? tenant?.address ?? null,
+        phone: settings?.phone ?? tenant?.phone ?? null,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch farm settings" });
@@ -1644,10 +1663,17 @@ export async function registerRoutes(
 
   app.put("/api/farm-settings", isAuthenticated, withTenant, async (req, res) => {
     try {
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, tenantId: _tenantId, ...profile } = req.body || {};
       const settings = await storage.upsertFarmSettings({
-        ...req.body,
+        ...profile,
         tenantId: req.tenantId,
       });
+      const tenantUpdates: Record<string, unknown> = {};
+      if (profile.farmName !== undefined && String(profile.farmName).trim()) tenantUpdates.name = String(profile.farmName).trim();
+      if (profile.address !== undefined) tenantUpdates.address = profile.address ? String(profile.address).trim() : null;
+      if (profile.phone !== undefined) tenantUpdates.phone = profile.phone ? String(profile.phone).trim() : null;
+      if (profile.language !== undefined) tenantUpdates.language = String(profile.language).trim() || "en";
+      if (Object.keys(tenantUpdates).length) await storage.updateTenant(req.tenantId!, tenantUpdates);
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to update farm settings" });
