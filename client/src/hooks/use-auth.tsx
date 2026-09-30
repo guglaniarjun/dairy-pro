@@ -1,3 +1,4 @@
+import { rememberSession, rememberedSession } from "@/lib/offline-cache";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, ReactNode } from "react";
 import type { User } from "@shared/models/auth";
@@ -13,11 +14,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 async function fetchUser(): Promise<User | null> {
-  const response = await fetch("/api/auth/user", {
-    credentials: "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/auth/user", { credentials: "include" });
+  } catch (error) {
+    const cached = rememberedSession();
+    if (cached) return cached;
+    throw error;
+  }
 
   if (response.status === 401) {
+    rememberSession(null);
     return null;
   }
 
@@ -25,10 +32,13 @@ async function fetchUser(): Promise<User | null> {
     throw new Error(`${response.status}: ${response.statusText}`);
   }
 
-  return response.json();
+  const user = await response.json();
+  rememberSession(user);
+  return user;
 }
 
 async function logout(): Promise<void> {
+  rememberSession(null);
   window.location.href = "/api/logout";
 }
 
@@ -59,11 +69,7 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
-  return (
-    <AuthContext.Provider value={auth}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
 }
 
 export function useAuthContext() {

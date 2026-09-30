@@ -1,6 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
+import { allocatedMilkRevenue } from "./farm-metrics";
+import { importFile } from "./import-service";
+import { tableWorkbook, readWorkbook } from "./workbook";
+import { safeTenantRequest } from "./request-safety";
+import { registerOperations } from "./operations-routes";
+import { animalEvent } from "./care-service";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replit_integrations/auth";
@@ -38,6 +44,7 @@ function permissionForRequest(req: Request): TenantPermission | null {
   if (/^\/api\/cattle\/[^/]+\/(health-events|vaccinations)/.test(path)) return "health.view";
   if (/^\/api\/cattle\/[^/]+\/(heats|inseminations|pregnancy-tests|calvings)/.test(path)) return "breeding.view";
   if (/^\/api\/cattle\/[^/]+\/(costs|pl-summary)/.test(path) || path.startsWith("/api/cattle-pl")) return match("finances");
+  if (path.startsWith("/api/cattle-transactions")) return match("finances");
   if (path.startsWith("/api/cattle")) return match("cattle");
   if (path.startsWith("/api/milk")) return match("milk");
   if (path.startsWith("/api/breeding")) return match("breeding");
@@ -66,7 +73,7 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
         req.tenantId = selectedTenant.id;
         req.tenantRole = "super_admin";
         req.tenantPermissions = allTenantPermissions;
-        return next();
+        return safeTenantRequest(req, res, next);
       }
       delete req.session.adminTenantId;
     }
@@ -109,7 +116,7 @@ async function withTenant(req: any, res: Response, next: NextFunction) {
     if (requiredPermission && !req.tenantPermissions.includes(requiredPermission)) {
       return res.status(403).json({ error: `Your ${role} role does not have permission to perform this action` });
     }
-    next();
+    await safeTenantRequest(req, res, next);
   } catch (error) {
     console.error("Tenant middleware error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -187,6 +194,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
+  registerOperations(app, isAuthenticated, withTenant);
 
   // =====================================================
   // AUTH ROUTES
@@ -1180,7 +1188,7 @@ export async function registerRoutes(
         const costs = await storage.getCattleCostsByCattle(cow.id);
         const totalCosts = costs.reduce((sum, c) => sum + Number(c.amount || 0), 0);
         
-        const milkRevenue = 0;
+        const milkRevenue = await allocatedMilkRevenue(req.tenantId!, cow.id);
         
         const totalInvestment = purchaseCost + totalCosts;
         const totalReturns = saleAmount + milkRevenue;
@@ -1228,7 +1236,7 @@ export async function registerRoutes(
       
       // For now, milk revenue is 0 as we don't have per-cow milk price tracking
       // In future, can be calculated as sum of (quantity * price per liter)
-      const milkRevenue = "0";
+      const milkRevenue = String(await allocatedMilkRevenue(req.tenantId!, routeParam(req.params.id)));
       
       res.json({
         purchaseCost,
@@ -1548,16 +1556,11 @@ export async function registerRoutes(
 
   app.post("/api/breeding/calvings", isAuthenticated, withTenant, async (req, res) => {
     try {
-      const { calvings } = await import("@shared/schema");
-      const { db } = await import("./db");
-      const [created] = await db.insert(calvings).values({
-        ...req.body,
-        tenantId: req.tenantId,
-      } as any).returning();
-      res.status(201).json(created);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to create calving" });
-    }
+      const b=req.body;
+      const tag=b.calfTagNumber || /Calf Tag:\s*([^\n,;]+)/i.exec(b.notes||"")?.[1]?.trim();
+      const event=await animalEvent(req.tenantId!, {cattleId:b.cattleId,date:b.date,type:b.outcome==="abortion"?"pregnancy_loss":"calving",notes:b.notes||"",details:{outcome:b.outcome,calves:b.calves||(tag?[{tagNumber:tag,gender:b.calfGender,weight:b.calfWeight}]:[])}},req.user!.id);
+      res.status(201).json(event);
+    } catch(error:any) {res.status(error.status||400).json({error:error.message});}
   });
 
   // =====================================================
@@ -1913,24 +1916,12 @@ export async function registerRoutes(
 
   // Helper: convert array of objects to XLSX buffer
   async function toXLSX(rows: Record<string, any>[], headers: { key: string; label: string }[], sheetName: string): Promise<Buffer> {
-    const XLSX = await import("xlsx");
-    const ws_data = [
-      headers.map(h => h.label),
-      ...rows.map(row => headers.map(h => row[h.key] ?? "")),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(ws_data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    return tableWorkbook([headers.map(h=>h.label), ...rows.map(row=>headers.map(h=>row[h.key] ?? ""))], sheetName);
   }
 
   // Helper: parse uploaded file (CSV or XLSX) into array of row objects
   async function parseUploadedFile(buffer: Buffer, filename: string): Promise<Record<string, string>[]> {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
-    return rows;
+    return readWorkbook(buffer, filename);
   }
 
   // Helper: send file response
@@ -2196,12 +2187,8 @@ export async function registerRoutes(
     };
     const t = templates[module];
     if (!t) return res.status(404).json({ error: "Module not found" });
-    const XLSX = await import("xlsx");
     if (format === "xlsx") {
-      const ws = XLSX.utils.aoa_to_sheet([t.headers, ...t.sample]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, module.charAt(0).toUpperCase() + module.slice(1));
-      const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+      const buf = await tableWorkbook([t.headers,...t.sample], module);
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="${module}-import-template.xlsx"`);
       res.send(buf);
@@ -2213,243 +2200,11 @@ export async function registerRoutes(
     }
   });
 
-  // ---- IMPORT ENDPOINTS ----
-
-  // Import Cattle
-  app.post("/api/import/cattle", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
-    try {
-      const tenantId = req.tenantId!;
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
-      const breeds = await storage.getAllBreeds();
-      const breedMap = Object.fromEntries(breeds.map(b => [b.name.toLowerCase().trim(), b.id]));
-      let imported = 0, failed = 0;
-      const errors: { row: number; message: string }[] = [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const tagKey = Object.keys(row).find(k => k.toLowerCase().includes("tag"));
-        const tagNumber = tagKey ? String(row[tagKey]).trim() : "";
-        const entryKey = Object.keys(row).find(k => k.toLowerCase().includes("entry"));
-        const dateOfEntry = entryKey ? String(row[entryKey]).trim() : "";
-        if (!tagNumber) { errors.push({ row: i + 2, message: "Tag Number is required" }); failed++; continue; }
-        if (!dateOfEntry) { errors.push({ row: i + 2, message: "Date of Entry is required" }); failed++; continue; }
-        const breedKey = Object.keys(row).find(k => k.toLowerCase().includes("breed"));
-        const breedName = breedKey ? String(row[breedKey]).toLowerCase().trim() : "";
-        const genderKey = Object.keys(row).find(k => k.toLowerCase().includes("gender"));
-        const gender = genderKey ? String(row[genderKey]).toLowerCase().trim() : "female";
-        const dobKey = Object.keys(row).find(k => k.toLowerCase().includes("birth"));
-        const statusKey = Object.keys(row).find(k => k.toLowerCase().includes("status"));
-        const stageKey = Object.keys(row).find(k => k.toLowerCase().includes("stage"));
-        const sourceKey = Object.keys(row).find(k => k.toLowerCase().includes("source"));
-        const lactKey = Object.keys(row).find(k => k.toLowerCase().includes("lactation"));
-        const priceKey = Object.keys(row).find(k => k.toLowerCase().includes("price"));
-        const nameKey = Object.keys(row).find(k => k.toLowerCase() === "name");
-        const notesKey = Object.keys(row).find(k => k.toLowerCase().includes("notes"));
-        try {
-          await storage.createCattle({
-            tenantId,
-            tagNumber,
-            name: nameKey ? String(row[nameKey]).trim() || null : null,
-            breedId: breedName ? (breedMap[breedName] || null) : null,
-            gender: ["male","female"].includes(gender) ? gender : "female",
-            dateOfBirth: dobKey && row[dobKey] ? String(row[dobKey]).trim() : null,
-            dateOfEntry,
-            source: sourceKey ? (["born","purchased"].includes(String(row[sourceKey]).toLowerCase()) ? String(row[sourceKey]).toLowerCase() : "born") : "born",
-            status: statusKey ? String(row[statusKey]).toLowerCase().trim() || "active" : "active",
-            stage: stageKey ? String(row[stageKey]).toLowerCase().trim() || "heifer" : "heifer",
-            lactationNumber: lactKey && row[lactKey] ? parseInt(String(row[lactKey])) || 0 : 0,
-            purchasePrice: priceKey && row[priceKey] ? String(row[priceKey]).replace(/[₹,\s]/g,"") : null,
-            notes: notesKey ? String(row[notesKey]).trim() || null : null,
-          });
-          imported++;
-        } catch (e: any) {
-          errors.push({ row: i + 2, message: e.message || "Insert failed" });
-          failed++;
-        }
-      }
-      res.json({ imported, failed, total: rows.length, errors });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Import failed" });
-    }
-  });
-
-  // Import Milk Entries
-  app.post("/api/import/milk", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
-    try {
-      const tenantId = req.tenantId!;
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
-      const cattle = await storage.getCattleByTenant(tenantId);
-      const cattleTagMap = Object.fromEntries(cattle.map(c => [c.tagNumber.toLowerCase().trim(), c.id]));
-      let imported = 0, failed = 0;
-      const errors: { row: number; message: string }[] = [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const dateKey = Object.keys(row).find(k => k.toLowerCase().startsWith("date"));
-        const tagKey = Object.keys(row).find(k => k.toLowerCase().includes("tag"));
-        const sessionKey = Object.keys(row).find(k => k.toLowerCase().includes("session"));
-        const qtyKey = Object.keys(row).find(k => k.toLowerCase().includes("quantity") || k.toLowerCase().includes("qty"));
-        const fatKey = Object.keys(row).find(k => k.toLowerCase().includes("fat"));
-        const snfKey = Object.keys(row).find(k => k.toLowerCase().includes("snf"));
-        const notesKey = Object.keys(row).find(k => k.toLowerCase().includes("notes"));
-        const date = dateKey ? String(row[dateKey]).trim() : "";
-        const tag = tagKey ? String(row[tagKey]).trim().toLowerCase() : "";
-        const session = sessionKey ? String(row[sessionKey]).trim().toLowerCase() : "";
-        const qty = qtyKey ? String(row[qtyKey]).replace(/[^\d.]/g,"") : "";
-        if (!date || !tag || !session || !qty) {
-          errors.push({ row: i+2, message: `Missing required fields (date, tag, session, quantity)` });
-          failed++; continue;
-        }
-        const cattleId = cattleTagMap[tag];
-        if (!cattleId) { errors.push({ row: i+2, message: `Cattle with tag "${tag}" not found` }); failed++; continue; }
-        try {
-          await storage.createMilkEntry({
-            tenantId, cattleId,
-            date,
-            session: ["morning","evening","night"].includes(session) ? session : "morning",
-            quantity: qty,
-            fat: fatKey && row[fatKey] ? String(row[fatKey]).replace(/[^\d.]/g,"") : null,
-            snf: snfKey && row[snfKey] ? String(row[snfKey]).replace(/[^\d.]/g,"") : null,
-            notes: notesKey ? String(row[notesKey]).trim() || null : null,
-          });
-          imported++;
-        } catch (e: any) {
-          errors.push({ row: i+2, message: e.message || "Insert failed" });
-          failed++;
-        }
-      }
-      res.json({ imported, failed, total: rows.length, errors });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Import failed" });
-    }
-  });
-
-  // Import Health Events
-  app.post("/api/import/health", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
-    try {
-      const tenantId = req.tenantId!;
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
-      const cattle = await storage.getCattleByTenant(tenantId);
-      const cattleTagMap = Object.fromEntries(cattle.map(c => [c.tagNumber.toLowerCase().trim(), c.id]));
-      let imported = 0, failed = 0;
-      const errors: { row: number; message: string }[] = [];
-      const validTypes = ["illness","injury","vaccination","deworming","checkup"];
-      const validSeverities = ["mild","moderate","severe","critical"];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const keys = Object.keys(row).map(k => k.toLowerCase());
-        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
-        const date = get("date");
-        const tag = get("tag").toLowerCase();
-        const eventType = get("event").toLowerCase() || get("type").toLowerCase();
-        if (!date || !tag || !eventType) { errors.push({ row: i+2, message: "Missing date, tag or event type" }); failed++; continue; }
-        const cattleId = cattleTagMap[tag];
-        if (!cattleId) { errors.push({ row: i+2, message: `Cattle "${tag}" not found` }); failed++; continue; }
-        const sev = get("severity").toLowerCase();
-        try {
-          await storage.createHealthEvent({
-            tenantId, cattleId,
-            date,
-            eventType: validTypes.includes(eventType) ? eventType : "checkup",
-            description: get("description") || null,
-            severity: validSeverities.includes(sev) ? sev : "moderate",
-            symptoms: get("symptoms") || null,
-            diagnosis: get("diagnosis") || null,
-            notes: get("notes") || null,
-            status: "active",
-          });
-          imported++;
-        } catch (e: any) {
-          errors.push({ row: i+2, message: e.message || "Insert failed" });
-          failed++;
-        }
-      }
-      res.json({ imported, failed, total: rows.length, errors });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Import failed" });
-    }
-  });
-
-  // Import Expenses
-  app.post("/api/import/expenses", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
-    try {
-      const tenantId = req.tenantId!;
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
-      const heads = await storage.getAllExpenseHeads();
-      const headMap = Object.fromEntries(heads.map(h => [h.name.toLowerCase().trim(), h.id]));
-      let imported = 0, failed = 0;
-      const errors: { row: number; message: string }[] = [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
-        const date = get("date"); const category = get("category").toLowerCase();
-        const amount = get("amount").replace(/[₹,\s]/g,"");
-        if (!date || !category || !amount) { errors.push({ row: i+2, message: "Missing date, category or amount" }); failed++; continue; }
-        const headId = headMap[category];
-        if (!headId) { errors.push({ row: i+2, message: `Category "${category}" not found. Use exact name from template.` }); failed++; continue; }
-        try {
-          await storage.createExpense({
-            tenantId, headId, date,
-            description: get("description") || null,
-            amount,
-            vendorName: get("vendor") || null,
-            paymentMethod: get("payment") || "cash",
-            invoiceNumber: get("reference") || null,
-            notes: get("notes") || null,
-          });
-          imported++;
-        } catch (e: any) {
-          errors.push({ row: i+2, message: e.message || "Insert failed" });
-          failed++;
-        }
-      }
-      res.json({ imported, failed, total: rows.length, errors });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Import failed" });
-    }
-  });
-
-  // Import Incomes
-  app.post("/api/import/incomes", isAuthenticated, withTenant, upload.single("file"), async (req: any, res) => {
-    try {
-      const tenantId = req.tenantId!;
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
-      const heads = await storage.getAllIncomeHeads();
-      const headMap = Object.fromEntries(heads.map(h => [h.name.toLowerCase().trim(), h.id]));
-      let imported = 0, failed = 0;
-      const errors: { row: number; message: string }[] = [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const get = (partial: string) => { const k = Object.keys(row).find(k => k.toLowerCase().includes(partial)); return k ? String(row[k]).trim() : ""; };
-        const date = get("date"); const category = get("category").toLowerCase();
-        const amount = get("amount").replace(/[₹,\s]/g,"");
-        if (!date || !category || !amount) { errors.push({ row: i+2, message: "Missing date, category or amount" }); failed++; continue; }
-        const headId = headMap[category];
-        if (!headId) { errors.push({ row: i+2, message: `Category "${category}" not found. Use exact name from template.` }); failed++; continue; }
-        try {
-          await storage.createIncome({
-            tenantId, headId, date,
-            description: get("description") || null,
-            amount,
-            customerName: get("customer") || null,
-            paymentMethod: get("payment") || "cash",
-            invoiceNumber: get("reference") || null,
-            notes: get("notes") || null,
-          });
-          imported++;
-        } catch (e: any) {
-          errors.push({ row: i+2, message: e.message || "Insert failed" });
-          failed++;
-        }
-      }
-      res.json({ imported, failed, total: rows.length, errors });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Import failed" });
-    }
-  });
+  for (const module of ["cattle","milk","health","expenses","incomes"]) {
+    app.post("/api/import/"+module,isAuthenticated,withTenant,upload.single("file"),async(req,res)=>{
+      try {res.json(await importFile(req,module));} catch(error:any){res.status(error.status||400).json({error:error.message});}
+    });
+  }
 
   return httpServer;
 }

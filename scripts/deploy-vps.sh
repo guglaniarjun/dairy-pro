@@ -13,11 +13,18 @@ flock -w 900 9
 
 test -f .env || { echo "Missing $APP_DIR/.env" >&2; exit 1; }
 
+# Keep this application's runtime separate from other VPS applications.
+DAIRY_NODE_BIN="${DAIRY_NODE_BIN:-/opt/node22/bin}"
+if [ -x "$DAIRY_NODE_BIN/node" ]; then
+  export PATH="$DAIRY_NODE_BIN:$PATH"
+fi
+node -e 'const [major,minor]=process.versions.node.split(".").map(Number);if(major<22 || (major===22 && minor<12)){console.error("DairyFlow requires Node 22.12 or newer");process.exit(1)}'
+
 current_commit=$(git rev-parse HEAD)
 previous_commit=$(cat "$DEPLOYED_FILE" 2>/dev/null || git rev-parse HEAD^ 2>/dev/null || printf '%s' "$current_commit")
 schema_changed=0
 
-if ! git diff --quiet "$previous_commit" "$current_commit" -- shared/schema.ts; then
+if ! git diff --quiet "$previous_commit" "$current_commit" -- shared/schema.ts shared/operations-schema.ts migrations/; then
   schema_changed=1
   if [ "${APPLY_SCHEMA_CHANGES:-0}" != 1 ]; then
     echo 'Database schema changed. Deployment stopped before restart; dispatch the workflow with apply_schema enabled after review.' >&2
@@ -55,7 +62,7 @@ if [ "$schema_changed" = 1 ]; then
   fi
   test -s "$database_backup" || { echo 'Production database backup is empty; migration cancelled.' >&2; exit 1; }
   echo "Database backup created at $database_backup"
-  npm run db:push
+  npm run db:migrate
 fi
 
 if [ "${RESET_SUPER_ADMIN:-0}" = 1 ]; then

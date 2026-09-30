@@ -1,5 +1,7 @@
 # DairyFlow — Multi-Tenant Dairy Farm ERP
 
+For the September 2026 care, inventory, offline-entry and complete daily-report implementation, read [Farm workflows](FARM-WORKFLOWS.md) and [Verification](VERIFICATION.md). Use `npm run db:migrate` for this release's additive migration; it supersedes older `db:push` deployment instructions below.
+
 **DairyFlow** is a production-ready, multi-tenant SaaS ERP system built for Indian dairy farms. It covers every aspect of farm operations — cattle management, milk production, breeding, health, feed, inventory, finances, and smart alerts — all in one place.
 
 - **Currency**: ₹ INR

@@ -40,6 +40,12 @@ const cattleFormSchema = z.object({
   purchasePrice: z.string().optional(),
   status: z.enum(["active", "sold", "dead", "culled"]),
   stage: z.enum(["calf", "heifer", "milking", "dry", "pregnant"]),
+  species: z.enum(["cattle", "buffalo"]).default("cattle"),
+  lifeStage: z.string().optional(),
+  productionStatus: z.string().optional(),
+  reproductiveStatus: z.string().optional(),
+  pen: z.string().optional(),
+  weightKg: z.string().optional(),
   lactationNumber: z.string().optional(),
   motherId: z.string().optional(),
   fatherId: z.string().optional(),
@@ -58,19 +64,34 @@ export default function AddCattlePage() {
 
   const { data: breeds } = useQuery<Breed[]>({ queryKey: ["/api/breeds"] });
   const { data: allCattle } = useQuery<Cattle[]>({ queryKey: ["/api/cattle"] });
-  const { data: cattleToEdit, isLoading: isLoadingCattle, isError: cattleLoadFailed } = useQuery<Cattle>({
+  const {
+    data: cattleToEdit,
+    isLoading: isLoadingCattle,
+    isError: cattleLoadFailed,
+  } = useQuery<Cattle>({
     queryKey: ["/api/cattle", editId],
-    queryFn: () => fetch(`/api/cattle/${editId}`, { credentials: "include" }).then(async response => {
-      if (!response.ok) throw new Error("Unable to load cattle");
-      return response.json();
-    }),
+    queryFn: () =>
+      fetch(`/api/cattle/${editId}`, { credentials: "include" }).then(
+        async (response) => {
+          if (!response.ok) throw new Error("Unable to load cattle");
+          return response.json();
+        },
+      ),
     enabled: isEditing,
   });
-  const femaleCattle = allCattle?.filter((c) => c.id !== editId && c.gender === "female" && c.status === "active");
+  const femaleCattle = allCattle?.filter(
+    (c) => c.id !== editId && c.gender === "female" && c.status === "active",
+  );
 
   const form = useForm<CattleFormData>({
     resolver: zodResolver(cattleFormSchema),
     defaultValues: {
+      species: "cattle",
+      lifeStage: "",
+      productionStatus: "",
+      reproductiveStatus: "",
+      pen: "",
+      weightKg: "",
       tagNumber: "",
       name: "",
       gender: "female",
@@ -88,6 +109,12 @@ export default function AddCattlePage() {
   useEffect(() => {
     if (!cattleToEdit) return;
     form.reset({
+      species: cattleToEdit.species as "cattle" | "buffalo",
+      lifeStage: cattleToEdit.lifeStage || "",
+      productionStatus: cattleToEdit.productionStatus || "",
+      reproductiveStatus: cattleToEdit.reproductiveStatus || "",
+      pen: cattleToEdit.pen || "",
+      weightKg: cattleToEdit.weightKg || "",
       tagNumber: cattleToEdit.tagNumber,
       name: cattleToEdit.name || "",
       breedId: cattleToEdit.breedId || "",
@@ -95,10 +122,15 @@ export default function AddCattlePage() {
       dateOfBirth: cattleToEdit.dateOfBirth || "",
       dateOfEntry: cattleToEdit.dateOfEntry,
       source: cattleToEdit.source as "born" | "purchased",
-      purchasePrice: cattleToEdit.purchasePrice ? String(cattleToEdit.purchasePrice) : "",
+      purchasePrice: cattleToEdit.purchasePrice
+        ? String(cattleToEdit.purchasePrice)
+        : "",
       status: cattleToEdit.status as CattleFormData["status"],
       stage: cattleToEdit.stage as CattleFormData["stage"],
-      lactationNumber: cattleToEdit.lactationNumber === null ? "" : String(cattleToEdit.lactationNumber),
+      lactationNumber:
+        cattleToEdit.lactationNumber === null
+          ? ""
+          : String(cattleToEdit.lactationNumber),
       motherId: cattleToEdit.motherId || "",
       fatherId: cattleToEdit.fatherId || "",
       notes: cattleToEdit.notes || "",
@@ -107,24 +139,41 @@ export default function AddCattlePage() {
 
   const saveMutation = useMutation({
     mutationFn: async (data: CattleFormData) => {
-      const response = await apiRequest(isEditing ? "PATCH" : "POST", isEditing ? `/api/cattle/${editId}` : "/api/cattle", {
-        ...data,
-        name: data.name || null,
-        dateOfBirth: data.dateOfBirth || null,
-        purchasePrice: data.purchasePrice ? parseFloat(data.purchasePrice) : null,
-        lactationNumber: data.lactationNumber ? parseInt(data.lactationNumber) : 0,
-        motherId: data.motherId || null,
-        fatherId: data.fatherId || null,
-        breedId: data.breedId || null,
-        notes: data.notes || null,
-      });
+      const response = await apiRequest(
+        isEditing ? "PATCH" : "POST",
+        isEditing ? `/api/cattle/${editId}` : "/api/cattle",
+        {
+          ...data,
+          name: data.name || null,
+          lifeStage: data.lifeStage || null,
+          productionStatus: data.productionStatus || null,
+          reproductiveStatus: data.reproductiveStatus || null,
+          pen: data.pen || null,
+          weightKg: data.weightKg || null,
+          ...(cattleToEdit ? { revision: cattleToEdit.revision } : {}),
+          dateOfBirth: data.dateOfBirth || null,
+          purchasePrice: data.purchasePrice
+            ? parseFloat(data.purchasePrice)
+            : null,
+          lactationNumber: data.lactationNumber
+            ? parseInt(data.lactationNumber)
+            : 0,
+          motherId: data.motherId || null,
+          fatherId: data.fatherId || null,
+          breedId: data.breedId || null,
+          notes: data.notes || null,
+        },
+      );
       return response.json();
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cattle"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cattle", editId] });
       if (isEditing) {
-        toast({ title: "Cattle updated", description: "The cattle details have been saved." });
+        toast({
+          title: "Cattle updated",
+          description: "The cattle details have been saved.",
+        });
         navigate(`/cattle/${editId}`);
         return;
       }
@@ -132,7 +181,8 @@ export default function AddCattlePage() {
       setShowAttachments(true);
       toast({
         title: "Cattle added",
-        description: "The cattle has been successfully registered. You can add attachments.",
+        description:
+          "The cattle has been successfully registered. You can add attachments.",
       });
     },
     onError: (error) => {
@@ -162,325 +212,445 @@ export default function AddCattlePage() {
           <ArrowLeft className="w-4 h-4" />
           {isEditing ? "Back to Cattle Details" : "Back to Cattle"}
         </Button>
-        <h1 className="text-2xl font-bold text-foreground">{isEditing ? "Edit Cattle" : "Add New Cattle"}</h1>
-        <p className="text-muted-foreground">{isEditing ? "Update this animal's identification and herd details" : "Register a new cow or calf in your herd"}</p>
+        <h1 className="text-2xl font-bold text-foreground">
+          {isEditing ? "Edit Cattle" : "Add New Cattle"}
+        </h1>
+        <p className="text-muted-foreground">
+          {isEditing
+            ? "Update this animal's identification and herd details"
+            : "Register a new cow or calf in your herd"}
+        </p>
       </div>
 
       <Card>
         <CardContent className="p-6">
           {isEditing && isLoadingCattle ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
-              <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Loading cattle details…
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Loading cattle
+              details…
             </div>
           ) : isEditing && cattleLoadFailed ? (
             <div className="py-12 text-center space-y-4">
-              <p className="font-medium">This cattle record could not be loaded.</p>
-              <Button variant="outline" onClick={() => navigate("/cattle")}>Return to cattle list</Button>
+              <p className="font-medium">
+                This cattle record could not be loaded.
+              </p>
+              <Button variant="outline" onClick={() => navigate("/cattle")}>
+                Return to cattle list
+              </Button>
             </div>
-          ) : <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="tagNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tag Number *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., 001" {...field} data-testid="input-tag-number" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Name (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., Lakshmi" {...field} data-testid="input-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="breedId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Breed</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-breed">
-                            <SelectValue placeholder="Select breed" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {breeds?.map((breed) => (
-                            <SelectItem key={breed.id} value={breed.id}>
-                              {breed.name}
-                            </SelectItem>
+          ) : (
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-6"
+              >
+                <div className="rounded-lg border p-4 space-y-3">
+                  <p className="text-sm font-medium">
+                    Independent animal statuses
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    A pregnant animal can remain lactating. Confirm each status
+                    independently.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {(
+                      [
+                        ["species", ["cattle", "buffalo"]],
+                        [
+                          "lifeStage",
+                          ["calf", "weaned_calf", "heifer", "adult"],
+                        ],
+                        [
+                          "productionStatus",
+                          ["lactating", "dry", "not_lactating"],
+                        ],
+                        [
+                          "reproductiveStatus",
+                          ["unserved", "served", "pregnant", "lost"],
+                        ],
+                      ] as const
+                    ).map(([name, options]) => (
+                      <label key={name} className="text-sm">
+                        {name.replace(/([A-Z])/g, " $1")}
+                        <select
+                          className="block w-full border rounded p-2 bg-background"
+                          {...form.register(name)}
+                        >
+                          <option value="">
+                            Review / derive from legacy stage
+                          </option>
+                          {options.map((o) => (
+                            <option key={o} value={o}>
+                              {o.replaceAll("_", " ")}
+                            </option>
                           ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="gender"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Gender *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                        </select>
+                      </label>
+                    ))}
+                    <label className="text-sm">
+                      Pen / location
+                      <Input {...form.register("pen")} />
+                    </label>
+                    <label className="text-sm">
+                      Weight kg
+                      <Input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        {...form.register("weightKg")}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="tagNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tag Number *</FormLabel>
                         <FormControl>
-                          <SelectTrigger data-testid="select-gender">
-                            <SelectValue placeholder="Select gender" />
-                          </SelectTrigger>
+                          <Input
+                            placeholder="e.g., 001"
+                            {...field}
+                            data-testid="input-tag-number"
+                          />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="female">Female</SelectItem>
-                          <SelectItem value="male">Male</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="dateOfBirth"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Date of Birth</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} data-testid="input-dob" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="dateOfEntry"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Date of Entry *</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} data-testid="input-entry-date" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="source"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Source *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name (Optional)</FormLabel>
                         <FormControl>
-                          <SelectTrigger data-testid="select-source">
-                            <SelectValue placeholder="Select source" />
-                          </SelectTrigger>
+                          <Input
+                            placeholder="e.g., Lakshmi"
+                            {...field}
+                            data-testid="input-name"
+                          />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="born">Born on Farm</SelectItem>
-                          <SelectItem value="purchased">Purchased</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-                <FormField
-                  control={form.control}
-                  name="stage"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Current Stage *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="breedId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Breed</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-breed">
+                              <SelectValue placeholder="Select breed" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {breeds?.map((breed) => (
+                              <SelectItem key={breed.id} value={breed.id}>
+                                {breed.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="gender"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Gender *</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-gender">
+                              <SelectValue placeholder="Select gender" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="female">Female</SelectItem>
+                            <SelectItem value="male">Male</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="dateOfBirth"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date of Birth</FormLabel>
                         <FormControl>
-                          <SelectTrigger data-testid="select-stage">
-                            <SelectValue placeholder="Select stage" />
-                          </SelectTrigger>
+                          <Input
+                            type="date"
+                            {...field}
+                            data-testid="input-dob"
+                          />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="calf">Calf</SelectItem>
-                          <SelectItem value="heifer">Heifer</SelectItem>
-                          <SelectItem value="milking">Milking</SelectItem>
-                          <SelectItem value="dry">Dry</SelectItem>
-                          <SelectItem value="pregnant">Pregnant</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {form.watch("source") === "purchased" && (
+                  <FormField
+                    control={form.control}
+                    name="dateOfEntry"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date of Entry *</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            {...field}
+                            data-testid="input-entry-date"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="source"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Source *</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-source">
+                              <SelectValue placeholder="Select source" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="born">Born on Farm</SelectItem>
+                            <SelectItem value="purchased">Purchased</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="stage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Current Stage *</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-stage">
+                              <SelectValue placeholder="Select stage" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="calf">Calf</SelectItem>
+                            <SelectItem value="heifer">Heifer</SelectItem>
+                            <SelectItem value="milking">Milking</SelectItem>
+                            <SelectItem value="dry">Dry</SelectItem>
+                            <SelectItem value="pregnant">Pregnant</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {form.watch("source") === "purchased" && (
+                  <FormField
+                    control={form.control}
+                    name="purchasePrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Purchase Price (₹)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="Enter amount"
+                            {...field}
+                            data-testid="input-purchase-price"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status *</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-status">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="active">Active</SelectItem>
+                            <SelectItem value="sold">Sold</SelectItem>
+                            <SelectItem value="dead">Dead</SelectItem>
+                            <SelectItem value="culled">Culled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="lactationNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Lactation Number</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="e.g. 3 (0 for heifer)"
+                            {...field}
+                            data-testid="input-lactation"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="motherId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Dam (Mother)</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || ""}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-mother">
+                              <SelectValue placeholder="Select dam (optional)" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {femaleCattle?.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name
+                                  ? `${c.name} (${c.tagNumber})`
+                                  : c.tagNumber}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="fatherId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Sire (Father / Bull ID)</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Bull tag or semen ID (optional)"
+                            {...field}
+                            data-testid="input-father"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <FormField
                   control={form.control}
-                  name="purchasePrice"
+                  name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Purchase Price (₹)</FormLabel>
+                      <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Enter amount"
+                        <Textarea
+                          placeholder="Any additional notes..."
+                          className="resize-none"
                           {...field}
-                          data-testid="input-purchase-price"
+                          data-testid="textarea-notes"
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              )}
 
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-status">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="sold">Sold</SelectItem>
-                          <SelectItem value="dead">Dead</SelectItem>
-                          <SelectItem value="culled">Culled</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="lactationNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Lactation Number</FormLabel>
-                      <FormControl>
-                        <Input type="number" min="0" placeholder="e.g. 3 (0 for heifer)" {...field} data-testid="input-lactation" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="motherId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Dam (Mother)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-mother">
-                            <SelectValue placeholder="Select dam (optional)" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {femaleCattle?.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="fatherId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Sire (Father / Bull ID)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Bull tag or semen ID (optional)" {...field} data-testid="input-father" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Any additional notes..."
-                        className="resize-none"
-                        {...field}
-                        data-testid="textarea-notes"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                {!showAttachments && (
+                  <div className="flex gap-4 pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => navigate(backUrl)}
+                      data-testid="button-cancel"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={saveMutation.isPending}
+                      className="flex-1"
+                      data-testid="button-submit"
+                    >
+                      {saveMutation.isPending && (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      )}
+                      {isEditing ? "Save Changes" : "Add Cattle"}
+                    </Button>
+                  </div>
                 )}
-              />
-
-              {!showAttachments && (
-                <div className="flex gap-4 pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => navigate(backUrl)}
-                    data-testid="button-cancel"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={saveMutation.isPending}
-                    className="flex-1"
-                    data-testid="button-submit"
-                  >
-                    {saveMutation.isPending && (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    )}
-                    {isEditing ? "Save Changes" : "Add Cattle"}
-                  </Button>
-                </div>
-              )}
-            </form>
-          </Form>}
+              </form>
+            </Form>
+          )}
 
           {showAttachments && createdCattleId && (
             <div className="mt-6 pt-6 border-t">
@@ -489,11 +659,12 @@ export default function AddCattlePage() {
                 <h3 className="font-semibold">Add Attachments (Optional)</h3>
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Upload photos, health certificates, or other documents for this cattle
+                Upload photos, health certificates, or other documents for this
+                cattle
               </p>
-              <AttachmentUploader 
-                entityType="cattle" 
-                entityId={createdCattleId} 
+              <AttachmentUploader
+                entityType="cattle"
+                entityId={createdCattleId}
               />
               <div className="flex gap-4 mt-6">
                 <Button

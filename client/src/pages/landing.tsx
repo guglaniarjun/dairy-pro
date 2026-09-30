@@ -1,17 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { 
-  Milk, 
-  TrendingUp, 
-  Stethoscope, 
-  BarChart3, 
-  Shield, 
+import {
+  Milk,
+  TrendingUp,
+  Stethoscope,
+  BarChart3,
+  Shield,
   Smartphone,
   CheckCircle2,
   ArrowRight,
   Users,
-  Globe
+  Globe,
 } from "lucide-react";
 
 export default function LandingPage() {
@@ -25,13 +25,33 @@ export default function LandingPage() {
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                 <Milk className="w-6 h-6 text-primary-foreground" />
               </div>
-              <span className="text-xl font-bold text-foreground">DairyFlow</span>
+              <span className="text-xl font-bold text-foreground">
+                DairyFlow
+              </span>
             </div>
-            
+
             <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-features">Features</a>
-              <a href="#benefits" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-benefits">Benefits</a>
-              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-pricing">Pricing</a>
+              <a
+                href="#features"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="link-features"
+              >
+                Features
+              </a>
+              <a
+                href="#benefits"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="link-benefits"
+              >
+                Benefits
+              </a>
+              <a
+                href="#pricing"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="link-pricing"
+              >
+                Pricing
+              </a>
             </div>
 
             <div className="flex items-center gap-2">
@@ -54,29 +74,38 @@ export default function LandingPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
-                India's #1 Dairy Farm Management Software
+                Dairy Farm Management Software
               </div>
-              
+
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
                 Modern Dairy Farm
-                <span className="block text-primary">Management Made Simple</span>
+                <span className="block text-primary">
+                  Management Made Simple
+                </span>
               </h1>
-              
+
               <p className="text-lg text-muted-foreground max-w-lg">
-                Complete ERP solution for dairy farms. Track cattle health, milk production, 
-                breeding cycles, inventory, and finances - all in one beautiful, easy-to-use platform.
+                Complete ERP solution for dairy farms. Track cattle health, milk
+                production, breeding cycles, inventory, and finances - all in
+                one beautiful, easy-to-use platform.
               </p>
-              
+
               <div className="flex flex-wrap items-center gap-4">
                 <a href="/register">
-                  <Button size="lg" className="gap-2" data-testid="button-get-started">
+                  <Button
+                    size="lg"
+                    className="gap-2"
+                    data-testid="button-get-started"
+                  >
                     Get Started Free
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </a>
-                <Button variant="outline" size="lg" data-testid="button-demo">
-                  Watch Demo
-                </Button>
+                <a href="#features">
+                  <Button variant="outline" size="lg" data-testid="button-demo">
+                    Explore features
+                  </Button>
+                </a>
               </div>
 
               <div className="flex flex-wrap items-center gap-6 pt-4 text-sm text-muted-foreground">
@@ -100,25 +129,35 @@ export default function LandingPage() {
               <div className="relative bg-card border rounded-2xl p-6 shadow-xl">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-foreground">Today's Overview</h3>
-                    <span className="text-sm text-muted-foreground">Live Dashboard</span>
+                    <h3 className="font-semibold text-foreground">
+                      Today's Overview
+                    </h3>
+                    <span className="text-sm text-muted-foreground">
+                      Illustrative dashboard
+                    </span>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-muted/50 rounded-xl p-4">
                       <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
                         <Milk className="w-4 h-4" />
                         Milk Today
                       </div>
-                      <div className="text-2xl font-bold text-foreground">248.5 L</div>
-                      <div className="text-xs text-primary">+12% from yesterday</div>
+                      <div className="text-2xl font-bold text-foreground">
+                        248.5 L
+                      </div>
+                      <div className="text-xs text-primary">
+                        +12% from yesterday
+                      </div>
                     </div>
                     <div className="bg-muted/50 rounded-xl p-4">
                       <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
                         <TrendingUp className="w-4 h-4" />
                         Revenue
                       </div>
-                      <div className="text-2xl font-bold text-foreground">12,425</div>
+                      <div className="text-2xl font-bold text-foreground">
+                        12,425
+                      </div>
                       <div className="text-xs text-primary">This week</div>
                     </div>
                     <div className="bg-muted/50 rounded-xl p-4">
@@ -126,27 +165,39 @@ export default function LandingPage() {
                         <Stethoscope className="w-4 h-4" />
                         Health Alerts
                       </div>
-                      <div className="text-2xl font-bold text-foreground">2</div>
-                      <div className="text-xs text-orange-500">Needs attention</div>
+                      <div className="text-2xl font-bold text-foreground">
+                        2
+                      </div>
+                      <div className="text-xs text-orange-500">
+                        Needs attention
+                      </div>
                     </div>
                     <div className="bg-muted/50 rounded-xl p-4">
                       <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
                         <Users className="w-4 h-4" />
                         Active Cattle
                       </div>
-                      <div className="text-2xl font-bold text-foreground">45</div>
-                      <div className="text-xs text-muted-foreground">32 milking</div>
+                      <div className="text-2xl font-bold text-foreground">
+                        45
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        32 milking
+                      </div>
                     </div>
                   </div>
-                  
+
                   <div className="bg-gradient-to-r from-primary/10 to-transparent rounded-xl p-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
                         <span className="text-lg">🐄</span>
                       </div>
                       <div>
-                        <div className="font-medium text-foreground">Lakshmi #024</div>
-                        <div className="text-sm text-muted-foreground">Pregnancy check due tomorrow</div>
+                        <div className="font-medium text-foreground">
+                          Lakshmi #024
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Pregnancy check due tomorrow
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -165,7 +216,7 @@ export default function LandingPage() {
               Everything You Need to Run a Modern Dairy Farm
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              From individual cow tracking to complete financial management, 
+              From individual cow tracking to complete financial management,
               DairyFlow covers every aspect of dairy farm operations.
             </p>
           </div>
@@ -175,40 +226,51 @@ export default function LandingPage() {
               {
                 icon: Milk,
                 title: "Milk Recording",
-                description: "Track daily milk production per cow, FAT/SNF analysis, and automatic yield calculations."
+                description:
+                  "Track daily milk production per cow, FAT/SNF analysis, and automatic yield calculations.",
               },
               {
                 icon: Stethoscope,
                 title: "Health Management",
-                description: "Complete health records, vaccination schedules, treatment tracking with withdrawal period alerts."
+                description:
+                  "Complete health records, vaccination schedules, treatment tracking with withdrawal period alerts.",
               },
               {
                 icon: TrendingUp,
                 title: "Breeding & Reproduction",
-                description: "Heat detection, AI records, pregnancy tracking, and calving management with predictions."
+                description:
+                  "Heat detection, AI records, pregnancy tracking, and calving management with predictions.",
               },
               {
                 icon: BarChart3,
                 title: "Financial Tracking",
-                description: "Income and expenses, milk sales, inventory costs, and comprehensive P&L reporting."
+                description:
+                  "Income and expenses, milk sales, inventory costs, and comprehensive P&L reporting.",
               },
               {
                 icon: Shield,
                 title: "Inventory Control",
-                description: "FIFO-based feed and medicine inventory with expiry tracking and reorder alerts."
+                description:
+                  "Medicine and consumable lots with expiry-based use, traceability and reorder alerts.",
               },
               {
                 icon: Smartphone,
                 title: "Works Offline",
-                description: "Full functionality without internet. Perfect for remote farms. Syncs when connected."
-              }
+                description:
+                  "Capture milk and care work on your device, then review and sync pending entries when connected.",
+              },
             ].map((feature, index) => (
-              <Card key={index} className="hover-elevate border-transparent hover:border-border transition-colors">
+              <Card
+                key={index}
+                className="hover-elevate border-transparent hover:border-border transition-colors"
+              >
                 <CardContent className="p-6">
                   <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
                     <feature.icon className="w-6 h-6 text-primary" />
                   </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">{feature.title}</h3>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">
+                    {feature.title}
+                  </h3>
                   <p className="text-muted-foreground">{feature.description}</p>
                 </CardContent>
               </Card>
@@ -226,17 +288,17 @@ export default function LandingPage() {
                 Built for Indian Dairy Farmers
               </h2>
               <p className="text-lg text-muted-foreground mb-8">
-                Designed with input from dairy farmers across India. Supports both 
-                small family farms and large commercial operations.
+                Tools for daily dairy farm work. Supports both small family
+                farms and large commercial operations.
               </p>
-              
+
               <div className="space-y-4">
                 {[
-                  "Multi-language support including Hindi",
-                  "GST-compliant invoicing and reports",
+                  "Individual cow and calf histories",
+                  "Complete daily reports in PDF and Excel",
                   "WhatsApp notifications for alerts",
-                  "Android app works as offline-first PWA",
-                  "Labour-friendly simple interface"
+                  "Mobile access with offline entry for supported workflows",
+                  "Labour-friendly simple interface",
                 ].map((benefit, index) => (
                   <div key={index} className="flex items-center gap-3">
                     <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
@@ -250,20 +312,34 @@ export default function LandingPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <Card className="p-6 text-center">
-                <div className="text-4xl font-bold text-primary mb-2">500+</div>
-                <div className="text-muted-foreground">Farms Using DairyFlow</div>
+                <div className="text-4xl font-bold text-primary mb-2">Care</div>
+                <div className="text-muted-foreground">
+                  Individual and batch work
+                </div>
               </Card>
               <Card className="p-6 text-center">
-                <div className="text-4xl font-bold text-primary mb-2">50K+</div>
-                <div className="text-muted-foreground">Cattle Tracked</div>
+                <div className="text-4xl font-bold text-primary mb-2">
+                  Stock
+                </div>
+                <div className="text-muted-foreground">
+                  Lots and expiry tracking
+                </div>
               </Card>
               <Card className="p-6 text-center">
-                <div className="text-4xl font-bold text-primary mb-2">99.9%</div>
-                <div className="text-muted-foreground">Uptime</div>
+                <div className="text-4xl font-bold text-primary mb-2">
+                  Reports
+                </div>
+                <div className="text-muted-foreground">
+                  Complete daily records
+                </div>
               </Card>
               <Card className="p-6 text-center">
-                <div className="text-4xl font-bold text-primary mb-2">24/7</div>
-                <div className="text-muted-foreground">Support</div>
+                <div className="text-4xl font-bold text-primary mb-2">
+                  History
+                </div>
+                <div className="text-muted-foreground">
+                  Animal activity trail
+                </div>
               </Card>
             </div>
           </div>
@@ -286,7 +362,9 @@ export default function LandingPage() {
             {/* Free Plan */}
             <Card className="relative">
               <CardContent className="p-6">
-                <div className="text-lg font-semibold text-foreground mb-2">Free</div>
+                <div className="text-lg font-semibold text-foreground mb-2">
+                  Free
+                </div>
                 <div className="text-3xl font-bold text-foreground mb-1">0</div>
                 <div className="text-muted-foreground mb-6">Forever free</div>
                 <ul className="space-y-3 mb-6">
@@ -308,7 +386,11 @@ export default function LandingPage() {
                   </li>
                 </ul>
                 <a href="/register" className="block">
-                  <Button variant="outline" className="w-full" data-testid="button-free-plan">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    data-testid="button-free-plan"
+                  >
                     Get Started
                   </Button>
                 </a>
@@ -323,9 +405,13 @@ export default function LandingPage() {
                 </span>
               </div>
               <CardContent className="p-6">
-                <div className="text-lg font-semibold text-foreground mb-2">Pro</div>
+                <div className="text-lg font-semibold text-foreground mb-2">
+                  Pro
+                </div>
                 <div className="flex items-baseline gap-1 mb-1">
-                  <span className="text-3xl font-bold text-foreground">999</span>
+                  <span className="text-3xl font-bold text-foreground">
+                    999
+                  </span>
                   <span className="text-muted-foreground">/month</span>
                 </div>
                 <div className="text-muted-foreground mb-6">Per farm</div>
@@ -362,8 +448,12 @@ export default function LandingPage() {
             {/* Enterprise Plan */}
             <Card className="relative">
               <CardContent className="p-6">
-                <div className="text-lg font-semibold text-foreground mb-2">Enterprise</div>
-                <div className="text-3xl font-bold text-foreground mb-1">Custom</div>
+                <div className="text-lg font-semibold text-foreground mb-2">
+                  Enterprise
+                </div>
+                <div className="text-3xl font-bold text-foreground mb-1">
+                  Custom
+                </div>
                 <div className="text-muted-foreground mb-6">Contact us</div>
                 <ul className="space-y-3 mb-6">
                   <li className="flex items-center gap-2 text-sm">
@@ -387,9 +477,15 @@ export default function LandingPage() {
                     Dedicated support
                   </li>
                 </ul>
-                <Button variant="outline" className="w-full" data-testid="button-enterprise">
-                  Contact Sales
-                </Button>
+                <a href="/register">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    data-testid="button-enterprise"
+                  >
+                    Create an account
+                  </Button>
+                </a>
               </CardContent>
             </Card>
           </div>
@@ -403,8 +499,8 @@ export default function LandingPage() {
             Ready to Modernize Your Dairy Farm?
           </h2>
           <p className="text-lg text-muted-foreground mb-8">
-            Join hundreds of dairy farmers who are already using DairyFlow 
-            to increase productivity and profitability.
+            Keep animal care, stock, production and daily work together in one
+            place.
           </p>
           <a href="/register">
             <Button size="lg" className="gap-2" data-testid="button-cta">
@@ -423,13 +519,30 @@ export default function LandingPage() {
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
                 <Milk className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="text-lg font-bold text-foreground">DairyFlow</span>
+              <span className="text-lg font-bold text-foreground">
+                DairyFlow
+              </span>
             </div>
-            
+
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
-              <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-              <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-              <a href="#" className="hover:text-foreground transition-colors">Support</a>
+              <a
+                href="#features"
+                className="hover:text-foreground transition-colors"
+              >
+                Features
+              </a>
+              <a
+                href="/login"
+                className="hover:text-foreground transition-colors"
+              >
+                Sign in
+              </a>
+              <a
+                href="/register"
+                className="hover:text-foreground transition-colors"
+              >
+                Create account
+              </a>
             </div>
 
             <div className="flex items-center gap-2 text-sm text-muted-foreground">

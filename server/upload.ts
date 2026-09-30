@@ -8,6 +8,7 @@ import { SystemSettings } from "@shared/schema";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = [
+  "text/csv",
   "image/jpeg",
   "image/png",
   "image/gif",

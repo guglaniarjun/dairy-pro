@@ -77,7 +77,7 @@ export default function DashboardPage() {
   });
 
   const { data: alerts = [], isLoading: alertsLoading } = useQuery<any[]>({
-    queryKey: ["/api/alerts", "active"],
+    queryKey: ["/api/alerts"],
   });
 
   const milkChange = stats
@@ -147,7 +147,7 @@ export default function DashboardPage() {
           <KPICard label="Expected Heat" value={s.expectedHeat} sub="Heat cycle due" icon={Thermometer} color="pink" href="/breeding?filter=heat-due" loading={isLoading} />
           <KPICard label="Pregnancy Test Due" value={s.pregnancyTestDue} sub="After insemination" icon={Activity} color="orange" href="/breeding?filter=pt-due" loading={isLoading} />
           <KPICard label="Expected Calving" value={s.expectedCalving} sub="Within 30 days" icon={Baby} color="teal" href="/breeding?filter=calving-due" loading={isLoading} />
-          <KPICard label="Dry Off Due" value={s.dryOffDue} sub="60d before calving" icon={Clock} color="amber" href="/breeding?filter=dry-due" loading={isLoading} />
+          <KPICard label="Dry Off Due" value={s.dryOffDue} sub="Farm dry-period setting" icon={Clock} color="amber" href="/breeding?filter=dry-due" loading={isLoading} />
         </div>
       </div>
 
@@ -166,7 +166,7 @@ export default function DashboardPage() {
           />
           <KPICard label="Month Total" value={`${(s.monthMilk || 0).toFixed(0)} L`} sub="This month" icon={BarChart3} color="blue" href="/milk" loading={isLoading} />
           <KPICard label="Herd Avg/Day" value={`${(s.herdAvgMilk || 0).toFixed(1)} L`} sub="Per milking cow" icon={TrendingUp} color="teal" href="/milk" loading={isLoading} />
-          <KPICard label="Month Avg" value={`${(s.monthAvgMilk || 0).toFixed(1)} L/day`} sub="30-day rolling" icon={Activity} color="purple" href="/reports" loading={isLoading} />
+          <KPICard label="Month Avg" value={`${(s.monthAvgMilk || 0).toFixed(1)} L/day`} sub="Month to date" icon={Activity} color="purple" href="/reports" loading={isLoading} />
         </div>
       </div>
 
@@ -198,7 +198,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <KPICard label="Open Cattle" value={s.openCattle} sub="Not pregnant" icon={Heart} color="orange" href="/breeding?filter=open" loading={isLoading} />
           <KPICard label="Repeat Breeders" value={s.repeatBreeders} sub="3+ failed AIs" icon={AlertTriangle} color="red" href="/breeding?filter=repeat" loading={isLoading} />
-          <KPICard label="Conception Rate" value={s.conceptionRate ? `${s.conceptionRate}%` : "—"} sub="AI success rate" icon={Activity} color="teal" href="/reports" loading={isLoading} />
+          <KPICard label="Conception Rate" value={s.conceptionRate ? `${s.conceptionRate}%` : "—"} sub="Confirmed / tested services" icon={Activity} color="teal" href="/reports" loading={isLoading} />
           <KPICard label="Total Inseminations" value={s.totalInseminations} sub="All time" icon={Users} color="purple" href="/breeding" loading={isLoading} />
         </div>
       </div>

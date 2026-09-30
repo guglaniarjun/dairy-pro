@@ -1,10 +1,11 @@
 import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Re-export auth models
 export * from "./models/auth";
+export * from "./operations-schema";
 
 // =====================================================
 // TENANCY & SUBSCRIPTION SYSTEM
@@ -55,6 +56,19 @@ export const cattle = pgTable("cattle", {
   fatherId: varchar("father_id"),
   status: text("status").notNull().default("active"), // active, sold, dead, culled
   stage: text("stage").notNull().default("heifer"), // calf, heifer, milking, dry, pregnant
+  species: text("species").notNull().default("cattle"),
+  lifeStage: text("life_stage"),
+  productionStatus: text("production_status"),
+  reproductiveStatus: text("reproductive_status"),
+  healthStatus: text("health_status").notNull().default("healthy"),
+  pen: text("pen"),
+  weightKg: decimal("weight_kg", { precision: 8, scale: 2 }),
+  expectedCalvingDate: date("expected_calving_date"),
+  breedingCycleId: varchar("breeding_cycle_id"),
+  milkWithholdUntil: timestamp("milk_withhold_until"),
+  meatWithholdUntil: timestamp("meat_withhold_until"),
+  mergedIntoId: varchar("merged_into_id"),
+  revision: integer("revision").notNull().default(1),
   lactationNumber: integer("lactation_number").default(0),
   photoUrl: text("photo_url"),
   notes: text("notes"),
@@ -143,6 +157,7 @@ export const milkEntries = pgTable("milk_entries", {
   cattleId: varchar("cattle_id").notNull().references(() => cattle.id),
   date: date("date").notNull(),
   session: text("session").notNull(), // morning, evening, night
+  destination: text("destination").notNull().default("bulk"),
   quantity: decimal("quantity", { precision: 8, scale: 2 }).notNull(),
   fat: decimal("fat", { precision: 4, scale: 2 }),
   snf: decimal("snf", { precision: 4, scale: 2 }),
@@ -301,7 +316,7 @@ export const inventoryItems = pgTable("inventory_items", {
   name: text("name").notNull(),
   sku: text("sku"),
   unit: text("unit").notNull(),
-  currentStock: decimal("current_stock", { precision: 12, scale: 2 }).notNull().default("0"),
+  currentStock: decimal("current_stock", { precision: 14, scale: 3 }).notNull().default("0"),
   minStock: decimal("min_stock", { precision: 12, scale: 2 }).default("0"),
   maxStock: decimal("max_stock", { precision: 12, scale: 2 }),
   avgCost: decimal("avg_cost", { precision: 10, scale: 2 }),
@@ -400,12 +415,25 @@ export const tasks = pgTable("tasks", {
   cattleId: varchar("cattle_id").references(() => cattle.id),
   isRecurring: boolean("is_recurring").default(false),
   recurringPattern: text("recurring_pattern"),
+  batchId: varchar("batch_id"),
+  sourceKey: text("source_key"),
+  trigger: text("trigger"),
+  cycleId: varchar("cycle_id"),
+  protocolId: varchar("protocol_id"),
+  protocolVersion: integer("protocol_version"),
+  supplies: jsonb("supplies").$type<{ itemId: string; quantity: number }[]>().notNull().default([]),
+  clinical: jsonb("clinical").$type<{ milkWithdrawalDays?: number; meatWithdrawalDays?: number }>(),
+  evidenceRequired: boolean("evidence_required").notNull().default(false),
+  evidence: jsonb("evidence"),
+  reason: text("reason"),
+  originalDueDate: date("original_due_date"),
+  revision: integer("revision").notNull().default(1),
   completedAt: timestamp("completed_at"),
   completedBy: varchar("completed_by"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, table => [uniqueIndex("tasks_source_key_idx").on(table.tenantId, table.sourceKey)]);
 
 // =====================================================
 // ALERTS & NOTIFICATIONS

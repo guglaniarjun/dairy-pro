@@ -1,3 +1,6 @@
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
+import { startCareWorkers } from "./care-worker";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -7,6 +10,28 @@ import { whatsappWebGateway } from "./whatsapp-web";
 
 const app = express();
 const httpServer = createServer(app);
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(
+  "/api/auth",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+    origin &&
+    new URL(origin).host !== req.get("host")
+  )
+    return res
+      .status(403)
+      .json({ error: "Cross-origin writes are not allowed" });
+  next();
+});
 
 declare module "http" {
   interface IncomingMessage {
@@ -16,6 +41,7 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "2mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -38,21 +64,10 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
 
       log(logLine);
     }
@@ -64,8 +79,13 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
   startNotificationWorkers();
+  startCareWorkers();
   if (process.env.WHATSAPP_WEB_ENABLED !== "false") {
-    whatsappWebGateway.start().catch(error => console.error("WhatsApp Web initialization failed:", error));
+    whatsappWebGateway
+      .start()
+      .catch((error) =>
+        console.error("WhatsApp Web initialization failed:", error),
+      );
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -99,8 +119,8 @@ app.use((req, res, next) => {
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
-      reusePort: true,
+      host: process.env.LOCAL_DEMO === "true" ? "127.0.0.1" : "0.0.0.0",
+      reusePort: process.platform !== "win32",
     },
     () => {
       log(`serving on port ${port}`);

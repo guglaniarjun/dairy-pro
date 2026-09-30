@@ -1,5 +1,8 @@
 import { eq, desc, asc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
 import { db } from "./db";
+import { breedingMetrics } from "./farm-metrics";
+import { assertTag, assertCapacity, receiveStock, consumeSupplies, rows, fail, settings, recordEvent } from "./care-service";
+import { isLactating, farmDay, addDays, positive, nonnegative } from "@shared/care";
 import {
   users,
   tenants,
@@ -374,6 +377,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCattle(data: Partial<Cattle>): Promise<Cattle> {
+    await assertTag(data.tenantId!, data.tagNumber!);
+    await assertCapacity(data.tenantId!);
     const [created] = await db.insert(cattle).values(data as any).returning();
     return created;
   }
@@ -419,7 +424,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMilkEntry(data: Partial<MilkEntry>): Promise<MilkEntry> {
+    nonnegative.parse(data.quantity);
+    if ((await rows(milkEntries,data.tenantId!)).some(m=>m.cattleId===data.cattleId&&m.date===data.date&&m.session===data.session)) fail("Milk already exists for this animal, date and session",409);
     const [created] = await db.insert(milkEntries).values(data as any).returning();
+    if((data as any).destination === "discarded") await recordEvent(data.tenantId!,"milk_disposition",data.date!,{kind:"discarded",quantity:Number(data.quantity),milkEntryId:created.id,notes:"Recorded separately from bulk milk"},data.cattleId,data.recordedBy||undefined);
     return created;
   }
 
@@ -494,7 +502,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInventoryItem(data: Partial<InventoryItem>): Promise<InventoryItem> {
-    const [created] = await db.insert(inventoryItems).values(data as any).returning();
+    const opening=Number(data.currentStock||0);
+    const [created] = await db.insert(inventoryItems).values({...data,currentStock:"0"} as any).returning();
+    if(opening>0) await receiveStock(data.tenantId!,{itemId:created.id,quantity:opening,packCost:data.avgCost||0,batchNumber:"OPENING",receivedDate:farmDay((await settings(data.tenantId!)).timezone)});
     return created;
   }
 
@@ -505,17 +515,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInventoryTransaction(data: any): Promise<any> {
-    const [created] = await db.insert(inventoryTransactions).values(data).returning();
-    if (created.type === "purchase" || created.type === "return") {
-      await db.update(inventoryItems)
-        .set({ currentStock: sql`current_stock + ${created.quantity}`, updatedAt: new Date() })
-        .where(eq(inventoryItems.id, created.itemId));
-    } else if (created.type === "issue" || created.type === "wastage") {
-      await db.update(inventoryItems)
-        .set({ currentStock: sql`GREATEST(0, current_stock - ${created.quantity})`, updatedAt: new Date() })
-        .where(eq(inventoryItems.id, created.itemId));
-    }
-    return created;
+    const date=farmDay((await settings(data.tenantId)).timezone);
+    if(data.type === "purchase" || data.type === "return") return receiveStock(data.tenantId,{...data,receivedDate:date,batchNumber:data.batchNumber||`RECEIPT-${Date.now()}`,packCost:data.unitCost||0},data.recordedBy);
+    if(data.type === "issue") return consumeSupplies(data.tenantId,[{itemId:data.itemId,quantity:positive.parse(data.quantity)}],date,data.recordedBy,data.cattleId);
+    return fail("Use Stock Lots to record wastage and adjustments against a specific lot");
   }
 
   // Feed
@@ -528,7 +531,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createFeedingRecord(data: Partial<FeedingRecord>): Promise<FeedingRecord> {
+    let remaining=positive.parse(data.actualQuantity); let cost=0;
+    const lots=(await rows(feedInventory,data.tenantId!)).filter(l=>l.feedItemId===data.feedItemId&&(!l.expiryDate||l.expiryDate>=data.date!)&&Number(l.quantity)>0).sort((a,b)=>(a.expiryDate||"9999").localeCompare(b.expiryDate||"9999"));
+    if(lots.reduce((n,l)=>n+Number(l.quantity),0)<remaining)fail("Insufficient feed inventory; receive feed or use the approved diet and stock-lot workflow",409);
+    for(const lot of lots){if(remaining<=0)break;const quantity=Math.min(remaining,Number(lot.quantity));await db.update(feedInventory).set({quantity:String(Number(lot.quantity)-quantity),updatedAt:new Date()}).where(eq(feedInventory.id,lot.id));cost+=quantity*Number(lot.unitCost||0);remaining-=quantity;}
     const [created] = await db.insert(feedingRecords).values(data as any).returning();
+    if(data.cattleId)await db.insert(cattleCosts).values({tenantId:data.tenantId!,cattleId:data.cattleId,date:data.date!,category:"feed",amount:String(cost),sourceType:"feeding",sourceId:created.id,description:"Recorded feeding"});
     return created;
   }
 
@@ -557,20 +565,21 @@ export class DatabaseStorage implements IStorage {
 
   // Dashboard Stats
   async getDashboardStats(tenantId: string) {
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const cfg = await settings(tenantId);
+    const today = farmDay(cfg.timezone);
+    const yesterday = addDays(today,-1);
     const now = new Date();
     const in30Days = new Date(now.getTime() + 30 * 86400000);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const monthStart = today.slice(0,7)+"-01";
 
     // All active cattle
     const allCattle = await db.select().from(cattle).where(
       and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active"))
     );
 
-    const milkingCattle = allCattle.filter(c => c.stage === "milking");
-    const pregnantCattle = allCattle.filter(c => c.stage === "pregnant");
-    const dryCattle = allCattle.filter(c => c.stage === "dry");
+    const milkingCattle = allCattle.filter(isLactating);
+    const pregnantCattle = allCattle.filter(c => c.reproductiveStatus === "pregnant" || (!c.reproductiveStatus && c.stage === "pregnant"));
+    const dryCattle = allCattle.filter(c => c.productionStatus === "dry" || (!c.productionStatus && c.stage === "dry"));
 
     // Milk stats
     const todayMilkResult = await db.select({ total: sql<number>`COALESCE(SUM(${milkEntries.quantity}::numeric), 0)` })
@@ -601,74 +610,11 @@ export class DatabaseStorage implements IStorage {
       and(eq(healthEvents.tenantId, tenantId), eq(healthEvents.status, "active"))
     );
 
-    // Breeding: expected events in next 30 days
-    // Expected heat: cattle in milking/open stage without recent insemination in last 21 days
-    // Pregnancy tests due: inseminations from 28-45 days ago without pregnancy test
-    const recentInseminations = await db.select().from(inseminations).where(
-      and(eq(inseminations.tenantId, tenantId))
-    );
-    const recentPregnancyTests = await db.select().from(pregnancyTests).where(
-      and(eq(pregnancyTests.tenantId, tenantId))
-    );
-    const recentCalvings = await db.select().from(calvings).where(
-      and(eq(calvings.tenantId, tenantId))
-    );
-
-    // PT due: inseminations 28-45 days ago with no positive pregnancy test
-    const ptDueCattleIds = new Set<string>();
-    for (const ins of recentInseminations) {
-      const insDate = new Date(ins.date);
-      const daysAgo = Math.floor((now.getTime() - insDate.getTime()) / 86400000);
-      if (daysAgo >= 28 && daysAgo <= 60) {
-        const hasPT = recentPregnancyTests.some(pt => pt.cattleId === ins.cattleId && new Date(pt.testDate) > insDate);
-        if (!hasPT) ptDueCattleIds.add(ins.cattleId!);
-      }
-    }
-
-    // Expected calving: pregnant cattle with expected date in next 30 days
-    // Use last insemination + 280 days
-    const calvingDueCattleIds = new Set<string>();
-    const dryOffDueCattleIds = new Set<string>();
-    for (const ins of recentInseminations) {
-      const cattle_rec = allCattle.find(c => c.id === ins.cattleId);
-      if (!cattle_rec || cattle_rec.stage !== "pregnant") continue;
-      const expectedCalving = new Date(new Date(ins.date).getTime() + 280 * 86400000);
-      const daysToCalving = Math.floor((expectedCalving.getTime() - now.getTime()) / 86400000);
-      if (daysToCalving >= 0 && daysToCalving <= 30) calvingDueCattleIds.add(ins.cattleId!);
-      if (daysToCalving >= 60 && daysToCalving <= 75) dryOffDueCattleIds.add(ins.cattleId!); // dry 60 days before
-    }
-
-    // Expected heat: milking cows not inseminated in last 21 days
-    const expectedHeatCattle = allCattle.filter(c => {
-      if (c.stage !== "milking" && c.stage !== "heifer") return false;
-      const lastIns = recentInseminations.filter(i => i.cattleId === c.id).sort((a, b) => b.date.localeCompare(a.date))[0];
-      const lastHeat = recentCalvings.filter(h => h.cattleId === c.id).sort((a, b) => b.date.localeCompare(a.date))[0];
-      const referenceDate = lastIns?.date || lastHeat?.date;
-      if (!referenceDate) return false;
-      const daysAgo = Math.floor((now.getTime() - new Date(referenceDate).getTime()) / 86400000);
-      return daysAgo >= 18 && daysAgo <= 28;
-    });
-
-    // Repeat breeders: 3+ failed inseminations
-    const insCountByCattle: Record<string, number> = {};
-    for (const ins of recentInseminations) {
-      if (ins.cattleId) insCountByCattle[ins.cattleId] = (insCountByCattle[ins.cattleId] || 0) + 1;
-    }
-    const repeatBreeders = Object.entries(insCountByCattle).filter(([, count]) => count >= 3).length;
-    const openCattle = allCattle.filter(c => c.stage !== "pregnant" && c.stage !== "heifer" && c.stage !== "calf" && c.stage !== "dry").length;
-
-    // Vaccination stats
-    const allVaccinations = await db.select().from(vaccinations).where(eq(vaccinations.tenantId, tenantId));
-    const vaccinationDue = allVaccinations.filter(v => {
-      if (!v.nextDueDate) return false;
-      const due = new Date(v.nextDueDate);
-      return due >= now && due <= in30Days;
-    }).length;
-    const vaccinationOverdue = allVaccinations.filter(v => {
-      if (!v.nextDueDate) return false;
-      return new Date(v.nextDueDate) < now;
-    }).length;
-
+    const breeding = await breedingMetrics(tenantId);
+    const vaccinationsAll = await rows(vaccinations,tenantId);
+    const currentVaccinations = vaccinationsAll.filter(v=>!vaccinationsAll.some(n=>n.cattleId===v.cattleId&&n.vaccineId===v.vaccineId&&n.date>v.date));
+    const vaccinationDue = currentVaccinations.filter(v=>v.nextDueDate&&v.nextDueDate>=today&&v.nextDueDate<=addDays(today,14)).length;
+    const vaccinationOverdue = currentVaccinations.filter(v=>v.nextDueDate&&v.nextDueDate<today).length;
     // Finance
     const monthExpenses = await db.select({ total: sql<number>`COALESCE(SUM(${expenses.amount}::numeric), 0)` })
       .from(expenses).where(and(eq(expenses.tenantId, tenantId), gte(expenses.date, monthStart)));
@@ -689,12 +635,6 @@ export class DatabaseStorage implements IStorage {
     const currentPlan = tenant_rec[0]?.plan || "free";
     const maxCattle = tenant_rec[0]?.maxCattle || 5;
 
-    // Conception rate: positive PT / total inseminations
-    const positivePTs = recentPregnancyTests.filter(pt => pt.result === "positive").length;
-    const conceptionRate = recentInseminations.length > 0
-      ? Math.round((positivePTs / recentInseminations.length) * 100)
-      : null;
-
     return {
       // Herd
       totalCattle: allCattle.length,
@@ -713,18 +653,18 @@ export class DatabaseStorage implements IStorage {
       activeHealthIssues: healthIssuesResult.length,
       healthIssues: healthIssuesResult.length,
       // Breeding expected events
-      expectedHeat: expectedHeatCattle.length,
-      pregnancyTestDue: ptDueCattleIds.size,
-      expectedCalving: calvingDueCattleIds.size,
-      dryOffDue: dryOffDueCattleIds.size,
-      openCattle,
-      repeatBreeders,
-      totalInseminations: recentInseminations.length,
-      conceptionRate,
+      expectedHeat: breeding.expectedHeat,
+      pregnancyTestDue: breeding.pregnancyTestDue,
+      expectedCalving: breeding.expectedCalving,
+      dryOffDue: breeding.dryOffDue,
+      openCattle: breeding.openCattle,
+      repeatBreeders: breeding.repeatBreeders,
+      totalInseminations: breeding.totalInseminations,
+      conceptionRate: breeding.conceptionRate,
       // Health
       vaccinationDue,
       vaccinationOverdue,
-      dewormingDue: 0,
+      dewormingDue: breeding.dewormingDue,
       // Finance
       monthExpense,
       monthRevenue,
@@ -733,7 +673,7 @@ export class DatabaseStorage implements IStorage {
       // Plan
       currentPlan,
       maxCattle,
-      upcomingCalvings: calvingDueCattleIds.size,
+      upcomingCalvings: breeding.expectedCalving,
     };
   }
 
@@ -793,7 +733,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCattleTransaction(data: Partial<CattleTransaction>): Promise<CattleTransaction> {
-    const [created] = await db.insert(cattleTransactions).values(data as any).returning();
+    const paid = Number(data.paidAmount || 0);
+    if(!Number.isFinite(paid)||paid<0||paid>Number(data.amount)) fail("Invalid paid amount");
+    const [created] = await db.insert(cattleTransactions).values({...data,paymentStatus:paid>=Number(data.amount)?"paid":paid>0?"partial":"pending"} as any).returning();
+    if(paid>0) await db.insert(cattlePayments).values({tenantId:data.tenantId!,transactionId:created.id,date:data.date!,amount:String(paid),paymentMethod:data.paymentMethod||"cash",createdBy:data.createdBy});
+    if(data.type === "sale") await db.update(cattle).set({status:"sold",updatedAt:new Date()}).where(eq(cattle.id,data.cattleId!));
     return created;
   }
 
@@ -1077,44 +1021,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Breeding analytics
-  async getBreedingAnalytics(tenantId: string): Promise<any> {
-    const today = new Date().toISOString().split('T')[0];
-    const allCattle = await db.select().from(cattle).where(and(eq(cattle.tenantId, tenantId), eq(cattle.status, "active")));
-    const allHeats = await db.select().from(heats).where(eq(heats.tenantId, tenantId));
-    const allInseminations = await db.select().from(inseminations).where(eq(inseminations.tenantId, tenantId));
-    const allPregnancyTests = await db.select().from(pregnancyTests).where(eq(pregnancyTests.tenantId, tenantId));
-    const allCalvings = await db.select().from(calvings).where(eq(calvings.tenantId, tenantId));
-
-    const pregnant = allCattle.filter(c => c.stage === "pregnant").length;
-    const dry = allCattle.filter(c => c.stage === "dry").length;
-    const heifer = allCattle.filter(c => c.stage === "heifer").length;
-    const milking = allCattle.filter(c => c.stage === "milking").length;
-
-    const positiveTests = allPregnancyTests.filter(p => p.result === "positive").length;
-    const conceptionRate = allInseminations.length > 0 ? Math.round((positiveTests / allInseminations.length) * 100) : 0;
-
-    // Expected events in next 14 days
-    const future14 = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-    const expectedCalvings = allPregnancyTests.filter(p => p.expectedCalvingDate && p.expectedCalvingDate >= today && p.expectedCalvingDate <= future14).length;
-    const expectedPregnancyTests = allInseminations.filter(i => {
-      const testDue = new Date(new Date(i.date).getTime() + 30 * 86400000).toISOString().split('T')[0];
-      return testDue >= today && testDue <= future14;
-    }).length;
-
-    return {
-      totalCattle: allCattle.length,
-      pregnant,
-      dry,
-      heifer,
-      milking,
-      openCattle: allCattle.filter(c => c.stage !== "pregnant" && c.stage !== "dry" && c.stage !== "heifer" && c.stage !== "calf").length,
-      conceptionRate,
-      expectedCalvings,
-      expectedPregnancyTests,
-      totalInseminations: allInseminations.length,
-      totalCalvings: allCalvings.length,
-    };
-  }
+  async getBreedingAnalytics(tenantId: string): Promise<any> { return breedingMetrics(tenantId); }
 
   // Finance analytics
   async getFinanceAnalytics(tenantId: string): Promise<any> {

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 const mainNavItems = [
+  { title: "Care & Work", url: "/care", icon: Stethoscope, color: "text-emerald-600", permission: "tasks.view" },
   { title: "Dashboard",    url: "/",          icon: LayoutDashboard, color: "text-blue-500", permission: "dashboard.view" },
   { title: "Cattle",       url: "/cattle",    icon: Heart,           color: "text-red-500", permission: "cattle.view" },
   { title: "Milk Records", url: "/milk",      icon: Milk,            color: "text-sky-500", permission: "milk.view" },
@@ -28,6 +29,7 @@ const mainNavItems = [
 ];
 
 const managementNavItems = [
+  { title: "Daily Report", url: "/daily-report", icon: BarChart3, color: "text-violet-600", permission: "reports.view" },
   { title: "Byproducts", url: "/byproducts",  icon: Recycle,   color: "text-teal-500", permission: "byproducts.view" },
   { title: "Inventory",  url: "/inventory",   icon: Package,   color: "text-orange-500", permission: "inventory.view" },
   { title: "Finances",   url: "/finances",    icon: Wallet,    color: "text-yellow-600", permission: "finances.view" },

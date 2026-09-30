@@ -1,3 +1,4 @@
+import { cacheFarmData, cachedFarmData } from "./offline-cache";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
@@ -14,7 +15,21 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      ...(!["GET", "HEAD"].includes(method)
+        ? {
+            "Idempotency-Key": crypto.randomUUID(),
+            ...((queryClient.getQueryData(["/api/auth/user"]) as any)?.tenantId
+              ? {
+                  "X-Farm-ID": (
+                    queryClient.getQueryData(["/api/auth/user"]) as any
+                  ).tenantId,
+                }
+              : {}),
+          }
+        : {}),
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -29,16 +44,24 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+    const url = queryKey.join("/");
+    let res: Response;
+    try {
+      res = await fetch(url, { credentials: "include" });
+    } catch (error) {
+      const cached = cachedFarmData(url);
+      if (cached !== undefined) return cached;
+      throw error;
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    const data = await res.json();
+    cacheFarmData(url, data);
+    return data;
   };
 
 export const queryClient = new QueryClient({
@@ -46,8 +69,8 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true,
+      staleTime: 30_000,
       retry: false,
     },
     mutations: {

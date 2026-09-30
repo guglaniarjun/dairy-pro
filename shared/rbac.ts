@@ -42,7 +42,7 @@ export const rolePermissions: Record<TenantRole, TenantPermission[]> = {
   manager: [...operationalView, "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "byproducts.manage", "tasks.manage", "finances.view", "reports.view"],
   accountant: [...operationalView, "finances.view", "finances.manage", "reports.view"],
   supervisor: [...operationalView, "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "tasks.manage", "finances.view", "reports.view"],
-  veterinarian: ["dashboard.view", "cattle.view", "breeding.view", "breeding.manage", "health.view", "health.manage", "tasks.view", "tasks.manage", "alerts.view"],
+  veterinarian: ["inventory.view", "dashboard.view", "cattle.view", "breeding.view", "breeding.manage", "health.view", "health.manage", "tasks.view", "tasks.manage", "alerts.view"],
   worker: ["dashboard.view", "cattle.view", "milk.view", "milk.manage", "breeding.view", "health.view", "feed.view", "feed.manage", "inventory.view", "tasks.view", "tasks.manage", "alerts.view"],
   viewer: operationalView,
 };

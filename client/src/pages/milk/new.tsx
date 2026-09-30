@@ -1,3 +1,4 @@
+import { isLactating } from "@shared/care";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,6 +35,7 @@ const milkFormSchema = z.object({
   cattleId: z.string().min(1, "Please select a cow"),
   date: z.string().min(1, "Date is required"),
   session: z.enum(["morning", "evening", "night"]),
+  destination: z.enum(["bulk", "discarded"]).default("bulk"),
   quantity: z.string().min(1, "Quantity is required"),
   fat: z.string().optional(),
   snf: z.string().optional(),
@@ -44,6 +46,9 @@ const milkFormSchema = z.object({
 type MilkFormData = z.infer<typeof milkFormSchema>;
 
 export default function AddMilkEntryPage() {
+  const { data: preferences } = useQuery<any>({
+    queryKey: ["/api/operations/preferences"],
+  });
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [quickEntry, setQuickEntry] = useState<boolean>(false);
@@ -54,7 +59,7 @@ export default function AddMilkEntryPage() {
     queryKey: ["/api/cattle"],
   });
 
-  const milkingCattle = cattle?.filter((c) => c.stage === "milking" && c.status === "active");
+  const milkingCattle = cattle?.filter(isLactating);
 
   const form = useForm<MilkFormData>({
     resolver: zodResolver(milkFormSchema),
@@ -63,6 +68,7 @@ export default function AddMilkEntryPage() {
       date: format(new Date(), "yyyy-MM-dd"),
       session: new Date().getHours() < 12 ? "morning" : "evening",
       quantity: "",
+      destination: "bulk",
       fat: "",
       snf: "",
       recordedBy: "",
@@ -88,13 +94,14 @@ export default function AddMilkEntryPage() {
       setShowAttachments(true);
       toast({
         title: "Milk recorded",
-        description: "The milk entry has been saved. You can now add attachments.",
+        description:
+          "The milk entry has been saved. You can now add attachments.",
       });
     },
     onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to save milk entry. Please try again.",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -105,10 +112,36 @@ export default function AddMilkEntryPage() {
   };
 
   const copyYesterday = async () => {
-    toast({
-      title: "Same as yesterday",
-      description: "Yesterday's entries have been copied. Review and save.",
-    });
+    const cow = form.getValues("cattleId");
+    if (!cow) {
+      toast({ title: "Select an animal first" });
+      return;
+    }
+    try {
+      const response = await apiRequest("GET", "/api/milk");
+      const entries = await response.json();
+      const date = new Date(form.getValues("date") + "T12:00:00");
+      date.setDate(date.getDate() - 1);
+      const prior = entries.find(
+        (m: any) =>
+          m.cattleId === cow &&
+          m.date === format(date, "yyyy-MM-dd") &&
+          m.session === form.getValues("session"),
+      );
+      if (!prior) {
+        toast({ title: "No matching entry yesterday" });
+        return;
+      }
+      form.setValue("quantity", String(prior.quantity));
+      form.setValue("fat", prior.fat || "");
+      form.setValue("snf", prior.snf || "");
+      toast({
+        title: "Previous measurements loaded",
+        description: "Check today's actual measurements before saving.",
+      });
+    } catch (error: any) {
+      toast({ title: error.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -127,6 +160,18 @@ export default function AddMilkEntryPage() {
         <p className="text-muted-foreground">Add milk production entry</p>
       </div>
 
+      <div className="rounded border p-3 mb-4">
+        <label className="text-sm">
+          Milk destination
+          <select
+            className="block w-full border p-2 rounded bg-background"
+            {...form.register("destination")}
+          >
+            <option value="bulk">Bulk milk</option>
+            <option value="discarded">Discarded / withdrawal milk</option>
+          </select>
+        </label>
+      </div>
       {/* Quick Actions */}
       <div className="flex gap-2 mb-6">
         <Button
@@ -184,7 +229,11 @@ export default function AddMilkEntryPage() {
                     <FormItem>
                       <FormLabel>Date *</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} data-testid="input-date" />
+                        <Input
+                          type="date"
+                          {...field}
+                          data-testid="input-date"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -197,7 +246,10 @@ export default function AddMilkEntryPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Session *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger data-testid="select-session">
                             <SelectValue placeholder="Select session" />
@@ -206,7 +258,9 @@ export default function AddMilkEntryPage() {
                         <SelectContent>
                           <SelectItem value="morning">Morning</SelectItem>
                           <SelectItem value="evening">Evening</SelectItem>
-                          <SelectItem value="night">Night</SelectItem>
+                          {preferences?.milkingSessions === 3 && (
+                            <SelectItem value="night">Night</SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -288,7 +342,11 @@ export default function AddMilkEntryPage() {
                   <FormItem>
                     <FormLabel>Recorded By</FormLabel>
                     <FormControl>
-                      <Input placeholder="Name of person recording (optional)" {...field} data-testid="input-recorded-by" />
+                      <Input
+                        placeholder="Name of person recording (optional)"
+                        {...field}
+                        data-testid="input-recorded-by"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -346,9 +404,9 @@ export default function AddMilkEntryPage() {
                 <Paperclip className="w-5 h-5 text-muted-foreground" />
                 <h3 className="font-semibold">Add Attachments (Optional)</h3>
               </div>
-              <AttachmentUploader 
-                entityType="milk_entry" 
-                entityId={createdEntryId} 
+              <AttachmentUploader
+                entityType="milk_entry"
+                entityId={createdEntryId}
               />
               <div className="flex gap-4 mt-6">
                 <Button

@@ -1,3 +1,4 @@
+import { farmDay, addDays } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
@@ -39,12 +40,20 @@ export default function MilkRecordsPage() {
   const urlCattleId = new URLSearchParams(search).get("cattleId");
   const urlDateFilter = new URLSearchParams(search).get("dateFilter");
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState<string>(urlDateFilter || "all");
+  const [dateFilter, setDateFilter] = useState<string>(
+    urlDateFilter || "today",
+  );
   const [sessionFilter, setSessionFilter] = useState<string>("all");
-  const [cattleFilter, setCattleFilter] = useState<string>(urlCattleId || "all");
+  const [cattleFilter, setCattleFilter] = useState<string>(
+    urlCattleId || "all",
+  );
 
-  useEffect(() => { setCattleFilter(urlCattleId || "all"); }, [urlCattleId]);
-  useEffect(() => { setDateFilter(urlDateFilter || "all"); }, [urlDateFilter]);
+  useEffect(() => {
+    setCattleFilter(urlCattleId || "all");
+  }, [urlCattleId]);
+  useEffect(() => {
+    setDateFilter(urlDateFilter || "today");
+  }, [urlDateFilter]);
 
   const { data: milkEntries, isLoading } = useQuery<MilkEntry[]>({
     queryKey: ["/api/milk"],
@@ -59,15 +68,18 @@ export default function MilkRecordsPage() {
     return cow?.name || cow?.tagNumber || "Unknown";
   };
 
+  const { data: preferences } = useQuery<any>({
+    queryKey: ["/api/operations/preferences"],
+  });
+  const today = farmDay(preferences?.timezone);
   const getDateRange = () => {
-    const today = new Date();
     switch (dateFilter) {
       case "today":
-        return format(today, "yyyy-MM-dd");
+        return today;
       case "yesterday":
-        return format(subDays(today, 1), "yyyy-MM-dd");
+        return addDays(today, -1);
       case "week":
-        return format(subDays(today, 7), "yyyy-MM-dd");
+        return addDays(today, -6);
       default:
         return null;
     }
@@ -77,30 +89,46 @@ export default function MilkRecordsPage() {
     const matchesSearch = getCattleName(entry.cattleId)
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
-    const matchesSession = sessionFilter === "all" || entry.session === sessionFilter;
-    const matchesCattle = cattleFilter === "all" || entry.cattleId === cattleFilter;
-    
-    if (dateFilter === "all") return matchesSearch && matchesSession && matchesCattle;
-    
+    const matchesSession =
+      sessionFilter === "all" || entry.session === sessionFilter;
+    const matchesCattle =
+      cattleFilter === "all" || entry.cattleId === cattleFilter;
+
+    if (dateFilter === "all")
+      return matchesSearch && matchesSession && matchesCattle;
+
     const filterDate = getDateRange();
     if (dateFilter === "week") {
-      const entryDate = new Date(entry.date);
-      const weekAgo = subDays(new Date(), 7);
-      return matchesSearch && matchesSession && matchesCattle && entryDate >= weekAgo;
+      return (
+        matchesSearch &&
+        matchesSession &&
+        matchesCattle &&
+        entry.date >= addDays(today, -6) &&
+        entry.date <= today
+      );
     }
-    return matchesSearch && matchesSession && matchesCattle && entry.date === filterDate;
+    return (
+      matchesSearch &&
+      matchesSession &&
+      matchesCattle &&
+      entry.date === filterDate
+    );
   });
 
-  const todayTotal = filteredEntries?.reduce(
-    (sum, entry) => sum + parseFloat(entry.quantity),
-    0
-  ) || 0;
+  const todayTotal =
+    filteredEntries?.reduce(
+      (sum, entry) => sum + parseFloat(entry.quantity),
+      0,
+    ) || 0;
 
-  const avgPerCow = filteredEntries && filteredEntries.length > 0
-    ? todayTotal / filteredEntries.length
-    : 0;
+  const avgPerCow =
+    filteredEntries && filteredEntries.length > 0
+      ? todayTotal /
+        new Set(filteredEntries.map((e) => `${e.cattleId}:${e.date}`)).size
+      : 0;
 
-  const filteredCow = cattleFilter !== "all" ? cattle?.find(c => c.id === cattleFilter) : null;
+  const filteredCow =
+    cattleFilter !== "all" ? cattle?.find((c) => c.id === cattleFilter) : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -111,7 +139,20 @@ export default function MilkRecordsPage() {
           <p className="text-muted-foreground">Track daily milk production</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" data-testid="button-export">
+          <Button
+            variant="outline"
+            onClick={() => window.location.assign("/milk/bulk")}
+          >
+            Bulk entry
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            data-testid="button-export"
+            onClick={() =>
+              window.location.assign("/api/export/milk?format=xlsx")
+            }
+          >
             <Download className="w-4 h-4" />
             Export
           </Button>
@@ -129,12 +170,19 @@ export default function MilkRecordsPage() {
         <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-sm border border-blue-200 dark:border-blue-800">
           <Link href={`/cattle/${filteredCow.id}`}>
             <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs">
-              <ArrowLeft className="w-3 h-3" /> {filteredCow.name || filteredCow.tagNumber}
+              <ArrowLeft className="w-3 h-3" />{" "}
+              {filteredCow.name || filteredCow.tagNumber}
             </Button>
           </Link>
-          <span className="text-muted-foreground">Showing milk records for</span>
-          <Badge className="bg-blue-100 text-blue-800">{filteredCow.name || filteredCow.tagNumber}</Badge>
-          <span className="text-muted-foreground">— {filteredEntries?.length || 0} entries</span>
+          <span className="text-muted-foreground">
+            Showing milk records for
+          </span>
+          <Badge className="bg-blue-100 text-blue-800">
+            {filteredCow.name || filteredCow.tagNumber}
+          </Badge>
+          <span className="text-muted-foreground">
+            — {filteredEntries?.length || 0} entries
+          </span>
           <button
             onClick={() => setCattleFilter("all")}
             className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
@@ -150,8 +198,13 @@ export default function MilkRecordsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Today's Total</p>
-                <p className="text-3xl font-bold text-foreground" data-testid="stat-today-total">
+                <p className="text-sm text-muted-foreground">
+                  Selected Period Total
+                </p>
+                <p
+                  className="text-3xl font-bold text-foreground"
+                  data-testid="stat-today-total"
+                >
                   {todayTotal.toFixed(1)} L
                 </p>
               </div>
@@ -166,8 +219,13 @@ export default function MilkRecordsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg per Cow</p>
-                <p className="text-3xl font-bold text-foreground" data-testid="stat-avg-per-cow">
+                <p className="text-sm text-muted-foreground">
+                  Avg per cow per recorded day
+                </p>
+                <p
+                  className="text-3xl font-bold text-foreground"
+                  data-testid="stat-avg-per-cow"
+                >
                   {avgPerCow.toFixed(1)} L
                 </p>
               </div>
@@ -184,8 +242,12 @@ export default function MilkRecordsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Morning</p>
                 <p className="text-3xl font-bold text-foreground">
-                  {(filteredEntries?.filter(e => e.session === "morning")
-                    .reduce((sum, e) => sum + parseFloat(e.quantity), 0) || 0).toFixed(1)} L
+                  {(
+                    filteredEntries
+                      ?.filter((e) => e.session === "morning")
+                      .reduce((sum, e) => sum + parseFloat(e.quantity), 0) || 0
+                  ).toFixed(1)}{" "}
+                  L
                 </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -201,8 +263,12 @@ export default function MilkRecordsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Evening</p>
                 <p className="text-3xl font-bold text-foreground">
-                  {(filteredEntries?.filter(e => e.session === "evening")
-                    .reduce((sum, e) => sum + parseFloat(e.quantity), 0) || 0).toFixed(1)} L
+                  {(
+                    filteredEntries
+                      ?.filter((e) => e.session === "evening")
+                      .reduce((sum, e) => sum + parseFloat(e.quantity), 0) || 0
+                  ).toFixed(1)}{" "}
+                  L
                 </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
@@ -227,7 +293,10 @@ export default function MilkRecordsPage() {
         </div>
         <div className="flex gap-2">
           <Select value={dateFilter} onValueChange={setDateFilter}>
-            <SelectTrigger className="w-[140px]" data-testid="select-date-filter">
+            <SelectTrigger
+              className="w-[140px]"
+              data-testid="select-date-filter"
+            >
               <Calendar className="w-4 h-4 mr-2" />
               <SelectValue placeholder="Date" />
             </SelectTrigger>
@@ -239,7 +308,10 @@ export default function MilkRecordsPage() {
             </SelectContent>
           </Select>
           <Select value={sessionFilter} onValueChange={setSessionFilter}>
-            <SelectTrigger className="w-[140px]" data-testid="select-session-filter">
+            <SelectTrigger
+              className="w-[140px]"
+              data-testid="select-session-filter"
+            >
               <SelectValue placeholder="Session" />
             </SelectTrigger>
             <SelectContent>
@@ -307,7 +379,9 @@ export default function MilkRecordsPage() {
                 No milk records found
               </h3>
               <p className="text-muted-foreground mb-4">
-                {searchQuery || dateFilter !== "today" || sessionFilter !== "all"
+                {searchQuery ||
+                dateFilter !== "today" ||
+                sessionFilter !== "all"
                   ? "Try adjusting your filters"
                   : "Start recording milk production"}
               </p>

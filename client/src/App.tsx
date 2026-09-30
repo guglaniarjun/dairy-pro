@@ -51,6 +51,9 @@ import BillingPage from "@/pages/billing/index";
 import ImportExportPage from "@/pages/import-export/index";
 import SuperAdminPage from "@/pages/admin/index";
 import TeamPage from "@/pages/team/index";
+import CarePage from "@/pages/care";
+import DailyReportPage from "@/pages/reports/daily";
+import BulkMilkPage from "@/pages/milk/bulk";
 import NotFound from "@/pages/not-found";
 
 function LoadingSpinner() {
@@ -131,6 +134,9 @@ function AppRouter() {
         <Route path="/">
           {(user as any)?.isSuperAdmin && !(user as any)?.actingTenantId ? <SuperAdminPage /> : <DashboardPage />}
         </Route>
+        <Route path="/care" component={CarePage} />
+        <Route path="/daily-report" component={DailyReportPage} />
+        <Route path="/milk/bulk" component={BulkMilkPage} />
         <Route path="/cattle" component={CattleListPage} />
         <Route path="/cattle/new" component={AddCattlePage} />
         <Route path="/cattle/purchase" component={CattlePurchasePage} />

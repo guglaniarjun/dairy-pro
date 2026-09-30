@@ -1,3 +1,4 @@
+import { inStage } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
@@ -51,7 +52,7 @@ export default function CattleListPage() {
     const matchesSearch =
       cow.tagNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       cow.name?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStage = stageFilter === "all" || cow.stage === stageFilter;
+    const matchesStage = stageFilter === "all" || inStage(cow, stageFilter);
     const matchesStatus = statusFilter === "all" || cow.status === statusFilter;
     return matchesSearch && matchesStage && matchesStatus;
   });
@@ -82,11 +83,11 @@ export default function CattleListPage() {
   };
 
   const stageStats = [
-    { label: "Milking", stage: "milking", count: cattle?.filter(c => c.stage === "milking").length || 0, color: "text-blue-600", activeRing: "ring-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-950/30" },
-    { label: "Dry", stage: "dry", count: cattle?.filter(c => c.stage === "dry").length || 0, color: "text-amber-600", activeRing: "ring-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-950/30" },
-    { label: "Pregnant", stage: "pregnant", count: cattle?.filter(c => c.stage === "pregnant").length || 0, color: "text-purple-600", activeRing: "ring-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-950/30" },
-    { label: "Heifers", stage: "heifer", count: cattle?.filter(c => c.stage === "heifer").length || 0, color: "text-green-600", activeRing: "ring-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-950/30" },
-    { label: "Calves", stage: "calf", count: cattle?.filter(c => c.stage === "calf").length || 0, color: "text-pink-600", activeRing: "ring-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-950/30" },
+    { label: "Milking", stage: "milking", count: cattle?.filter(c => inStage(c, "milking")).length || 0, color: "text-blue-600", activeRing: "ring-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-950/30" },
+    { label: "Dry", stage: "dry", count: cattle?.filter(c => inStage(c, "dry")).length || 0, color: "text-amber-600", activeRing: "ring-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-950/30" },
+    { label: "Pregnant", stage: "pregnant", count: cattle?.filter(c => inStage(c, "pregnant")).length || 0, color: "text-purple-600", activeRing: "ring-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-950/30" },
+    { label: "Heifers", stage: "heifer", count: cattle?.filter(c => inStage(c, "heifer")).length || 0, color: "text-green-600", activeRing: "ring-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-950/30" },
+    { label: "Calves", stage: "calf", count: cattle?.filter(c => inStage(c, "calf")).length || 0, color: "text-pink-600", activeRing: "ring-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-950/30" },
   ];
 
   return (

@@ -83,18 +83,18 @@ export default function ReportsPage() {
   const now = new Date();
   const startDate = period === "week" ? new Date(now.getTime() - 7 * 86400000) :
     period === "month" ? startOfMonth(now) :
-    period === "quarter" ? startOfMonth(subMonths(now, 2)) :
+    period === "quarter" ? new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1) :
     new Date(now.getFullYear(), 0, 1);
 
   const inPeriod = (d: any[], key = "date") =>
-    d.filter((i: any) => { try { return new Date(i[key]) >= startDate; } catch { return true; } });
+    d.filter((i: any) => { try { return new Date(i[key]) >= startDate && new Date(i[key]) <= now; } catch { return false; } });
 
   const pMilk = inPeriod(milkEntries);
   const pExpenses = inPeriod(expenses);
   const pIncomes = inPeriod(incomes);
   const pHealth = inPeriod(healthEvents);
   const pIns = inPeriod(inseminations);
-  const pPT = inPeriod(pregnancyTests);
+  const pPT = inPeriod(pregnancyTests, "testDate");
 
   const totalMilk = pMilk.reduce((s: number, m: any) => s + parseFloat(m.quantity || 0), 0);
   const totalRevenue = pIncomes.reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
@@ -406,9 +406,9 @@ export default function ReportsPage() {
                     <span className="font-medium">{inPeriod(vaccinations).length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Compliance</span>
+                    <span className="text-sm text-muted-foreground">Animals with a vaccination record</span>
                     <span className="font-medium text-green-600">
-                      {cattle.length > 0 ? `${Math.min(100, Math.round((vaccinations.length / cattle.length) * 100))}%` : "—"}
+                      {cattle.length > 0 ? `${Math.round((new Set(vaccinations.map(v=>v.cattleId)).size / cattle.length) * 100)}%` : "—"}
                     </span>
                   </div>
                 </div>

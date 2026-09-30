@@ -17,7 +17,7 @@ import {
   Info,
 } from "lucide-react";
 
-type ImportResult = { imported: number; failed: number; total: number; errors: { row: number; message: string }[] };
+type ImportResult = { preview?: boolean; token?: string; wouldImport?: number; rows?: any[]; imported: number; failed: number; total: number; errors: { row: number; message: string }[] };
 
 const MODULES = [
   { id: "cattle",   label: "Cattle",   icon: Heart,       color: "text-red-500",    desc: "Herd master records" },
@@ -73,7 +73,7 @@ export default function ImportExportPage() {
       {/* Content per module */}
       <div className="grid md:grid-cols-2 gap-5">
         <ExportSection module={activeModule} />
-        <ImportSection module={activeModule} />
+        <ImportSection key={activeModule} module={activeModule} />
       </div>
     </div>
   );
@@ -306,7 +306,7 @@ function ImportSection({ module }: { module: ModuleId }) {
     if (f) { setFile(f); setResult(null); setError(null); }
   };
 
-  const handleImport = async () => {
+  const handleImport = async (commit = false) => {
     if (!file) return;
     setUploading(true);
     setResult(null);
@@ -314,7 +314,7 @@ function ImportSection({ module }: { module: ModuleId }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const resp = await fetch(`/api/import/${module}`, {
+      const resp = await fetch(`/api/import/${module}${commit && result?.token ? `?commit=${result.token}` : ""}`, {
         method: "POST",
         body: fd,
         credentials: "include",
@@ -443,7 +443,7 @@ function ImportSection({ module }: { module: ModuleId }) {
             <div className="space-y-1.5">
               <Upload className="w-8 h-8 mx-auto text-muted-foreground/40" />
               <p className="text-sm font-medium">Drop file here or click to browse</p>
-              <p className="text-xs text-muted-foreground">Supports CSV, XLS, XLSX</p>
+              <p className="text-xs text-muted-foreground">Supports CSV, XLSX</p>
             </div>
           )}
         </div>
@@ -452,16 +452,17 @@ function ImportSection({ module }: { module: ModuleId }) {
         <Button
           className="w-full gap-2 text-sm"
           disabled={!file || uploading}
-          onClick={handleImport}
+          onClick={() => handleImport(false)}
           data-testid="button-import-submit"
         >
           <Upload className="w-4 h-4" />
-          {uploading ? "Importing…" : "Import Records"}
+          {uploading ? "Processing…" : "Preview import"}
         </Button>
 
         {uploading && <Progress value={undefined} className="h-1.5 animate-pulse" />}
 
         {/* Result */}
+        {result?.preview && <div className="space-y-3"><p className="text-sm">Preview: {result.wouldImport} valid rows. Review errors before committing.</p><details><summary>Review data</summary><pre className="overflow-auto text-xs max-h-60">{JSON.stringify(result.rows, null, 2)}</pre></details><Button disabled={uploading || result.failed > 0} onClick={() => handleImport(true)}>Import reviewed rows</Button></div>}
         {result && (
           <div className="space-y-2">
             <div className="grid grid-cols-3 gap-2">
