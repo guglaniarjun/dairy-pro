@@ -28,8 +28,19 @@ Chrome was used against localhost with a synthetic farm, not the live database:
 
 ## Boundaries
 
-The production VPS and live farm database were not changed. Real WhatsApp delivery, production PostgreSQL `pg_dump`/`pg_restore`, external attachment storage were not exercised. SaaS subscription checkout remains the existing manual/placeholder flow; farm purchase/sale payment recording is implemented and tested. SQL backup restoration was verified in isolated PGlite. Offline queue behavior was tested with simulated network failures; this is not a claim that every legacy screen works offline.
+Production deployment was completed after the local checks, as recorded below. Real WhatsApp delivery and external attachment storage were not exercised. SaaS subscription checkout remains the existing manual/placeholder flow; farm purchase/sale payment recording is implemented and tested. SQL backup restoration was verified in isolated PGlite; the production PostgreSQL backup archive was checked for readability, without restoring over the live database. Offline queue behavior was tested with simulated network failures; this is not a claim that every legacy screen works offline.
 
 The build reports an existing PostCSS `from` warning and a large client bundle warning (about 354 KB gzip). Both builds complete. No large-herd load test or independent security penetration test was performed.
 
 Clinical and nutrition schedules need farm-specific approved content. The software supports their timing, evidence and stock consequences; it does not determine clinical treatment.
+
+## Production deployment — 30 September 2026
+
+- Application commit: `10cb23954edc67364cef59a1590b304c0d144d2c`.
+- [Deployment run 36739164803](https://github.com/guglaniarjun/dairy-pro/actions/runs/36739164803) passed TypeScript checks, all 36 tests, the production build and deployment.
+- Created a nonempty PostgreSQL custom-format backup before applying the additive migration. PostgreSQL 18 `pg_restore --list` successfully read the archive. The backup remains on the VPS outside the public repository.
+- Applied `migrations/upgrade-existing.sql`; the deployment recorded the successful application commit.
+- Confirmed the Dairy Pro PM2 process was online and its application processes used the isolated Node 22 runtime.
+- The public HTTPS daily-report route returned HTTP 200. The existing authenticated Chrome session loaded the new Care & Work and complete Daily Report screens with no observed browser console errors.
+- Live verification was read-only: no synthetic farm records, treatments, stock movements or outbound messages were created.
+- Live screenshots remain in the ignored local `.deploy-state` directory, outside the public repository.
