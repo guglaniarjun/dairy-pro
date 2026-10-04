@@ -82,8 +82,9 @@ export function OfflineStatus({ user }: any) {
               </p>
               {q.error && <p className="text-destructive">{q.error}</p>}
               <p className="text-xs">
-                Animal: {q.data.cattleId || "Task"} ·{" "}
-                {q.data.type || q.data.date || "completion"}
+                {q.path === "/milk-bulk"
+                  ? `${q.data.entries?.length || 0} milk entries · ${q.data.entries?.[0]?.date || ""} · ${q.data.entries?.[0]?.session || ""}`
+                  : `Animal: ${q.data.cattleId || "Task"} · ${q.data.type || q.data.date || "completion"}`}
               </p>
               <Button
                 size="sm"

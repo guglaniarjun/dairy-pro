@@ -22,6 +22,7 @@ const keyFor = (url: string) => {
 };
 const cacheable = (url: string) =>
   url === "/api/cattle" ||
+  url === "/api/milk" ||
   /^\/api\/operations\/(work|groups|stock|protocols|diets|people|preferences)(\?|$)/.test(
     url,
   );

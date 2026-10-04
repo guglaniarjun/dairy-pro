@@ -97,11 +97,16 @@ test("wrong farm and revision conflicts preserve the queued entry for review", a
 test("offline cached views are scoped and financial endpoints are never cached", () => {
   rememberSession(user);
   cacheFarmData("/api/cattle", [{ tag: "A1" }]);
+  cacheFarmData("/api/milk", [{ cattleId: "A1", quantity: "0" }]);
   cacheFarmData("/api/incomes", [{ amount: 100 }]);
   assert.deepEqual(cachedFarmData("/api/cattle"), [{ tag: "A1" }]);
+  assert.deepEqual(cachedFarmData("/api/milk"), [
+    { cattleId: "A1", quantity: "0" },
+  ]);
   assert.equal(cachedFarmData("/api/incomes"), undefined);
   rememberSession({ ...user, tenantId: "farm-b" });
   assert.equal(cachedFarmData("/api/cattle"), undefined);
+  assert.equal(cachedFarmData("/api/milk"), undefined);
   rememberSession(null);
   assert.equal(rememberedSession(), null);
   assert.equal(cachedFarmData("/api/cattle"), undefined);
