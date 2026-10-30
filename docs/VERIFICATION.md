@@ -1,5 +1,18 @@
 # Verification record — 30 September 2026
 
+## Customer account release — 30 October 2026
+
+- Deployed application commit `15b9e5dadcab61ee440561cee1e5d519d332ff5b` to the existing Dairy Pro VPS.
+- All 57 tests passed. TypeScript checking and the production build passed locally; checking with the preserved owner integration and the production build also passed on the VPS.
+- Account tests cover the nine-day ₹100-sale example, excess payments, advance before the first sale, partial coverage, immediate payments, oldest-debt allocation, historical cutoffs, backdated entries, receipt retry deduplication, stale-balance rejection, rollback, legacy migration, due dates and overdue amounts.
+- Browser checks in the isolated farm verified bulk saving, receipt preview and saving, individual advance use, and the chronological ledger with green advance/red due balances. No browser console errors were observed. All test transactions remained in the isolated database.
+- Backed up the production database before migration. PostgreSQL 18 `pg_restore --list` verified the custom archive. Applied all four new account columns, nullable receipt sale references, legacy term conversion and due-date backfill; no existing sales were left without due dates.
+- Compared pre/post migration hashes of existing sale amounts and identifying fields, receipts with payment modes/references, and customer identities. They matched exactly.
+- Preserved the server-only owner-login files and hooks; both owner-file checksums matched. Restarted only the Dairy Pro PM2 application, verified its health check and public Sales HTTPS response, and checked the authenticated live Customer Details ledger and Receive Payment form.
+- The first deployment attempt stopped before migration because the environment omitted development build tools. Re-running the guarded deployment with development dependencies available completed successfully; the production environment was loaded before restart.
+- Deployment used the existing SSH workflow because GitHub Actions was previously blocked by account billing. Main commits skip Actions to avoid its hard reset removing the production-only owner overlay. The overlay remains backed up under the server's ignored deployment state.
+- Live and isolated-demo screenshots are in the local ignored `.deploy-state` directory. Existing customer transactions were not edited or supplemented during live browser verification.
+
 ## Sales release — 30 October 2026
 
 - Application commit: `2c414e0b920c98dc678b990265f793fcea62b3af`.
