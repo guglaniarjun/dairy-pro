@@ -1,5 +1,16 @@
 # Verification record — 30 September 2026
 
+## Sales release — 30 October 2026
+
+- Application commit: `2c414e0b920c98dc678b990265f793fcea62b3af`.
+- Type checking, all 51 tests and the production build passed locally. Type checking and the production build also passed on the VPS with its existing Command Center integration preserved.
+- GitHub Actions could not start because of an account billing restriction. Deployment ran over the existing authenticated SSH connection as the application owner, using `scripts/deploy-vps.sh` with schema migration enabled and credential reset disabled.
+- Backed up the production database before migrating. PostgreSQL 18 `pg_restore --list` verified the resulting custom-format archive; the archive and checksum remain outside the public repository on the VPS.
+- Applied the additive sales migration and verified all five new tables. The Dairy Pro PM2 service restarted and its health check passed. Other application processes were not restarted.
+- Verified the authenticated live Sales and Customer Details screens and the public HTTPS Sales route. Initialized the six standard product definitions in the selected farm, with rates left for the user to configure. No test customers, sales or payment records were inserted in production.
+- Preserved the server-only `owner-bridge.ts`, `owner-grant.ts` and their three integration lines in `server/index.ts` and `server/routes.ts`. Their original files, checksums and Git diff are backed up in the server's ignored deployment-state directory. Future deployments must preserve or deliberately integrate this overlay; a blind hard reset would remove the tracked-file hooks.
+- Live screenshots are stored in the ignored local `.deploy-state` directory.
+
 ## Automated checks
 
 | Check | Result |
