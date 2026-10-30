@@ -11,12 +11,21 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { CustomerForm } from "./customer-form";
-import { currency, useSales, SalesSetup, SalesTable } from "./common";
+import { paymentLabel } from "@shared/sales";
+import {
+  AccountBalance,
+  currency,
+  useSales,
+  SalesSetup,
+  SalesTable,
+} from "./common";
 export default function CustomersPage() {
   const query = useSales();
   const [editing, setEditing] = useState<any>(null),
     [search, setSearch] = useState(""),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(
+      new URLSearchParams(location.search).get("customer") || "",
+    );
   const ledger = useQuery<any>({
     queryKey: [`/api/sales/customers/${selected}`],
     enabled: !!selected && query.canView,
@@ -41,7 +50,8 @@ export default function CustomersPage() {
         <div>
           <h1 className="text-2xl font-bold">Customer Details</h1>
           <p className="text-muted-foreground">
-            Your regular customers, delivery defaults and outstanding balances.
+            Customer accounts, advance balances, payment terms and delivery
+            defaults.
           </p>
         </div>
         <div className="flex gap-2">
@@ -71,7 +81,7 @@ export default function CustomersPage() {
                   "Default item",
                   "Quantity / rate",
                   "Payment",
-                  "Outstanding",
+                  "Account balance",
                   "",
                 ].map((h, i) => (
                   <th className="p-3 border-b" key={i}>
@@ -116,10 +126,22 @@ export default function CustomersPage() {
                         {currency(c.defaultRate ?? p?.defaultRate ?? 0)}
                       </td>
                       <td className="p-3 capitalize">
-                        {c.paymentMode.replaceAll("_", " ")}
+                        {paymentLabel(c.paymentMode)}
+                        <p className="text-xs text-muted-foreground">
+                          {c.paymentTerm === "monthly"
+                            ? "Due at month-end"
+                            : c.paymentTerm === "days"
+                              ? `Due after ${c.paymentDays} days`
+                              : "Due immediately"}
+                        </p>
                       </td>
                       <td className="p-3 font-medium">
-                        {currency(c.outstanding)}
+                        <AccountBalance balance={c.balance} />
+                        {Number(c.overdue) > 0 && (
+                          <p className="text-xs text-red-700 dark:text-red-400">
+                            Overdue {currency(c.overdue)}
+                          </p>
+                        )}
                       </td>
                       <td className="p-3">
                         {query.canManage && (
@@ -156,16 +178,89 @@ export default function CustomersPage() {
               <p>
                 {ledger.data?.customer.address} · {ledger.data?.customer.phone}
               </p>
-              <SalesTable entries={ledger.data?.entries} />
+              <div className="flex flex-wrap gap-5 items-center">
+                <AccountBalance balance={ledger.data?.balance || 0} />
+                <span className="text-sm text-muted-foreground">
+                  As of {ledger.data?.asOf}
+                </span>
+                {Number(ledger.data?.overdue) > 0 && (
+                  <span className="text-sm text-red-700 dark:text-red-400">
+                    Overdue {currency(ledger.data.overdue)}
+                  </span>
+                )}
+              </div>
+              <h3 className="font-medium">Account ledger</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr>
+                      {[
+                        "Date",
+                        "Transaction",
+                        "Sale",
+                        "Payment received",
+                        "Advance used",
+                        "Mode / reference",
+                        "Running balance",
+                      ].map((h) => (
+                        <th key={h} className="p-3 border-b whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.data?.ledger.map((r: any) => (
+                      <tr key={`${r.type}:${r.id}`} className="border-b">
+                        <td className="p-3 whitespace-nowrap">{r.date}</td>
+                        <td className="p-3">{r.description}</td>
+                        <td className="p-3">
+                          {Number(r.debit) ? currency(r.debit) : "—"}
+                        </td>
+                        <td className="p-3">
+                          {Number(r.credit) ? currency(r.credit) : "—"}
+                        </td>
+                        <td className="p-3 text-emerald-700 dark:text-emerald-400">
+                          {Number(r.advanceApplied)
+                            ? currency(r.advanceApplied)
+                            : "—"}
+                        </td>
+                        <td className="p-3">
+                          {paymentLabel(r.mode)}
+                          <p className="text-xs text-muted-foreground">
+                            {r.reference}
+                          </p>
+                        </td>
+                        <td className="p-3">
+                          <AccountBalance balance={r.balance} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!ledger.data?.ledger.length && (
+                <p className="text-muted-foreground">
+                  No sales or payments yet. You can receive an advance before
+                  the first sale.
+                </p>
+              )}
+              <details>
+                <summary className="cursor-pointer font-medium">
+                  Sales and settlement details
+                </summary>
+                <SalesTable entries={ledger.data?.entries} />
+              </details>
               <h3 className="font-medium">Payment receipts</h3>
               {ledger.data?.payments.map((p: any) => (
                 <p key={p.id} className="text-sm">
-                  {p.date} · {currency(p.amount)} · {p.mode} · {p.reference}
+                  {p.date} · {currency(p.amount)} · {paymentLabel(p.mode)} ·{" "}
+                  {p.reference}
                 </p>
               ))}
               {query.canManage && (
                 <Link href={`/sales?tab=payments&customer=${selected}`}>
-                  <Button>Collect payment</Button>
+                  <Button>Receive payment</Button>
                 </Link>
               )}
             </>

@@ -8,6 +8,7 @@ import {
   timestamp,
   uniqueIndex,
   index,
+  integer,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 const id = () =>
@@ -45,6 +46,8 @@ export const salesCustomers = pgTable(
     defaultRate: money("default_rate"),
     paymentType: text("payment_type").notNull().default("cash"),
     paymentMode: text("payment_mode").notNull().default("cash"),
+    paymentTerm: text("payment_term").notNull().default("immediate"),
+    paymentDays: integer("payment_days").notNull().default(0),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -67,6 +70,8 @@ export const dairySales = pgTable(
     rate: money("rate").notNull(),
     totalAmount: money("total_amount").notNull(),
     paidAmount: money("paid_amount").notNull().default("0"),
+    receivedAmount: money("received_amount").notNull().default("0"),
+    dueDate: date("due_date"),
     paymentType: text("payment_type").notNull(),
     paymentMode: text("payment_mode").notNull(),
     milkSaleId: varchar("milk_sale_id"),
@@ -84,7 +89,7 @@ export const salesPayments = pgTable(
   {
     id: id(),
     tenantId: tenant(),
-    saleId: varchar("sale_id").notNull(),
+    saleId: varchar("sale_id"),
     customerId: varchar("customer_id").notNull(),
     date: date("date").notNull(),
     amount: money("amount").notNull(),

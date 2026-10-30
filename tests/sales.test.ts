@@ -10,6 +10,8 @@ import { isolatedDatabase } from "./database";
 import { db, pool } from "../server/db";
 import * as s from "../shared/schema";
 import { farmDay, addDays } from "../shared/care";
+import { paymentDueDate } from "../shared/sales";
+import { customerAccount } from "../shared/customer-account";
 import { buildDailyReport, rows } from "../server/care-service";
 import { reportWorkbook } from "../server/report-export";
 const date = addDays(farmDay(), -3);
@@ -283,7 +285,7 @@ test("individual additional delivery and monthly collection clear debt without r
       .send(payment),
     201,
   );
-  assert.equal(first.payments.length, 2);
+  assert.equal(first.payments.length, 1);
   assert.equal(
     (await overview(addDays(date, 1))).customers.find(
       (c: any) => c.id === bob.id,
@@ -311,7 +313,6 @@ test("individual additional delivery and monthly collection clear debt without r
     milkRows.find((r) => r.buyerName === "Bob").paymentStatus,
     "partial",
   );
-  await post("/api/sales/payments", { ...payment, amount: "151" }, 409);
   await post("/api/sales/payments", { ...payment, amount: "150" });
   assert.equal(
     ok(await owner.get("/api/dashboard/stats")).pendingReceivables,
@@ -371,7 +372,8 @@ test("rejects invalid amounts, modes and dates, and derives totals on the server
       paymentMode: "monthly_credit",
       paidAmount: "1",
     }),
-    line(alice, milk, "1", { paidAmount: "100" }),
+    line(alice, milk, "1", { receivedAmount: "-1" }),
+    line(alice, milk, "1", { receivedAmount: "100000001" }),
   ])
     await post(
       "/api/sales/entries",
@@ -451,4 +453,399 @@ test("daily exports contain dairy sales, receipts and stock and migration is rep
   await engine.exec(migration);
   await engine.exec(migration);
   assert.equal((await rows(s.dairySales, tenant.id)).length, before);
+});
+
+test("customer's nine-day example: immediate receipts, credit, excess payment and automatic advance", async () => {
+  const start = addDays(farmDay(), -12);
+  const customer = await post("/api/sales/customers", {
+    name: "Account example",
+    paymentMode: "credit",
+    paymentTerm: "days",
+    paymentDays: 7,
+  });
+  const [cow] = await db
+    .insert(s.cattle)
+    .values({
+      tenantId: tenant.id,
+      tagNumber: "ACCOUNT-COW",
+      dateOfEntry: start,
+    })
+    .returning();
+  for (let i = 0; i < 9; i++)
+    await db.insert(s.milkEntries).values({
+      tenantId: tenant.id,
+      cattleId: cow.id,
+      date: addDays(start, i),
+      session: "morning",
+      quantity: "10",
+    });
+  const sale = (i: number, receivedAmount = "0", paymentMode = "credit") =>
+    post("/api/sales/entries", {
+      date: addDays(start, i),
+      source: "daily",
+      entries: [
+        {
+          customerId: customer.id,
+          productId: milk.id,
+          quantity: "1",
+          rate: "100",
+          receivedAmount,
+          paymentMode,
+        },
+      ],
+    });
+  for (let i = 0; i < 3; i++)
+    await sale(i, "100", ["cash", "upi", "cheque"][i]);
+  for (let i = 3; i < 6; i++) await sale(i);
+  const balance = async (i: number) =>
+    (await overview(addDays(start, i))).customers.find(
+      (c: any) => c.id === customer.id,
+    );
+  assert.equal((await balance(5)).balance, "300.00");
+  const payment = {
+    customerId: customer.id,
+    date: addDays(start, 5),
+    amount: "500",
+    mode: "upi",
+    reference: "EXAMPLE-500",
+  };
+  const receipt = ok(
+    await owner
+      .post("/api/sales/payments")
+      .set("Idempotency-Key", "example-500")
+      .send(payment),
+    201,
+  );
+  ok(
+    await owner
+      .post("/api/sales/payments")
+      .set("Idempotency-Key", "example-500")
+      .send(payment),
+    201,
+  );
+  assert.equal(receipt.payments.length, 1);
+  assert.equal((await balance(5)).advance, "200.00");
+  await sale(6);
+  assert.equal((await balance(6)).advance, "100.00");
+  await sale(7);
+  assert.equal((await balance(7)).balance, "0.00");
+  await sale(8);
+  assert.equal((await balance(8)).outstanding, "100.00");
+  const ledger = ok(await owner.get(`/api/sales/customers/${customer.id}`));
+  assert.equal(
+    ledger.payments.length,
+    4,
+    "using advance must not create a second cash receipt",
+  );
+  assert.equal(ledger.ledger.length, 13);
+  assert.equal(
+    ledger.payments.reduce((n: number, p: any) => n + Number(p.amount), 0),
+    800,
+  );
+  assert.equal(
+    ledger.entries.find((s: any) => s.date === addDays(start, 6))
+      .advanceApplied,
+    "100.00",
+  );
+  assert.equal(
+    ledger.entries.find((s: any) => s.date === start).dueDate,
+    addDays(start, 7),
+  );
+  assert.equal(
+    (await balance(4)).outstanding,
+    "200.00",
+    "future receipt must not clear historical debt",
+  );
+  assert.equal(
+    (await rows(s.incomes, tenant.id))
+      .filter((r) => r.customerName === customer.name)
+      .reduce((n, r) => n + Number(r.amount), 0),
+    900,
+  );
+  assert.equal(
+    (await overview(addDays(start, 6))).products.find(
+      (p: any) => p.id === milk.id,
+    ).stock,
+    9,
+  );
+  const report = await buildDailyReport(tenant.id, addDays(start, 5));
+  assert.equal(
+    report.dairySales.customers.find((c: any) => c.id === customer.id)?.advance,
+    "200.00",
+  );
+  assert.equal(
+    report.dairySales.payments.filter((p: any) => p.customerId === customer.id)
+      .length,
+    1,
+  );
+});
+
+test("standalone advance, partial coverage, immediate excess and stale balance protection", async () => {
+  const c = await post("/api/sales/customers", {
+    name: "Advance before sale",
+    paymentTerm: "monthly",
+  });
+  const receipt = await post("/api/sales/payments", {
+    customerId: c.id,
+    date,
+    amount: "40",
+    mode: "bank_transfer",
+  });
+  assert.equal(receipt.advance, "40.00");
+  assert.equal(receipt.payments[0].saleId, null);
+  const payload = {
+    date,
+    source: "individual",
+    entries: [
+      {
+        customerId: c.id,
+        productId: milk.id,
+        quantity: "1",
+        rate: "100",
+        paymentMode: "credit",
+        receivedAmount: "0",
+        expectedBalance: "-40",
+      },
+    ],
+  };
+  const saved = await post("/api/sales/entries", payload);
+  assert.equal(saved.entries[0].paidAmount, "40.00");
+  assert.equal(saved.entries[0].dueDate, paymentDueDate(date, "monthly", 0));
+  await post("/api/sales/entries", payload, 409);
+  let ledger = ok(await owner.get(`/api/sales/customers/${c.id}`));
+  assert.equal(ledger.outstanding, "60.00");
+  assert.equal(ledger.entries.length, 1);
+  await post("/api/sales/entries", {
+    date,
+    source: "individual",
+    entries: [
+      {
+        customerId: c.id,
+        productId: milk.id,
+        quantity: "1",
+        rate: "100",
+        paymentMode: "cash",
+        receivedAmount: "200",
+      },
+    ],
+  });
+  ledger = ok(await owner.get(`/api/sales/customers/${c.id}`));
+  assert.equal(ledger.advance, "40.00");
+  assert.equal(
+    ledger.entries.filter((s: any) => Number(s.outstanding) > 0).length,
+    0,
+  );
+  assert.equal(ledger.payments.length, 2);
+  const before = ledger.balance;
+  await post(
+    "/api/sales/entries",
+    {
+      date,
+      source: "individual",
+      entries: [
+        {
+          customerId: c.id,
+          productId: milk.id,
+          quantity: "99999",
+          rate: "100",
+          paymentMode: "cash",
+          receivedAmount: "200",
+        },
+      ],
+    },
+    409,
+  );
+  assert.equal(
+    ok(await owner.get(`/api/sales/customers/${c.id}`)).balance,
+    before,
+    "failed stock check must not change account",
+  );
+});
+
+test("backdated receipts and sales recalculate FIFO without duplicating revenue or receipts", async () => {
+  const c = await post("/api/sales/customers", {
+    name: "Backdated ledger",
+    paymentTerm: "days",
+    paymentDays: 10,
+  });
+  await post("/api/sales/entries", {
+    date,
+    source: "individual",
+    entries: [
+      {
+        customerId: c.id,
+        productId: milk.id,
+        quantity: "1",
+        rate: "100",
+        paymentMode: "credit",
+        receivedAmount: 0,
+      },
+    ],
+  });
+  await post("/api/sales/payments", {
+    customerId: c.id,
+    date: addDays(date, 1),
+    amount: "200",
+    mode: "cheque",
+    reference: "CH-2",
+  });
+  assert.equal(
+    (await overview()).customers.find((r: any) => r.id === c.id).outstanding,
+    "100.00",
+  );
+  await post("/api/sales/payments", {
+    customerId: c.id,
+    date: addDays(date, -1),
+    amount: "50",
+    mode: "cash",
+  });
+  assert.equal(
+    (await overview()).customers.find((r: any) => r.id === c.id).outstanding,
+    "50.00",
+  );
+  let ledger = ok(await owner.get(`/api/sales/customers/${c.id}`));
+  assert.equal(ledger.advance, "150.00");
+  assert.equal(ledger.entries[0].advanceApplied, "50.00");
+  assert.equal(ledger.entries[0].paidAmount, "100.00");
+  assert.equal(ledger.entries[0].dueDate, addDays(date, 10));
+  await post("/api/sales/entries", {
+    date,
+    source: "individual",
+    entries: [
+      {
+        customerId: c.id,
+        productId: milk.id,
+        quantity: "1",
+        rate: "100",
+        paymentMode: "credit",
+        receivedAmount: 0,
+      },
+    ],
+  });
+  ledger = ok(await owner.get(`/api/sales/customers/${c.id}`));
+  assert.equal(ledger.advance, "50.00");
+  assert.equal(ledger.payments.length, 2);
+  assert.equal(
+    (await overview()).customers.find((r: any) => r.id === c.id).outstanding,
+    "150.00",
+  );
+  assert.equal(
+    ledger.entries.reduce((n: number, s: any) => n + Number(s.paidAmount), 0),
+    200,
+  );
+  await post(
+    "/api/sales/customers",
+    { name: "Bad terms", paymentTerm: "days", paymentDays: 0 },
+    400,
+  );
+  await post(
+    "/api/sales/payments",
+    { customerId: c.id, date, amount: 5, mode: "credit" },
+    400,
+  );
+  await post(
+    "/api/sales/payments",
+    { customerId: c.id, date, amount: 5, mode: "upi" },
+    404,
+    other,
+  );
+});
+
+test("account migration is repeatable and preserves receipts, due dates and balances", async () => {
+  const before = await rows(s.salesPayments, tenant.id);
+  const salesBefore = await rows(s.dairySales, tenant.id);
+  const migration = await fs.readFile(
+    "migrations/0002_peaceful_venom.sql",
+    "utf8",
+  );
+  await engine.exec(migration);
+  await engine.exec(migration);
+  assert.deepEqual(await rows(s.salesPayments, tenant.id), before);
+  assert.deepEqual(await rows(s.dairySales, tenant.id), salesBefore);
+});
+
+test("legacy accounts migrate with the same sale totals, receipts and outstanding amount", async () => {
+  const [customer] = await db
+    .insert(s.salesCustomers)
+    .values({
+      tenantId: tenant.id,
+      name: "Legacy account",
+      paymentType: "credit",
+      paymentMode: "monthly_credit",
+    })
+    .returning();
+  const [sale] = await db
+    .insert(s.dairySales)
+    .values({
+      tenantId: tenant.id,
+      entryKey: "legacy-account",
+      source: "individual",
+      date,
+      customerId: customer.id,
+      customerName: customer.name,
+      productId: milk.id,
+      productName: "Milk",
+      unit: "litre",
+      quantity: "3",
+      rate: "100",
+      totalAmount: "300",
+      paidAmount: "100",
+      paymentType: "credit",
+      paymentMode: "upi",
+    })
+    .returning();
+  const [receipt] = await db
+    .insert(s.salesPayments)
+    .values({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      customerId: customer.id,
+      date,
+      amount: "100",
+      mode: "upi",
+      reference: "ORIGINAL-REFERENCE",
+    })
+    .returning();
+  await engine.exec(
+    await fs.readFile("migrations/0002_peaceful_venom.sql", "utf8"),
+  );
+  const ledger = ok(await owner.get(`/api/sales/customers/${customer.id}`));
+  assert.equal(ledger.outstanding, "200.00");
+  assert.equal(ledger.customer.paymentTerm, "monthly");
+  assert.equal(ledger.customer.paymentMode, "credit");
+  assert.equal(ledger.entries[0].receivedAmount, "100.00");
+  assert.equal(ledger.entries[0].dueDate, paymentDueDate(date, "monthly", 0));
+  assert.equal(ledger.payments[0].id, receipt.id);
+  assert.equal(ledger.payments[0].reference, "ORIGINAL-REFERENCE");
+});
+
+test("payment terms handle month boundaries and overdue amounts exclude advances", () => {
+  assert.equal(paymentDueDate("2028-02-10", "monthly", 0), "2028-02-29");
+  assert.equal(paymentDueDate("2026-12-31", "days", 10), "2027-01-10");
+  const sale = {
+    id: "s",
+    date: "2026-10-01",
+    createdAt: "2026-10-01T01:00:00Z",
+    totalAmount: "100.00",
+    dueDate: "2026-10-08",
+    productName: "Milk",
+    quantity: "1",
+    unit: "litre",
+    paymentMode: "credit",
+  };
+  const receipt = {
+    id: "p",
+    date: "2026-10-09",
+    createdAt: "2026-10-09T01:00:00Z",
+    amount: "150.00",
+    mode: "upi",
+  };
+  assert.equal(
+    customerAccount([sale], [receipt], "2026-10-08").overdue,
+    "0.00",
+  );
+  assert.equal(customerAccount([sale], [], "2026-10-09").overdue, "100.00");
+  const cleared = customerAccount([sale], [receipt], "2026-10-09");
+  assert.equal(cleared.advance, "50.00");
+  assert.equal(cleared.overdue, "0.00");
 });

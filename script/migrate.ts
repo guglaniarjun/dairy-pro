@@ -14,8 +14,14 @@ async function main() {
       : "migrations/0000_round_morph.sql";
     await client.query(await fs.readFile(file, "utf8"));
     console.log(`Applied ${file}`);
-    await client.query(await fs.readFile("migrations/0001_nebulous_wither.sql", "utf8"));
+    await client.query(
+      await fs.readFile("migrations/0001_nebulous_wither.sql", "utf8"),
+    );
     console.log("Applied daily sales and customers migration");
+    await client.query(
+      await fs.readFile("migrations/0002_peaceful_venom.sql", "utf8"),
+    );
+    console.log("Applied customer accounts and payment terms migration");
   } finally {
     await client.query(
       "select pg_advisory_unlock(hashtext('dairyflow-schema'))",

@@ -11,7 +11,9 @@ import {
   salesBatchSchema,
   stockReceiptSchema,
   paymentSchema,
+  paymentDueDate,
 } from "@shared/sales";
+import { customerAccount } from "@shared/customer-account";
 import { daySchema, farmDay } from "@shared/care";
 import { rows, owned, fail, recordEvent, settings } from "./care-service";
 
@@ -37,10 +39,12 @@ export async function saveCustomer(tenant: string, body: unknown, id?: string) {
   if (id) await owned(s.salesCustomers, tenant, id);
   if (data.defaultProductId)
     await owned(s.salesProducts, tenant, data.defaultProductId);
-  if (data.paymentType === "cash" && data.paymentMode === "monthly_credit")
-    fail("Monthly credit requires Credit terms");
+  if (data.paymentTerm === "days" && data.paymentDays < 1)
+    fail("Enter a payment period between 1 and 365 days");
   const values = {
     ...data,
+    paymentType: data.paymentMode === "credit" ? "credit" : "cash",
+    paymentDays: data.paymentTerm === "days" ? data.paymentDays : 0,
     defaultQuantity:
       data.defaultQuantity == null
         ? null
@@ -146,17 +150,15 @@ async function takeStock(
         409,
       );
   }
-  await db
-    .insert(s.productStock)
-    .values({
-      tenantId: tenant,
-      productId: product.id,
-      date,
-      quantity: decimal(-cents(quantity)),
-      kind: "sale",
-      saleId,
-      recordedBy: actor,
-    });
+  await db.insert(s.productStock).values({
+    tenantId: tenant,
+    productId: product.id,
+    date,
+    quantity: decimal(-cents(quantity)),
+    kind: "sale",
+    saleId,
+    recordedBy: actor,
+  });
 }
 async function incomeHead(milk: boolean) {
   const code = milk ? "milk-sale" : "dairy-products-sale";
@@ -194,7 +196,33 @@ export async function saveSales(tenant: string, actor: string, body: unknown) {
         409,
       );
     const total = lineTotal(entry.quantity, entry.rate);
-    const paid = entry.paymentType === "cash" ? total : cents(entry.paidAmount);
+    const account = await readAccount(tenant, customer.id, batch.date);
+    if (
+      entry.expectedBalance != null &&
+      cents(entry.expectedBalance) !== cents(account.balance)
+    )
+      fail(
+        `${customer.name}'s balance changed. Refresh Sales and review the amount received before saving.`,
+        409,
+      );
+    // Old clients can finish existing drafts; the new UI sends an explicit receipt amount.
+    const received =
+      entry.receivedAmount == null
+        ? entry.paymentType === "cash"
+          ? total
+          : cents(entry.paidAmount)
+        : cents(entry.receivedAmount);
+    const advance = Math.min(total, cents(account.advance));
+    const paid = Math.min(
+      total,
+      Math.max(0, received - cents(account.outstanding)) + advance,
+    );
+    const paymentMode =
+      received > 0
+        ? entry.paymentMode
+        : advance === total
+          ? "advance"
+          : "credit";
     const saleId = crypto.randomUUID();
     await takeStock(tenant, product, batch.date, entry.quantity, saleId, actor);
     let milkSaleId: string | null = null;
@@ -231,44 +259,50 @@ export async function saveSales(tenant: string, actor: string, body: unknown) {
         rate: decimal(cents(entry.rate)),
         totalAmount: decimal(total),
         paidAmount: decimal(paid),
-        paymentType: entry.paymentType,
-        paymentMode: entry.paymentMode,
+        receivedAmount: decimal(received),
+        dueDate: paymentDueDate(
+          batch.date,
+          customer.paymentTerm,
+          customer.paymentDays,
+        ),
+        paymentType: paid < total ? "credit" : "cash",
+        paymentMode,
         milkSaleId,
         notes: entry.notes,
         recordedBy: actor,
       })
       .returning();
-    await db
-      .insert(s.incomes)
-      .values({
+    await db.insert(s.incomes).values({
+      tenantId: tenant,
+      headId: await incomeHead(product.isMilk),
+      date: batch.date,
+      amount: decimal(total),
+      customerName: customer.name,
+      description: `${product.name} — ${entry.quantity} ${product.unit} × ₹${entry.rate}`,
+      paymentMethod: paymentMode,
+      referenceType: "dairy_sale",
+      referenceId: saleId,
+      recordedBy: actor,
+    });
+    if (received > 0)
+      await db.insert(s.salesPayments).values({
         tenantId: tenant,
-        headId: await incomeHead(product.isMilk),
+        saleId,
+        customerId: customer.id,
         date: batch.date,
-        amount: decimal(total),
-        customerName: customer.name,
-        description: `${product.name} — ${entry.quantity} ${product.unit} × ₹${entry.rate}`,
-        paymentMethod:
-          entry.paymentType === "credit" ? "credit" : entry.paymentMode,
-        referenceType: "dairy_sale",
-        referenceId: saleId,
+        amount: decimal(received),
+        mode: entry.paymentMode,
+        reference: entry.reference,
         recordedBy: actor,
       });
-    if (paid > 0)
-      await db
-        .insert(s.salesPayments)
-        .values({
-          tenantId: tenant,
-          saleId,
-          customerId: customer.id,
-          date: batch.date,
-          amount: decimal(paid),
-          mode: entry.paymentMode,
-          reference: entry.reference,
-          recordedBy: actor,
-        });
     saved.push(sale);
   }
-  return { entries: saved };
+  for (const id of new Set(saved.map((s) => s.customerId)))
+    await reconcileAccount(tenant, id);
+  const current = await rows(s.dairySales, tenant);
+  return {
+    entries: saved.map((sale) => current.find((s) => s.id === sale.id)),
+  };
 }
 export async function receiveProduct(
   tenant: string,
@@ -321,59 +355,58 @@ export async function collectPayment(
   await owned(s.salesCustomers, tenant, data.customerId);
   if (data.date > farmDay((await settings(tenant)).timezone))
     fail("Payments cannot be future dated");
-  const sales = (await rows(s.dairySales, tenant))
-    .filter((r) => r.customerId === data.customerId && r.date <= data.date)
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date) ||
-        String(a.createdAt).localeCompare(String(b.createdAt)),
-    );
-  let remaining = cents(data.amount);
-  const due = sales.reduce(
-    (n, r) => n + cents(r.totalAmount) - cents(r.paidAmount),
-    0,
+  const [receipt] = await db
+    .insert(s.salesPayments)
+    .values({
+      tenantId: tenant,
+      customerId: data.customerId,
+      date: data.date,
+      amount: decimal(cents(data.amount)),
+      mode: data.mode,
+      reference: data.reference,
+      recordedBy: actor,
+    })
+    .returning();
+  const account = await reconcileAccount(tenant, data.customerId);
+  return {
+    payments: [receipt],
+    balance: account.balance,
+    advance: account.advance,
+    outstanding: account.outstanding,
+  };
+}
+async function readAccount(tenant: string, customerId: string, asOf?: string) {
+  const [sales, payments] = await Promise.all([
+    rows(s.dairySales, tenant),
+    rows(s.salesPayments, tenant),
+  ]);
+  return customerAccount(
+    sales.filter((r) => r.customerId === customerId),
+    payments.filter((r) => r.customerId === customerId),
+    asOf,
   );
-  if (remaining > due)
-    fail(
-      "Payment exceeds the customer's outstanding balance on eligible sales",
-      409,
-    );
-  const payments = [];
-  for (const sale of sales) {
-    const amount = Math.min(
-      remaining,
-      cents(sale.totalAmount) - cents(sale.paidAmount),
-    );
-    if (amount <= 0) continue;
-    const paid = cents(sale.paidAmount) + amount;
+}
+async function reconcileAccount(tenant: string, customerId: string) {
+  const account = await readAccount(tenant, customerId);
+  for (const sale of account.entries) {
     await db
       .update(s.dairySales)
-      .set({ paidAmount: decimal(paid) })
+      .set({ paidAmount: sale.paidAmount })
       .where(eq(s.dairySales.id, sale.id));
     if (sale.milkSaleId)
       await db
         .update(s.milkSales)
         .set({
-          paymentStatus: paid === cents(sale.totalAmount) ? "paid" : "partial",
+          paymentStatus:
+            cents(sale.outstanding) === 0
+              ? "paid"
+              : cents(sale.paidAmount) > 0
+                ? "partial"
+                : "pending",
         })
         .where(eq(s.milkSales.id, sale.milkSaleId));
-    const [receipt] = await db
-      .insert(s.salesPayments)
-      .values({
-        tenantId: tenant,
-        saleId: sale.id,
-        customerId: data.customerId,
-        date: data.date,
-        amount: decimal(amount),
-        mode: data.mode,
-        reference: data.reference,
-        recordedBy: actor,
-      })
-      .returning();
-    payments.push(receipt);
-    remaining -= amount;
   }
-  return { payments };
+  return account;
 }
 export async function salesOverview(tenant: string, date: string) {
   daySchema.parse(date);
@@ -385,26 +418,27 @@ export async function salesOverview(tenant: string, date: string) {
     rows(s.productStock, tenant),
   ]);
   const milk = await milkAvailable(tenant, date);
-  const asOfSales = sales
-    .filter((s) => s.date <= date)
-    .map((sale) => {
-      const paid = payments
-        .filter((p) => p.saleId === sale.id && p.date <= date)
-        .reduce((n, p) => n + cents(p.amount), 0);
-      return {
-        ...sale,
-        paidAmount: decimal(paid),
-        outstanding: decimal(cents(sale.totalAmount) - paid),
-      };
-    });
-  const customerRows = customers.map((customer) => ({
-    ...customer,
-    outstanding: decimal(
-      asOfSales
-        .filter((s) => s.customerId === customer.id)
-        .reduce((n, s) => n + cents(s.outstanding), 0),
-    ),
-  }));
+  const accounts = new Map(
+    customers.map((c) => [
+      c.id,
+      customerAccount(
+        sales.filter((s) => s.customerId === c.id),
+        payments.filter((p) => p.customerId === c.id),
+        date,
+      ),
+    ]),
+  );
+  const asOfSales = [...accounts.values()].flatMap((a) => a.entries);
+  const customerRows = customers.map((customer) => {
+    const account = accounts.get(customer.id)!;
+    return {
+      ...customer,
+      balance: account.balance,
+      outstanding: account.outstanding,
+      advance: account.advance,
+      overdue: account.overdue,
+    };
+  });
   return {
     date,
     products: products.map((p) => ({
@@ -423,7 +457,9 @@ export async function salesOverview(tenant: string, date: string) {
       .map((p) => ({
         ...p,
         customerName: customers.find((c) => c.id === p.customerId)?.name,
-        productName: sales.find((s) => s.id === p.saleId)?.productName,
+        productName:
+          sales.find((s) => s.id === p.saleId)?.productName ||
+          "Customer account",
       })),
     stockMovements: movements
       .filter((m) => m.date === date)
@@ -435,23 +471,33 @@ export async function salesOverview(tenant: string, date: string) {
 }
 export async function salesReceivables(tenant: string) {
   const sales = await rows(s.dairySales, tenant);
+  const payments = await rows(s.salesPayments, tenant);
   const linked = new Set(sales.map((s) => s.milkSaleId));
   const legacy = (await rows(s.milkSales, tenant)).filter(
     (s) => !linked.has(s.id) && s.paymentStatus !== "paid",
   );
   return (
-    (sales.reduce((n, s) => n + cents(s.totalAmount) - cents(s.paidAmount), 0) +
+    ([...new Set(sales.map((s) => s.customerId))].reduce(
+      (n, id) =>
+        n +
+        cents(
+          customerAccount(
+            sales.filter((s) => s.customerId === id),
+            payments.filter((p) => p.customerId === id),
+          ).outstanding,
+        ),
+      0,
+    ) +
       legacy.reduce((n, s) => n + cents(s.totalAmount), 0)) /
     100
   );
 }
 export async function customerLedger(tenant: string, id: string) {
   const customer = await owned(s.salesCustomers, tenant, id);
-  const entries = (await rows(s.dairySales, tenant))
-    .filter((s) => s.customerId === id)
-    .sort((a, b) => b.date.localeCompare(a.date));
-  const payments = (await rows(s.salesPayments, tenant))
-    .filter((p) => p.customerId === id)
-    .sort((a, b) => b.date.localeCompare(a.date));
-  return { customer, entries, payments };
+  const asOf = farmDay((await settings(tenant)).timezone);
+  const account = await readAccount(tenant, id, asOf);
+  const payments = (await rows(s.salesPayments, tenant)).filter(
+    (p) => p.customerId === id && p.date <= asOf,
+  );
+  return { customer, asOf, ...account, payments };
 }

@@ -5,7 +5,15 @@ import { modeOptions } from "@shared/sales";
 import { useSalesWrite } from "./common";
 export function CustomerForm({ customer, products, onSaved }: any) {
   const write = useSalesWrite();
-  const [terms, setTerms] = useState(customer?.paymentType || "cash");
+  const [term, setTerm] = useState(
+    customer?.paymentTerm === "monthly"
+      ? "monthly"
+      : customer?.paymentTerm === "days"
+        ? [7, 10].includes(customer.paymentDays)
+          ? String(customer.paymentDays)
+          : "custom"
+        : "immediate",
+  );
   return (
     <form
       className="space-y-4"
@@ -17,6 +25,18 @@ export function CustomerForm({ customer, products, onSaved }: any) {
           `/api/sales/customers${customer ? `/${customer.id}` : ""}`,
           {
             ...d,
+            paymentTerm:
+              term === "monthly"
+                ? "monthly"
+                : term === "immediate"
+                  ? "immediate"
+                  : "days",
+            paymentDays:
+              term === "custom"
+                ? Number(d.paymentDays)
+                : ["7", "10"].includes(term)
+                  ? Number(term)
+                  : 0,
             daily: d.daily === "on",
             active: d.active === "on",
             defaultProductId: d.defaultProductId || null,
@@ -87,33 +107,46 @@ export function CustomerForm({ customer, products, onSaved }: any) {
         </p>
         <div className="grid sm:grid-cols-2 gap-4">
           <SelectField
-            label="Default terms"
-            name="paymentType"
-            value={terms}
-            onChange={(e: any) => setTerms(e.target.value)}
+            label="Payment due"
+            value={term}
             required
+            onChange={(e: any) => setTerm(e.target.value)}
             options={[
-              { value: "cash", label: "Cash (paid in full)" },
-              { value: "credit", label: "Credit" },
+              { value: "immediate", label: "Immediately" },
+              { value: "7", label: "After 7 days" },
+              { value: "10", label: "After 10 days" },
+              { value: "monthly", label: "End of month" },
+              { value: "custom", label: "Custom number of days" },
             ]}
           />
           <SelectField
-            key={terms}
-            label="Default payment mode"
+            label="Usual payment mode"
             name="paymentMode"
             required
             defaultValue={
-              customer?.paymentType === terms
-                ? customer.paymentMode
-                : terms === "credit"
-                  ? "monthly_credit"
-                  : "cash"
+              customer?.paymentMode === "monthly_credit"
+                ? "credit"
+                : customer?.paymentMode || "credit"
             }
-            options={modeOptions.filter(
-              (m) => terms === "credit" || m.value !== "monthly_credit",
-            )}
+            options={modeOptions}
           />
+          {term === "custom" && (
+            <InputField
+              label="Days after each sale"
+              name="paymentDays"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              required
+              defaultValue={customer?.paymentDays || 7}
+            />
+          )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Advance is always used automatically. Payment terms set the due date
+          for unpaid sales; they do not record a receipt.
+        </p>
         <InputField
           label="Notes"
           name="notes"

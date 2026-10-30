@@ -13,7 +13,12 @@ export async function isolatedDatabase(dataDir?: string) {
     await engine.exec(
       await fs.readFile("migrations/0000_round_morph.sql", "utf8"),
     );
-  await engine.exec(await fs.readFile("migrations/0001_nebulous_wither.sql", "utf8"));
+  await engine.exec(
+    await fs.readFile("migrations/0001_nebulous_wither.sql", "utf8"),
+  );
+  await engine.exec(
+    await fs.readFile("migrations/0002_peaceful_venom.sql", "utf8"),
+  );
   const database = drizzle(engine, { schema });
   useIsolatedDatabase(database);
   return { engine, database };

@@ -3,11 +3,22 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { queryClient } from "@/lib/queryClient";
 import { farmDay } from "@shared/care";
-import { cents, decimal } from "@shared/sales";
+import { cents, decimal, paymentLabel } from "@shared/sales";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/farm-forms";
 export const currency = (n: string | number) =>
   Number(n).toLocaleString("en-IN", { style: "currency", currency: "INR" });
+export function AccountBalance({ balance }: { balance: string | number }) {
+  const amount = Number(balance || 0);
+  return (
+    <span
+      className={`font-semibold whitespace-nowrap ${amount < 0 ? "text-emerald-700 dark:text-emerald-400" : amount > 0 ? "text-red-700 dark:text-red-400" : "text-muted-foreground"}`}
+    >
+      {amount < 0 ? "Advance" : amount > 0 ? "Due" : "Settled"}{" "}
+      {currency(Math.abs(amount))}
+    </span>
+  );
+}
 export function useSales(date = farmDay()) {
   const { user } = useAuth();
   const permissions = (user as any)?.tenantPermissions || [];
@@ -124,9 +135,11 @@ export function SalesTable({ entries = [] }: { entries?: any[] }) {
               "Quantity",
               "Rate",
               "Total",
-              "Paid",
+              "Settled",
+              "From advance",
               "Due",
-              "Terms / mode",
+              "Due date",
+              "Payment",
             ].map((h) => (
               <th className="p-3 whitespace-nowrap" key={h}>
                 {h}
@@ -146,15 +159,19 @@ export function SalesTable({ entries = [] }: { entries?: any[] }) {
               <td className="p-3">{currency(s.rate)}</td>
               <td className="p-3 font-medium">{currency(s.totalAmount)}</td>
               <td className="p-3">{currency(s.paidAmount)}</td>
+              <td className="p-3 text-emerald-700 dark:text-emerald-400">
+                {currency(s.advanceApplied || 0)}
+              </td>
               <td className="p-3">
                 {currency(
                   s.outstanding ??
                     decimal(cents(s.totalAmount) - cents(s.paidAmount)),
                 )}
               </td>
-              <td className="p-3 capitalize">
-                {s.paymentType} / {s.paymentMode.replaceAll("_", " ")}
+              <td className="p-3 whitespace-nowrap">
+                {Number(s.outstanding) > 0 ? s.dueDate || s.date : "—"}
               </td>
+              <td className="p-3">{paymentLabel(s.paymentMode)}</td>
             </tr>
           ))}
         </tbody>

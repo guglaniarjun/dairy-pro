@@ -385,7 +385,7 @@ export default function DailyReportPage() {
           </Panel>
           {r.dairySales && <Panel title="Dairy sales, receipts and customer balances">
             <SalesTable entries={r.dairySales.entries} />
-            <p className="text-sm">Payments received: {currency(r.dairySales.payments.reduce((n: number, p: any) => n + Number(p.amount), 0))} · Outstanding as of report date: {currency(r.dairySales.customers.reduce((n: number, c: any) => n + Number(c.outstanding), 0))}</p>
+            <p className="text-sm">Payments received: {currency(r.dairySales.payments.reduce((n: number, p: any) => n + Number(p.amount), 0))} · Outstanding as of report date: {currency(r.dairySales.customers.reduce((n: number, c: any) => n + Number(c.outstanding), 0))} · Customer advances: {currency(r.dairySales.customers.reduce((n: number, c: any) => n + Number(c.advance || 0), 0))}</p>
             <details><summary>Customer balances, receipts and dairy stock</summary><Details value={r.dairySales.customers} /><Details value={r.dairySales.payments} /><Details value={r.dairySales.products} /><Details value={r.dairySales.stockMovements} /></details>
           </Panel>}
           <Panel title="Finance, farm entries and corrections">

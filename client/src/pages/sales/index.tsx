@@ -17,357 +17,16 @@ import {
 } from "@/components/farm-forms";
 import { farmDay } from "@shared/care";
 import { cents, decimal, lineTotal, modeOptions } from "@shared/sales";
+import { SalesGrid as Grid } from "./sales-grid";
 import { CustomerForm } from "./customer-form";
 import {
   currency,
+  AccountBalance,
   useSales,
   useSalesWrite,
   SalesSetup,
   SalesTable,
 } from "./common";
-
-function defaults(customer: any, products: any[]) {
-  const product =
-    products.find((p) => p.id === customer.defaultProductId && p.active) ||
-    products.find((p) => p.isMilk);
-  return {
-    customerId: customer.id,
-    productId: product?.id || "",
-    quantity: customer.defaultQuantity || "",
-    rate:
-      customer.defaultRate != null &&
-      (!customer.defaultProductId || customer.defaultProductId === product?.id)
-        ? customer.defaultRate
-        : product?.defaultRate || "",
-    paymentType: customer.paymentType,
-    paymentMode: customer.paymentMode,
-    paidAmount: "0",
-    reference: "",
-    notes: "",
-  };
-}
-function Grid({ data, date, individual = false }: any) {
-  const write = useSalesWrite();
-  const [drafts, setDrafts] = useState<Record<string, any>>({});
-  const [customerId, setCustomerId] = useState("");
-  const [search, setSearch] = useState("");
-  const customers = data.customers.filter(
-    (c: any) => c.active && (individual ? c.id === customerId : c.daily),
-  );
-  const saved = (id: string) =>
-    !individual &&
-    data.entries.some((e: any) => e.customerId === id && e.source === "daily");
-  const get = (c: any) => drafts[c.id] || defaults(c, data.products);
-  const update = (customer: any, key: string, value: string) => {
-    const row = { ...get(customer), [key]: value };
-    if (key === "productId")
-      row.rate =
-        (value === customer.defaultProductId ||
-          (!customer.defaultProductId &&
-            data.products.find((p: any) => p.id === value)?.isMilk)) &&
-        customer.defaultRate != null
-          ? customer.defaultRate
-          : data.products.find((p: any) => p.id === value)?.defaultRate || "";
-    if (key === "paymentType") {
-      row.paymentMode = value === "credit" ? "monthly_credit" : "cash";
-      row.paidAmount = "0";
-    }
-    setDrafts((old) => ({ ...old, [customer.id]: row }));
-  };
-  const entries = customers
-    .filter(
-      (c: any) =>
-        !saved(c.id) && get(c).quantity !== "" && Number(get(c).quantity) !== 0,
-    )
-    .map(get);
-  const total = entries.reduce(
-    (n: number, r: any) => n + lineTotal(r.quantity, r.rate),
-    0,
-  );
-  const paid = entries.reduce(
-    (n: number, r: any) =>
-      n +
-      (r.paymentType === "cash"
-        ? lineTotal(r.quantity, r.rate)
-        : cents(r.paidAmount || 0)),
-    0,
-  );
-  return (
-    <Panel
-      title={individual ? "Individual sale" : "Daily customer sales"}
-      description={
-        individual
-          ? "Choose any active customer. Use this for an extra delivery or another product."
-          : "Enter quantities for today's customers. Blank or zero quantities are skipped. Cash means paid in full; choose the actual payment mode separately."
-      }
-    >
-      <form
-        className="space-y-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const result = await write.save("/api/sales/entries", {
-            date,
-            source: individual ? "individual" : "daily",
-            entries,
-          });
-          if (result) {
-            setDrafts({});
-            if (individual) setCustomerId("");
-          }
-        }}
-      >
-        <fieldset disabled={write.busy} className="space-y-4">
-          {individual ? (
-            <SelectField
-              label="Customer"
-              value={customerId}
-              required
-              onChange={(e: any) => setCustomerId(e.target.value)}
-              options={data.customers
-                .filter((c: any) => c.active)
-                .map((c: any) => ({ value: c.id, label: c.name }))}
-            />
-          ) : (
-            <InputField
-              label="Find a daily customer"
-              value={search}
-              placeholder="Search customer name"
-              onChange={(e: any) => setSearch(e.target.value)}
-            />
-          )}
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm text-left min-w-[1180px]">
-              <thead className="bg-muted/50">
-                <tr>
-                  {[
-                    "Customer",
-                    "Item",
-                    "Quantity",
-                    "Rate (₹)",
-                    "Total",
-                    "Cash / credit",
-                    "Payment mode",
-                    "Paid now (₹)",
-                    "Reference",
-                    "Status",
-                  ].map((h) => (
-                    <th className="p-3 whitespace-nowrap" key={h}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {customers
-                  .filter((c: any) =>
-                    c.name.toLowerCase().includes(search.toLowerCase()),
-                  )
-                  .map((c: any) => {
-                    const row = get(c),
-                      done = saved(c.id),
-                      product = data.products.find(
-                        (p: any) => p.id === row.productId,
-                      );
-                    const savedRow = done
-                      ? data.entries.find(
-                          (e: any) =>
-                            e.customerId === c.id && e.source === "daily",
-                        )
-                      : null;
-                    if (savedRow)
-                      return (
-                        <tr
-                          className="border-t bg-emerald-50/40 dark:bg-emerald-950/10"
-                          key={c.id}
-                        >
-                          <td className="p-3 font-medium">{c.name}</td>
-                          <td className="p-3">{savedRow.productName}</td>
-                          <td className="p-3">
-                            {savedRow.quantity} {savedRow.unit}
-                          </td>
-                          <td className="p-3">{savedRow.rate}</td>
-                          <td className="p-3">
-                            {currency(savedRow.totalAmount)}
-                          </td>
-                          <td className="p-3 capitalize">
-                            {savedRow.paymentType}
-                          </td>
-                          <td className="p-3">
-                            {savedRow.paymentMode.replaceAll("_", " ")}
-                          </td>
-                          <td className="p-3">{savedRow.paidAmount}</td>
-                          <td></td>
-                          <td className="p-3 text-emerald-700">Saved</td>
-                        </tr>
-                      );
-                    const label = (field: string) => `${c.name}: ${field}`;
-                    return (
-                      <tr className="border-t" key={c.id}>
-                        <td className="p-3 font-medium min-w-36">{c.name}</td>
-                        <td className="p-2">
-                          <select
-                            className={`${control} min-w-32`}
-                            aria-label={label("item")}
-                            value={row.productId}
-                            onChange={(e) =>
-                              update(c, "productId", e.target.value)
-                            }
-                          >
-                            {data.products
-                              .filter((p: any) => p.active)
-                              .map((p: any) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}
-                                </option>
-                              ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            className={`${control} w-24`}
-                            type="number"
-                            min="0"
-                            max="100000"
-                            step="0.01"
-                            aria-label={label("quantity")}
-                            value={row.quantity}
-                            onChange={(e) =>
-                              update(c, "quantity", e.target.value)
-                            }
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            {product?.unit}
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            className={`${control} w-24`}
-                            type="number"
-                            min={Number(row.quantity) > 0 ? "0.01" : "0"}
-                            max="100000"
-                            step="0.01"
-                            aria-label={label("rate")}
-                            value={row.rate}
-                            onChange={(e) => update(c, "rate", e.target.value)}
-                          />
-                        </td>
-                        <td className="p-3 font-semibold whitespace-nowrap">
-                          {currency(
-                            decimal(
-                              lineTotal(row.quantity || 0, row.rate || 0),
-                            ),
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <select
-                            aria-label={label("terms")}
-                            className={`${control} w-28`}
-                            value={row.paymentType}
-                            onChange={(e) =>
-                              update(c, "paymentType", e.target.value)
-                            }
-                          >
-                            <option value="cash">Cash</option>
-                            <option value="credit">Credit</option>
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <select
-                            className={`${control} min-w-36`}
-                            aria-label={label("payment mode")}
-                            value={row.paymentMode}
-                            onChange={(e) =>
-                              update(c, "paymentMode", e.target.value)
-                            }
-                          >
-                            {modeOptions
-                              .filter(
-                                (m) =>
-                                  row.paymentType === "credit" ||
-                                  m.value !== "monthly_credit",
-                              )
-                              .map((m) => (
-                                <option value={m.value} key={m.value}>
-                                  {m.label}
-                                </option>
-                              ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          {row.paymentType === "cash" ? (
-                            <span className="text-muted-foreground">
-                              Full amount
-                            </span>
-                          ) : (
-                            <input
-                              className={`${control} w-24`}
-                              aria-label={label("paid now")}
-                              type="number"
-                              min="0"
-                              max={decimal(
-                                lineTotal(row.quantity || 0, row.rate || 0),
-                              )}
-                              step="0.01"
-                              value={row.paidAmount}
-                              onChange={(e) =>
-                                update(c, "paidAmount", e.target.value)
-                              }
-                            />
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <input
-                            className={`${control} w-32`}
-                            aria-label={label("payment reference")}
-                            maxLength={150}
-                            placeholder="Optional"
-                            value={row.reference}
-                            onChange={(e) =>
-                              update(c, "reference", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="p-3 text-muted-foreground">
-                          {Number(row.quantity) > 0 ? "Ready" : "Skipped"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-          {!customers.length && (
-            <p className="text-muted-foreground">
-              {individual
-                ? "Choose a customer above."
-                : "No active daily customers. Add a customer and enable ‘Show in daily sales grid’."}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-5 text-sm">
-            <span>{entries.length} entries to save</span>
-            <strong>Total {currency(decimal(total))}</strong>
-            <span>Paid now {currency(decimal(paid))}</span>
-            <span>Credit {currency(decimal(total - paid))}</span>
-          </div>
-          {search && (
-            <p className="text-sm text-muted-foreground">
-              Saving includes all entered rows, including customers hidden by
-              this search.
-            </p>
-          )}
-          {write.message}
-          <Button type="submit" disabled={!entries.length || write.busy}>
-            {write.busy
-              ? "Saving…"
-              : individual
-                ? "Save sale"
-                : `Save ${entries.length} daily sales`}
-          </Button>
-        </fieldset>
-      </form>
-    </Panel>
-  );
-}
 
 function ItemsStock({ data, date }: any) {
   const write = useSalesWrite(),
@@ -635,12 +294,16 @@ function Payments({ data, date }: any) {
   const [customer, setCustomer] = useState(
     new URLSearchParams(location.search).get("customer") || "",
   );
-  const selected = data.customers.find((c: any) => c.id === customer);
+  const [receiptDate, setReceiptDate] = useState(date);
+  const [amount, setAmount] = useState("");
+  const receiptQuery = useSales(receiptDate);
+  const receiptData = receiptQuery.data;
+  const selected = receiptData?.customers.find((c: any) => c.id === customer);
   return (
     <div className="space-y-5">
       <Panel
-        title="Collect customer payment"
-        description="Payments clear the oldest outstanding sales first. A receipt reduces credit due; it does not add sales revenue again."
+        title="Receive payment"
+        description="Receive money at any time. Oldest dues are cleared first and the remainder becomes advance for future purchases."
       >
         <form
           className="space-y-4"
@@ -652,8 +315,10 @@ function Payments({ data, date }: any) {
                 ...Object.fromEntries(new FormData(form)),
                 customerId: customer,
               })
-            )
+            ) {
               form.reset();
+              setAmount("");
+            }
           }}
         >
           <fieldset disabled={write.busy} className="space-y-4">
@@ -664,13 +329,13 @@ function Payments({ data, date }: any) {
               onChange={(e: any) => setCustomer(e.target.value)}
               options={data.customers.map((c: any) => ({
                 value: c.id,
-                label: `${c.name} — ${currency(c.outstanding)} due`,
+                label: `${c.name} — ${Number(c.balance) < 0 ? "Advance" : "Due"} ${currency(Math.abs(Number(c.balance)))}`,
               }))}
             />
             {selected && (
               <p>
-                Outstanding as of {date}:{" "}
-                <strong>{currency(selected.outstanding)}</strong>
+                Account as of {receiptDate}:{" "}
+                <AccountBalance balance={selected.balance} />
               </p>
             )}
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -679,12 +344,17 @@ function Payments({ data, date }: any) {
                 name="date"
                 type="date"
                 required
-                defaultValue={date}
+                value={receiptDate}
+                onChange={(e: any) => {
+                  if (e.target.value) setReceiptDate(e.target.value);
+                }}
                 max={farmDay()}
               />
               <InputField
                 label="Amount (₹)"
                 name="amount"
+                value={amount}
+                onChange={(e: any) => setAmount(e.target.value)}
                 type="number"
                 step="0.01"
                 min="0.01"
@@ -695,9 +365,7 @@ function Payments({ data, date }: any) {
                 name="mode"
                 required
                 defaultValue="cash"
-                options={modeOptions.filter(
-                  (m) => m.value !== "monthly_credit",
-                )}
+                options={modeOptions.filter((m) => m.value !== "credit")}
               />
               <InputField
                 label="Payment reference"
@@ -706,8 +374,24 @@ function Payments({ data, date }: any) {
               />
             </div>
             {write.message}
-            <Button type="submit" disabled={!customer}>
-              Record payment
+            {selected && Number(amount) > 0 && (
+              <p className="text-sm">
+                Balance after receipt:{" "}
+                <AccountBalance
+                  balance={decimal(cents(selected.balance) - cents(amount))}
+                />
+              </p>
+            )}
+            {receiptQuery.error && (
+              <p role="alert">
+                Unable to load account balance. Refresh and try again.
+              </p>
+            )}
+            <Button
+              type="submit"
+              disabled={!customer || !selected || receiptQuery.isFetching}
+            >
+              Receive payment
             </Button>
           </fieldset>
         </form>
@@ -762,6 +446,11 @@ export default function SalesPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {query.canManage && (
+            <Button variant="outline" onClick={() => setTab("payments")}>
+              Receive payment
+            </Button>
+          )}
           <Link href="/customers">
             <Button variant="outline">Customer Details</Button>
           </Link>
@@ -797,7 +486,7 @@ export default function SalesPage() {
             )
           ) : (
             <>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 {[
                   [
                     "Sales for the day",
@@ -827,6 +516,15 @@ export default function SalesPage() {
                     ),
                   ],
                   [
+                    "Customer advances",
+                    currency(
+                      data.customers.reduce(
+                        (n: number, c: any) => n + Number(c.advance),
+                        0,
+                      ),
+                    ),
+                  ],
+                  [
                     "Milk available",
                     `${data.products.find((p: any) => p.isMilk)?.stock ?? 0} litres`,
                   ],
@@ -847,7 +545,7 @@ export default function SalesPage() {
                         ["daily", "Daily bulk entry"],
                         ["individual", "Individual entry"],
                         ["history", "Sales register"],
-                        ["payments", "Payments & credit"],
+                        ["payments", "Receive payment"],
                         ["items", "Items & stock"],
                       ]
                     : [["history", "Sales register"]]

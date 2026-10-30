@@ -1,21 +1,39 @@
 import { z } from "zod";
-import { daySchema } from "./care";
+import { daySchema, addDays } from "./care";
 export const paymentModes = [
   "cash",
   "upi",
   "bank_transfer",
   "cheque",
-  "monthly_credit",
+  "credit",
   "other",
 ] as const;
 export const modeOptions = [
   { value: "cash", label: "Cash" },
   { value: "upi", label: "UPI" },
-  { value: "bank_transfer", label: "Bank transfer" },
+  { value: "bank_transfer", label: "Account transfer" },
   { value: "cheque", label: "Cheque" },
-  { value: "monthly_credit", label: "Monthly credit" },
+  { value: "credit", label: "Credit / Pay later" },
   { value: "other", label: "Other" },
 ];
+const paymentModeSchema = z.preprocess(
+  (v) => (v === "monthly_credit" ? "credit" : v),
+  z.enum(paymentModes),
+);
+export const paymentLabel = (mode: string) =>
+  mode === "advance"
+    ? "Paid from advance"
+    : mode === "monthly_credit"
+      ? "Credit / Pay later"
+      : modeOptions.find((m) => m.value === mode)?.label || mode;
+export function paymentDueDate(date: string, term: string, days: number) {
+  if (term === "monthly") {
+    const d = new Date(`${date}T12:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + 1, 0);
+    return d.toISOString().slice(0, 10);
+  }
+  return addDays(date, term === "days" ? days : 0);
+}
 export const cents = (v: string | number) => Math.round(Number(v) * 100);
 export const decimal = (v: number) => (v / 100).toFixed(2);
 export const lineTotal = (quantity: string | number, rate: string | number) =>
@@ -50,8 +68,10 @@ export const customerSchema = z.object({
   defaultProductId: z.string().nullable().default(null),
   defaultQuantity: optionalAmount,
   defaultRate: optionalAmount,
-  paymentType: z.enum(["cash", "credit"]).default("cash"),
-  paymentMode: z.enum(paymentModes).default("cash"),
+  paymentType: z.enum(["cash", "credit"]).optional(),
+  paymentMode: paymentModeSchema.default("credit"),
+  paymentTerm: z.enum(["immediate", "days", "monthly"]).default("immediate"),
+  paymentDays: z.coerce.number().int().min(0).max(365).default(0),
   notes: z.string().max(1000).default(""),
 });
 export const productSchema = z.object({
@@ -66,29 +86,25 @@ export const saleSchema = z
     productId: z.string().min(1),
     quantity,
     rate,
-    paymentType: z.enum(["cash", "credit"]),
-    paymentMode: z.enum(paymentModes),
+    paymentType: z.enum(["cash", "credit"]).optional(),
+    paymentMode: paymentModeSchema,
+    receivedAmount: amount.optional(),
+    expectedBalance: z.coerce.number().finite().optional(),
     paidAmount: amount.default(0),
     reference: z.string().trim().max(150).default(""),
     notes: z.string().trim().max(1000).default(""),
   })
   .superRefine((v, ctx) => {
-    if (v.paymentType === "cash" && v.paymentMode === "monthly_credit")
+    if (v.paymentType === "cash" && v.paymentMode === "credit")
       ctx.addIssue({
         code: "custom",
         message: "Choose a receipt mode for a cash sale",
       });
-    if (
-      v.paymentType === "credit" &&
-      v.paidAmount > 0 &&
-      v.paymentMode === "monthly_credit"
-    )
+    if ((v.receivedAmount ?? v.paidAmount) > 0 && v.paymentMode === "credit")
       ctx.addIssue({
         code: "custom",
         message: "Choose how the part payment was received",
       });
-    if (cents(v.paidAmount) > lineTotal(v.quantity, v.rate))
-      ctx.addIssue({ code: "custom", message: "Payment exceeds sale total" });
     if (
       lineTotal(v.quantity, v.rate) < 1 ||
       lineTotal(v.quantity, v.rate) > 10000000000
