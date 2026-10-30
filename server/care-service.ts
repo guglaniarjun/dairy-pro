@@ -1206,6 +1206,7 @@ export async function buildDailyReport(
     stockMovements: (await rows(stockLedger, tenantId)).filter(
       (l) => l.date === date,
     ),
+    dairySales: await (await import("./sales-service")).salesOverview(tenantId, date),
     finance: {
       income: income.filter((r) => r.date === date),
       expenses: expense.filter((r) => r.date === date),

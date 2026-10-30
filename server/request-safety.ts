@@ -272,7 +272,7 @@ export async function validateFarmRequest(req: any) {
     if (body.type === "adjustment" && !body.notes?.trim())
       fail("An adjustment requires a reason");
   }
-  if (req.path.includes("/payments")) {
+  if (/^\/api\/cattle-transactions\/[^/]+\/payments$/.test(req.path)) {
     positive.parse(body.amount);
     const tx = await owned(s.cattleTransactions, tenant, parts[2]);
     const paid = (await rows(s.cattlePayments, tenant))

@@ -195,6 +195,7 @@ export default function InventoryPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+          <Link className="text-sm text-primary underline" href="/sales?tab=items">Dairy product stock & rates →</Link>
           <p className="text-muted-foreground">Manage feed, medicine, and supplies</p>
         </div>
         <div className="flex gap-2">

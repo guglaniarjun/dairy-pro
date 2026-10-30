@@ -190,6 +190,7 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
           <p className="text-muted-foreground text-sm">Generate and export farm reports</p>
+          <Link className="text-sm text-primary underline" href="/daily-report">Daily sales, receipts and stock report →</Link>
         </div>
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger className="w-[160px]" data-testid="select-period">

@@ -17,6 +17,8 @@ export const permissionCatalog = [
   { key: "inventory.manage", label: "Manage inventory", group: "Inventory" },
   { key: "finances.view", label: "View finances", group: "Finances" },
   { key: "finances.manage", label: "Manage finances", group: "Finances" },
+  { key: "sales.view", label: "View sales and customers", group: "Sales" },
+  { key: "sales.manage", label: "Manage sales, customers and product stock", group: "Sales" },
   { key: "byproducts.view", label: "View byproducts", group: "Byproducts" },
   { key: "byproducts.manage", label: "Manage byproducts", group: "Byproducts" },
   { key: "tasks.view", label: "View tasks", group: "Tasks" },
@@ -39,9 +41,9 @@ const operationalView: TenantPermission[] = [
 
 export const rolePermissions: Record<TenantRole, TenantPermission[]> = {
   admin: allTenantPermissions,
-  manager: [...operationalView, "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "byproducts.manage", "tasks.manage", "finances.view", "reports.view"],
-  accountant: [...operationalView, "finances.view", "finances.manage", "reports.view"],
-  supervisor: [...operationalView, "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "tasks.manage", "finances.view", "reports.view"],
+  manager: [...operationalView, "sales.view", "sales.manage", "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "byproducts.manage", "tasks.manage", "finances.view", "reports.view"],
+  accountant: [...operationalView, "finances.view", "finances.manage", "reports.view", "sales.view", "sales.manage"],
+  supervisor: [...operationalView, "sales.view", "sales.manage", "cattle.manage", "milk.manage", "breeding.manage", "health.manage", "feed.manage", "inventory.manage", "tasks.manage", "finances.view", "reports.view"],
   veterinarian: ["inventory.view", "dashboard.view", "cattle.view", "breeding.view", "breeding.manage", "health.view", "health.manage", "tasks.view", "tasks.manage", "alerts.view"],
   worker: ["dashboard.view", "cattle.view", "milk.view", "milk.manage", "breeding.view", "health.view", "feed.view", "feed.manage", "inventory.view", "tasks.view", "tasks.manage", "alerts.view"],
   viewer: operationalView,

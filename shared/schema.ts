@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 // Re-export auth models
 export * from "./models/auth";
 export * from "./operations-schema";
+export * from "./sales-schema";
 
 // =====================================================
 // TENANCY & SUBSCRIPTION SYSTEM

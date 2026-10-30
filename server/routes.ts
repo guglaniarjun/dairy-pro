@@ -6,6 +6,7 @@ import { importFile } from "./import-service";
 import { tableWorkbook, readWorkbook } from "./workbook";
 import { safeTenantRequest } from "./request-safety";
 import { registerOperations } from "./operations-routes";
+import { registerSales } from "./sales-routes";
 import { animalEvent } from "./care-service";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
@@ -36,6 +37,7 @@ function permissionForRequest(req: Request): TenantPermission | null {
   const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   const match = (module: string) => `${module}.${write ? "manage" : "view"}` as TenantPermission;
   if (path.startsWith("/api/team")) return "team.manage";
+  if (path.startsWith("/api/sales")) return match("sales");
   if (path.startsWith("/api/billing")) return "billing.manage";
   if (path.startsWith("/api/import") || path.startsWith("/api/export")) return "import_export.manage";
   if (path.startsWith("/api/settings") || path.startsWith("/api/farm-settings") || path.startsWith("/api/notification-rules") || path.startsWith("/api/whatsapp")) return "settings.manage";
@@ -195,6 +197,7 @@ export async function registerRoutes(
   // Setup Replit Auth
   await setupAuth(app);
   registerOperations(app, isAuthenticated, withTenant);
+  registerSales(app, isAuthenticated, withTenant);
 
   // =====================================================
   // AUTH ROUTES

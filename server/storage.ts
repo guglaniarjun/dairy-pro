@@ -1,3 +1,4 @@
+import { salesReceivables } from "./sales-service";
 import { eq, desc, asc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
 import { db } from "./db";
 import { breedingMetrics } from "./farm-metrics";
@@ -488,7 +489,9 @@ export class DatabaseStorage implements IStorage {
 
   // Incomes
   async getIncomesByTenant(tenantId: string): Promise<Income[]> {
-    return db.select().from(incomes).where(eq(incomes.tenantId, tenantId)).orderBy(desc(incomes.date));
+    const records = await db.select().from(incomes).where(eq(incomes.tenantId, tenantId)).orderBy(desc(incomes.date));
+    const heads = await this.getAllIncomeHeads();
+    return records.map(record => ({ ...record, incomeHead: heads.find(head => head.id === record.headId)?.name }));
   }
 
   async createIncome(data: Partial<Income>): Promise<Income> {
@@ -625,7 +628,7 @@ export class DatabaseStorage implements IStorage {
 
     const monthExpense = Number(monthExpenses[0]?.total || 0);
     const monthRevenue = Number(monthIncomes[0]?.total || 0);
-    const pendingReceivables = Number(unpaidMilkSales[0]?.total || 0);
+    const pendingReceivables = await salesReceivables(tenantId);
 
     // Cost per kg milk (month)
     const costPerKgMilk = monthMilk > 0 ? monthExpense / monthMilk : null;
@@ -1058,7 +1061,7 @@ export class DatabaseStorage implements IStorage {
       totalExpenses,
       totalIncomes,
       netProfit: totalIncomes - totalExpenses,
-      pendingReceivables: Number(pendingReceivables[0]?.total || 0),
+      pendingReceivables: Number(pendingReceivables[0]?.total || 0) + await salesReceivables(tenantId),
       pendingPayables: Number(pendingPayables[0]?.total || 0),
     };
   }

@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard, Milk, Heart, Stethoscope, Leaf, Package, Wallet,
   Bell, BarChart3, Settings, ChevronUp, LogOut, CreditCard,
-  Baby, Recycle, ArrowLeftRight, ShieldCheck, X, Users,
+  Baby, Recycle, ArrowLeftRight, ShieldCheck, X, Users, ShoppingCart,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -29,6 +29,8 @@ const mainNavItems = [
 ];
 
 const managementNavItems = [
+  { title: "Sales", url: "/sales", icon: ShoppingCart, color: "text-emerald-600", permission: "sales.view" },
+  { title: "Customer Details", url: "/customers", icon: Users, color: "text-sky-600", permission: "sales.view" },
   { title: "Daily Report", url: "/daily-report", icon: BarChart3, color: "text-violet-600", permission: "reports.view" },
   { title: "Byproducts", url: "/byproducts",  icon: Recycle,   color: "text-teal-500", permission: "byproducts.view" },
   { title: "Inventory",  url: "/inventory",   icon: Package,   color: "text-orange-500", permission: "inventory.view" },

@@ -89,6 +89,7 @@ export default function FinancesPage() {
   const { data: milkSales = [] } = useQuery<any[]>({ queryKey: ["/api/milk-sales"] });
   const { data: feedRecords = [] } = useQuery<any[]>({ queryKey: ["/api/feed/records"] });
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
+  const { data: finance } = useQuery<any>({ queryKey: ["/api/finance/analytics"] });
 
   const now = new Date();
   const startDate = periodFilter === "week"
@@ -162,6 +163,7 @@ export default function FinancesPage() {
           <p className="text-muted-foreground text-sm">Track income, expenses and profitability</p>
         </div>
         <div className="flex gap-2">
+          <Link href="/sales"><Button variant="outline" size="sm">Sales & payments</Button></Link>
           <Link href="/finances/expense/new">
             <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-add-expense">
               <Receipt className="w-4 h-4" /> Expense
@@ -191,6 +193,7 @@ export default function FinancesPage() {
       </div>
 
       {/* KPI Cards — each navigates to the relevant tab */}
+      <p className="text-sm text-muted-foreground">Sales revenue includes credit sales. Outstanding receivables: <Link className="text-primary underline" href="/sales?tab=payments">{INR(finance?.pendingReceivables || 0)}</Link>. Collect customer payments in Sales.</p>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
         <KPICard
           label="Total Revenue"
