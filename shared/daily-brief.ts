@@ -1,4 +1,4 @@
-import { isLactating, finishedTask } from "./care";
+import { isLactating, finishedTask, farmDay } from "./care";
 import { countdown } from "./farm-overview";
 
 const sum = (rows: any[], key: string) =>
@@ -146,19 +146,38 @@ export function dailyBrief(report: any) {
       })),
   ];
   const actions = [
-    ...(report.reminders || []),
+    ...(report.reminders || []).filter(
+      (r: any) =>
+        !(report.tasks || []).some(
+          (t: any) =>
+            t.cattleId === r.cattleId &&
+            t.title === r.title &&
+            !finishedTask(t.status),
+        ),
+    ),
     ...(report.tasks || [])
       .filter((t: any) => !finishedTask(t.status) || t.status === "completed")
       .map((t: any) => ({
         id: t.id,
         cattleId: t.cattleId,
         title: t.title,
-        dueDate: t.dueDate,
+        dueDate:
+          t.status === "completed"
+            ? t.evidence?.date ||
+              (t.completedAt
+                ? farmDay(report.timezone, new Date(t.completedAt))
+                : report.date)
+            : t.dueDate,
         status: t.status,
         assignedTo: t.assignedToName || t.assignedTo || "Unassigned",
         instructions: [
           t.description,
           t.reason,
+          ...(report.reminders || [])
+            .filter(
+              (r: any) => r.cattleId === t.cattleId && r.title === t.title,
+            )
+            .map((r: any) => r.instructions),
           ...(t.supplies || []).map(
             (s: any) =>
               `${s.name || s.itemName || "Supply"} ${s.quantity} ${s.unit || ""}`,
@@ -200,7 +219,17 @@ export function dailyBrief(report: any) {
           "vaccination",
           "deworming",
           "pregnancy_loss",
-        ].includes(e.type),
+          "milk_recorded",
+        ].includes(e.type) &&
+        !(
+          e.type === "calving" &&
+          entries.some(
+            (r: any) =>
+              r.type === "calving" &&
+              r.cattleId === e.cattleId &&
+              r.date === e.date,
+          )
+        ),
     ),
   ].map((e: any) => ({
     id: e.id,
@@ -209,6 +238,16 @@ export function dailyBrief(report: any) {
     date: e.date || e.testDate,
   }));
   const changes = new Map<string, { created: number; updated: number }>();
+  const milkRecordingDays = new Map<string, number>();
+  for (const e of events.filter((e: any) => e.type === "milk_recorded"))
+    milkRecordingDays.set(e.date, (milkRecordingDays.get(e.date) || 0) + 1);
+  for (const [date, count] of milkRecordingDays)
+    activity.push({
+      id: `milk-recorded:${date}`,
+      cattleId: null,
+      date: report.date,
+      text: `Milk recording: ${count} entries for ${date}. ${date === report.date ? "Quantities are in the milk grid." : "Late entry; details remain in the full record."}`,
+    });
   for (const e of events.filter((e: any) =>
     ["entry_created", "entry_updated"].includes(e.type),
   )) {

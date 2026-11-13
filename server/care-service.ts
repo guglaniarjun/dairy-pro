@@ -1323,6 +1323,7 @@ export async function buildDailyReport(
       date,
       "Pregnant animal has no expected date; dry-off and calving dates cannot be calculated.",
       `/care?tab=events&type=expected_calving&cattleId=${c.id}`,
+      (t) => t.sourceKey === `missing-expected:${c.id}`,
     );
   for (const p of overview.calvingDue.filter((p) => p.daysToCalving! <= 20)) {
     const applicable = plans.filter(

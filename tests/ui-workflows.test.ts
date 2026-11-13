@@ -185,3 +185,13 @@ test("a 30-cow daily PDF with sales, accounts, health and 14 actions fits two A4
     `Expected at most two pages, got ${pages}`,
   );
 });
+
+
+test('daily brief presents recording audits once and merges duplicate expected-date reminders',()=>{
+ const r=reportFixture();
+ r.events=[{id:'audit1',type:'milk_recorded',date:r.date,cattleId:r.animals[0].id,payload:{}},{id:'audit2',type:'milk_recorded',date:r.date,cattleId:r.animals[1].id,payload:{}}];
+ r.tasks=[{id:'work',cattleId:r.animals[0].id,title:'Record expected calving date',status:'pending',dueDate:r.date}];
+ r.reminders=[{id:'derived',cattleId:r.animals[0].id,title:'Record expected calving date',status:'pending',dueDate:r.date,instructions:'Review missing date'}];
+ const brief=dailyBrief(r);assert.equal(brief.actions.length,1);assert.match(brief.actions[0].instructions,/Review missing date/);
+ assert.equal(brief.activity.filter(a=>a.id.startsWith('milk-recorded:')).length,1);assert.match(brief.activity.find(a=>a.id.startsWith('milk-recorded:')).text,/2 entries/);
+});

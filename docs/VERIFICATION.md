@@ -1,5 +1,15 @@
 # Verification record — 30 September 2026
 
+## Dairy workflow and offline Android release � 13 November 2026
+
+- Deployed the workflow/mobile API implementation `b5e1f285517f81af67eeff34a490951237f3a2e5` to the existing VPS over its authenticated SSH deployment path. The final PDF-layout refinement is recorded in the follow-up below.
+- Preserved the custom owner-login files and hooks; file checksums matched. Created a PostgreSQL 18 custom-format backup and verified its archive listing before deployment. Existing milk, health, calving, insemination, sales and receipt record hashes matched after deployment. No test farm transactions were inserted into production.
+- Authenticated live checks used a short-lived diagnostic session which was deleted afterward. Dashboard and cattle list both report **5 pregnant animals**; the farm has **59 animal records**, the native snapshot returns **18 permitted views**, and coverage review exposes **14 operation areas**. All five pregnant records currently lack expected calving dates: the app flags this; dates were not invented or overwritten.
+- The live daily PDF initially used three pages because long tables were kept together and some milk audits/reminders were printed twice. A follow-up fixes table flow and aggregates repeated recording audits without omitting milk, sales, customer, health or work rows. The actual live report was rendered and visually checked at two A4 pages locally before release of that refinement.
+- Android SQLite and sync tests: **8 passing**. Application checks include the two-page fixture and deduplication regression, offline sales on an uncached day, scoped snapshots, rejected-entry review, durable IDs, lifecycle workflows and saved historical report revisions. Production type checking and build passed with the owner integration present.
+- The production Puppeteer browser revision changed with compatible dependency patches. Installed its matching Chrome binary and verified that Chrome launches successfully. No test WhatsApp message was sent. Real recipient delivery and physical-handset sync remain untested.
+- Signing keys and passwords remain only in the ignored local `.android-signing/` directory. Source control and the APK exclude them. Back this directory up privately for future in-place app updates.
+
 ## Customer account release — 30 October 2026
 
 - Deployed application commit `15b9e5dadcab61ee440561cee1e5d519d332ff5b` to the existing Dairy Pro VPS.

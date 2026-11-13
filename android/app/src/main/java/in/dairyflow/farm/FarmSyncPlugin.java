@@ -8,6 +8,7 @@ import org.json.*;
 @CapacitorPlugin(name="FarmSync")
 public class FarmSyncPlugin extends Plugin {
     private final ExecutorService executor=Executors.newSingleThreadExecutor();
+    private final ExecutorService syncExecutor=Executors.newSingleThreadExecutor();
     interface Action { JSONObject run() throws Exception; }
     private void run(PluginCall call,Action a){executor.execute(()->{try{call.resolve(JSObject.fromJSONObject(a.run()));}catch(Exception e){call.reject(e.getMessage(),e);}});}
     @PluginMethod public void configure(PluginCall call){run(call,()->{
@@ -49,7 +50,10 @@ public class FarmSyncPlugin extends Plugin {
         android.content.Intent intent=new android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri,type).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION|android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
         getActivity().runOnUiThread(()->{try{getActivity().startActivity(intent);}catch(Exception e){getActivity().startActivity(android.content.Intent.createChooser(new android.content.Intent(android.content.Intent.ACTION_SEND).setType(type).putExtra(android.content.Intent.EXTRA_STREAM,uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),"Share DairyFlow report"));}});
     }
-    @PluginMethod public void sync(PluginCall call){run(call,()->FarmNetwork.sync(getContext(),call.getBoolean("refresh",true)));}
+    @PluginMethod public void sync(PluginCall call){
+        // Network catch-up must not block local saves/cache reads on the bridge queue.
+        syncExecutor.execute(()->{try{call.resolve(JSObject.fromJSONObject(FarmNetwork.sync(getContext(),call.getBoolean("refresh",true))));}catch(Exception e){call.reject(e.getMessage(),e);}});
+    }
     @PluginMethod public void launchPath(PluginCall call){
         String path=getActivity().getIntent().getStringExtra("farmPath");getActivity().getIntent().removeExtra("farmPath");
         JSObject result=new JSObject();result.put("path","/care?tab=work".equals(path)?path:"");call.resolve(result);

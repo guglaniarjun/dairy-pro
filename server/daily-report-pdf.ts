@@ -158,7 +158,8 @@ export async function compactReportPdf(report: any): Promise<Buffer> {
             5,
           0,
         );
-      if (sectionHeight <= bottom - 111 && y + sectionHeight > bottom)
+      // Keep short sections together; let long tables fill the available column.
+      if (sectionHeight <= 150 && y + sectionHeight > bottom)
         advance();
       title(name);
       tableHeader();
