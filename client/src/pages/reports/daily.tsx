@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { dailyBrief } from "@shared/daily-brief";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -12,19 +13,23 @@ import {
   control,
 } from "@/components/farm-forms";
 import { Button } from "@/components/ui/button";
-import { farmDay, finishedTask } from "@shared/care";
+import { farmDay, addDays, finishedTask } from "@shared/care";
 import { SalesTable, currency } from "@/pages/sales/common";
 export default function DailyReportPage() {
-  const search = new URLSearchParams(location.search);
-  const [date, setDate] = useState(search.get("date") || farmDay()),
-    [archive, setArchive] = useState(search.get("archive") || ""),
+  const routeSearch = useSearch();
+  const [, navigate] = useLocation();
+  const search = new URLSearchParams(routeSearch);
+  const [date, setDate] = useState(search.get("date") || addDays(farmDay(), -1)),
+    [archive, setArchive] = useState(search.get("archive") || "auto"),
     [allAnimals, setAllAnimals] = useState(true),
     [query, setQuery] = useState("");
+  useEffect(() => { const p = new URLSearchParams(routeSearch); setDate(p.get("date") || addDays(farmDay(), -1)); setArchive(p.get("archive") || "auto"); }, [routeSearch]);
+  const chooseDate = (value: string) => { if (value) navigate(`/daily-report?date=${value}`); };
   const { user } = useAuth();
   const can = (p: string) => (user as any)?.tenantPermissions?.includes(p);
   const report = useQuery<any>({
     queryKey: [
-      `/api/operations/daily-report?date=${date}${archive ? `&id=${archive}` : ""}`,
+      `/api/operations/daily-report?date=${date}${archive === "live" ? "&live=1" : archive !== "auto" ? `&id=${archive}` : ""}`,
     ],
     enabled: !!can("reports.view"),
   });
@@ -37,18 +42,18 @@ export default function DailyReportPage() {
     enabled: !!can("settings.manage"),
   });
   const r = report.data;
+  const brief = r ? dailyBrief(r) : null;
   const tags = (id: string) =>
     r?.animals.find((a: any) => a.id === id)?.tagNumber || "Farm";
   const exportUrl = (format: string) =>
-    `/api/operations/daily-report/export?format=${format}&date=${date}${archive ? `&id=${archive}` : ""}`;
+    `/api/operations/daily-report/export?format=${format}&date=${date}${archive === "live" ? "&live=1" : archive !== "auto" ? `&id=${archive}` : ""}`;
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
       <div className="flex flex-wrap gap-4 justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Complete daily farm report</h1>
+          <h1 className="text-2xl font-bold">Daily farm report</h1>
           <p className="text-muted-foreground">
-            Production, every animal entry, due actions, batches, stock and
-            corrections.
+            Milk, customers, health and the work that needs your attention.
           </p>
         </div>
         <Link href="/care">
@@ -61,16 +66,18 @@ export default function DailyReportPage() {
           type="date"
           value={date}
           onChange={(e: any) => {
-            setDate(e.target.value);
-            setArchive("");
+            chooseDate(e.target.value);
           }}
         />
+        <div className="flex gap-2"><Button variant="outline" onClick={() => chooseDate(addDays(farmDay(r?.timezone), -1))}>Yesterday</Button>
+        <Button variant="outline" onClick={() => chooseDate(farmDay(r?.timezone))}>Today</Button></div>
         <SelectField
           label="Version"
           value={archive}
           onChange={(e: any) => setArchive(e.target.value)}
           options={[
-            { value: "", label: "Live preview" },
+            { value: "auto", label: "Latest saved report / current preview" },
+            { value: "live", label: "Rebuild preview from current records" },
             ...(archives.data || [])
               .filter((a) => a.date === date)
               .map((a) => ({
@@ -81,7 +88,7 @@ export default function DailyReportPage() {
         />
         <a href={exportUrl("pdf")}>
           <Button variant="outline" disabled={!r}>
-            PDF
+            Download daily PDF
           </Button>
         </a>
         <a href={exportUrl("xlsx")}>
@@ -89,9 +96,7 @@ export default function DailyReportPage() {
             Excel
           </Button>
         </a>
-        <Button onClick={() => window.print()} variant="outline">
-          Print
-        </Button>
+        <Button asChild variant="outline"><a href={`${exportUrl("pdf")}&inline=1`} target="_blank" rel="noopener">Open print layout</a></Button>
       </div>
       {!can("reports.view") && (
         <p role="alert">Your role does not have report access.</p>
@@ -117,9 +122,7 @@ export default function DailyReportPage() {
               ["Milk sold", `${r.milk.sold.toFixed(2)} L`],
               [
                 "Outstanding actions",
-                r.tasks.filter(
-                  (t: any) => !finishedTask(t.status) && t.dueDate <= date,
-                ).length,
+                brief?.actions.filter((t: any) => !finishedTask(t.status) && (!t.dueDate || t.dueDate <= date)).length || 0,
               ],
               ["Milk needing allocation", `${r.milk.unallocated.toFixed(2)} L`],
             ].map(([k, v]) => (
@@ -141,32 +144,16 @@ export default function DailyReportPage() {
                 and entries.
               </p>
             )}
-            <div className="overflow-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b">
-                    <th className="py-2">Tag</th>
-                    <th>Session</th>
-                    <th>Litres</th>
-                    <th>Destination</th>
-                    <th>Fat / SNF</th>
-                    <th>Recorded by</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.milk.entries.map((m: any) => (
-                    <tr className="border-b" key={m.id}>
-                      <td className="py-2">{tags(m.cattleId)}</td>
-                      <td>{m.session}</td>
-                      <td>{m.quantity}</td>
-                      <td>{m.destination || "bulk"}</td>
-                      <td>
-                        {m.fat || "—"} / {m.snf || "—"}
-                      </td>
-                      <td>{m.recordedByName || m.recordedBy || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm tabular-nums">
+                <caption className="text-left p-3 text-xs text-muted-foreground">Litres per cow. A dash means not recorded; 0.0 is a recorded zero. All milking animals are included.</caption>
+                <thead className="bg-muted/60"><tr className="text-left"><th className="p-3">Cattle</th>{brief?.sessions.map(session => <th className="p-3 capitalize text-right" key={session}>{session}</th>)}<th className="p-3 text-right">Total</th></tr></thead>
+                <tbody>{brief?.milkRows.map(row => <tr key={row.cattleId as string} className="border-t">
+                  <td className="p-3"><Link href={`/milk/new?cattleId=${row.cattleId}&date=${date}`} className="text-primary font-medium underline">{row.tag}</Link><span className="block text-xs text-muted-foreground">{row.name}</span></td>
+                  {brief.sessions.map(session => <td key={session} className="p-3 text-right">{row.sessions[session] == null ? <span className="text-amber-700" aria-label="Not recorded">—</span> : Number(row.sessions[session]).toFixed(1)}</td>)}
+                  <td className="p-3 text-right font-semibold">{row.total == null ? "—" : row.total.toFixed(1)}{row.discarded > 0 && <span className="block text-xs text-destructive">{row.discarded} discarded</span>}</td>
+                </tr>)}</tbody>
+                <tfoot className="bg-muted/60 font-semibold"><tr><td className="p-3">Total</td>{brief?.sessions.map(session => <td className="p-3 text-right" key={session}>{brief.milkRows.reduce((n, row) => n + Number(row.sessions[session] || 0), 0).toFixed(1)}</td>)}<td className="p-3 text-right">{r.milk.produced.toFixed(1)}</td></tr></tfoot>
               </table>
             </div>
             <p className="text-sm text-amber-700">
@@ -184,7 +171,7 @@ export default function DailyReportPage() {
             </details>
           </Panel>
           {can("milk.manage") && !archive && (
-            <div className="grid lg:grid-cols-2 gap-5">
+            <details className="rounded-xl border p-4"><summary className="cursor-pointer font-medium">Record milk allocation or correct an entry</summary><div className="grid lg:grid-cols-2 gap-5 mt-4">
               <Panel title="Record milk use / closing balance">
                 <EntryForm
                   onSave={async (d) => {
@@ -264,27 +251,20 @@ export default function DailyReportPage() {
                   />
                 </EntryForm>
               </Panel>
-            </div>
+            </div></details>
           )}
-          <Panel title="Due, overdue and upcoming work">
-            {r.tasks.map((t: any) => (
-              <div className="py-2 border-b text-sm" key={t.id}>
-                <strong>
-                  {tags(t.cattleId)} · {t.title}
-                </strong>
-                <p>
-                  {t.dueDate} · {t.status}{" "}
-                  {t.dueDate < date && !finishedTask(t.status)
-                    ? "· OVERDUE"
-                    : ""}{" "}
-                  · {t.assignedTo || "Unassigned"}
-                </p>
-                <p className="text-muted-foreground">
-                  {t.description} {t.reason}
-                </p>
-              </div>
-            ))}
-            {!r.tasks.length && <p>No actions in the reporting window.</p>}
+          <Panel title="Health issues and treatments">
+            {brief?.health.map(h => <div className="border-b py-2 text-sm" key={h.id}><Link className="text-primary underline" href={`/health?cattleId=${h.cattleId}`}>{h.text}</Link><span className="block text-xs text-muted-foreground">{h.date}</span></div>)}
+            {!brief?.health.length && <p className="text-sm text-muted-foreground">No health issues or treatments recorded for this report.</p>}
+          </Panel>
+          <Panel title="Due, overdue and upcoming work" description="Today, tomorrow and the next 30 days. Open actions repeat daily until recorded or completed; overdue work stays visible.">
+            {brief?.actions.map((t: any) => <div className="py-3 border-b text-sm" key={t.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2"><strong>{t.tag} · {t.title}</strong><span className={t.dueDate < date && t.status !== "completed" ? "font-semibold text-destructive" : "font-medium"}>{t.countdown}</span></div>
+              <p className="text-muted-foreground">{t.dueDate || "No due date"} · {t.assignedTo || "Unassigned"} · {t.status}</p>
+              {t.instructions && <p className="mt-1 whitespace-pre-line">{t.instructions}</p>}
+              {!archive && t.status !== "completed" && <Link className="inline-flex min-h-10 items-center text-primary underline" href={t.href || "/care?tab=work"}>Open action →</Link>}
+            </div>)}
+            {!brief?.actions.length && <p>No actions in the reporting window.</p>}
           </Panel>
           <Panel title="Batch-specific work">
             {r.batches.map((b: any) => (
@@ -385,6 +365,8 @@ export default function DailyReportPage() {
           </Panel>
           {r.dairySales && <Panel title="Dairy sales, receipts and customer balances">
             <SalesTable entries={r.dairySales.entries} />
+            <div className="overflow-x-auto"><table className="w-full text-sm tabular-nums"><caption className="text-left py-2">Customer accounts: debit is owed to the farm; credit is the customer's advance.</caption><thead><tr className="text-left border-b"><th className="p-2">Customer</th><th className="p-2">Sales</th><th className="p-2">Received</th><th className="p-2">Debit</th><th className="p-2">Credit</th></tr></thead><tbody>{brief?.customers.map((c: any) => <tr key={c.id} className="border-b"><td className="p-2">{c.name}</td><td className="p-2">{currency(c.sales)}</td><td className="p-2">{currency(c.received)}</td><td className="p-2">{currency(c.debit)}</td><td className="p-2">{currency(c.credit)}</td></tr>)}</tbody></table></div>
+
             <p className="text-sm">Payments received: {currency(r.dairySales.payments.reduce((n: number, p: any) => n + Number(p.amount), 0))} · Outstanding as of report date: {currency(r.dairySales.customers.reduce((n: number, c: any) => n + Number(c.outstanding), 0))} · Customer advances: {currency(r.dairySales.customers.reduce((n: number, c: any) => n + Number(c.advance || 0), 0))}</p>
             <details><summary>Customer balances, receipts and dairy stock</summary><Details value={r.dairySales.customers} /><Details value={r.dairySales.payments} /><Details value={r.dairySales.products} /><Details value={r.dairySales.stockMovements} /></details>
           </Panel>}

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -29,13 +29,24 @@ const opts = (rows: any[], label: string) =>
   rows.map((r) => ({ value: r.id, label: r[label] }));
 const numSupplies = (rows: any[]) =>
   rows.map((r) => ({ ...r, quantity: Number(r.quantity) }));
+function eventAction(task:any) {
+  if(!task?.cattleId)return null;
+  const query=`cattleId=${encodeURIComponent(task.cattleId)}`;
+  if(task.sourceKey?.endsWith(':calving'))return {href:`/breeding/calving?${query}`,label:'Record calving',permission:'breeding.manage'};
+  if(task.sourceKey?.startsWith('service:')&&task.sourceKey.endsWith(':test'))return {href:`/breeding/pregnancy-test?${query}&inseminationId=${encodeURIComponent(task.cycleId||task.sourceKey.split(':')[1])}`,label:'Record pregnancy result',permission:'breeding.manage'};
+  if(task.sourceKey?.startsWith('vaccine:'))return {href:`/health/vaccination?${query}&vaccine=${encodeURIComponent(task.title.replace(/^Vaccination:\s*/,''))}`,label:'Record vaccination',permission:'health.manage'};
+  return null;
+}
 export default function CarePage() {
+  const search = useSearch();
+  const [, navigate] = useLocation();
   const { user } = useAuth();
   const permissions = (user as any)?.tenantPermissions || [];
   const can = (p: string) => permissions.includes(p);
   const [tab, setTab] = useState(
     new URLSearchParams(window.location.search).get("tab") || "work",
   );
+  useEffect(() => setTab(new URLSearchParams(search).get("tab") || "work"), [search]);
   const cattle = useQuery<any[]>({
     queryKey: ["/api/cattle"],
     enabled: can("cattle.view"),
@@ -130,7 +141,7 @@ export default function CarePage() {
               variant={tab === t[0] ? "default" : "outline"}
               onClick={() => {
                 setTab(t[0]);
-                history.replaceState(null, "", `/care?tab=${t[0]}`);
+                navigate(`/care?tab=${t[0]}`);
               }}
             >
               {t[1]}
@@ -154,10 +165,20 @@ export default function CarePage() {
   );
 }
 function Work({ work, animals, today, people, save, can }: any) {
+  const search = useSearch();
+  const route = new URLSearchParams(search);
+  const linkedTaskId = route.get("taskId");
+  const cattleId = route.get("cattleId");
   const [filter, setFilter] = useState("due"),
     [selected, setSelected] = useState<any>(null),
     [checked, setChecked] = useState<string[]>([]),
     [staff, setStaff] = useState("");
+  useEffect(() => {
+    if (!linkedTaskId) return;
+    setFilter("all");
+    const task = work.tasks.find((t: any) => t.id === linkedTaskId);
+    if (task) setSelected(task);
+  }, [linkedTaskId, work.tasks.length]);
   const counts = {
     overdue: work.tasks.filter(
       (t: any) => !finishedTask(t.status) && t.dueDate && t.dueDate < today,
@@ -170,7 +191,7 @@ function Work({ work, animals, today, people, save, can }: any) {
   const tasks = work.tasks
     .filter(
       (t: any) =>
-        (!staff || t.assignedTo === staff) &&
+        (!cattleId || t.cattleId === cattleId) && (!staff || t.assignedTo === staff) &&
         (filter === "all" ||
           (filter === "due" &&
             !finishedTask(t.status) &&
@@ -228,10 +249,11 @@ function Work({ work, animals, today, people, save, can }: any) {
               </option>
             ))}
           </select>
-          <Link href="/tasks/new">
+          <Link href={`/tasks/new${cattleId ? `?cattleId=${cattleId}` : ""}`}>
             <Button variant="outline">Add task</Button>
           </Link>
         </div>
+        {cattleId && <p className="text-sm py-3">Showing {animals.find((a: any) => a.id === cattleId)?.tagNumber || "selected animal"}. <Link className="text-primary underline" href="/care?tab=work">Show all animals</Link></p>}
         <div className="divide-y">
           {!tasks.length && (
             <p className="py-6 text-muted-foreground">
@@ -239,7 +261,7 @@ function Work({ work, animals, today, people, save, can }: any) {
             </p>
           )}
           {tasks.map((t: any) => (
-            <div key={t.id} className="py-4 flex justify-between gap-3">
+            <div key={t.id} className="py-4 flex flex-wrap justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex gap-2 flex-wrap">
                   <strong>{t.title}</strong>
@@ -271,11 +293,14 @@ function Work({ work, animals, today, people, save, can }: any) {
                   </p>
                 )}
               </div>
+              <div className="flex flex-wrap gap-2">
+              {eventAction(t)&&can(eventAction(t)!.permission)&&!finishedTask(t.status)&&<Link href={eventAction(t)!.href}><Button>{eventAction(t)!.label}</Button></Link>}
               {can("tasks.manage") && !finishedTask(t.status) && (
                 <Button variant="outline" onClick={() => setSelected(t)}>
                   Update
                 </Button>
               )}
+              </div>
             </div>
           ))}
         </div>
@@ -347,6 +372,7 @@ function Work({ work, animals, today, people, save, can }: any) {
           <DialogHeader>
             <DialogTitle>{selected?.title}</DialogTitle>
           </DialogHeader>
+          {eventAction(selected)&&<p className="text-sm">Complete this action by recording the actual event. <Link className="text-primary underline" href={eventAction(selected)!.href}>{eventAction(selected)!.label}</Link></p>}
           {selected && (
             <EntryForm
               reset={false}
@@ -384,7 +410,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                 label="Action"
                 name="status"
                 required
-                defaultValue="completed"
+                defaultValue={eventAction(selected)?'in_progress':'completed'}
                 options={[
                   "completed",
                   "in_progress",
@@ -392,7 +418,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                   "blocked",
                   "excluded",
                   "cancelled",
-                ]}
+                ].filter(status=>status!=='completed'||!eventAction(selected))}
               />
               <InputField label="Evidence or reason" name="reason" required />
               <InputField
@@ -416,12 +442,15 @@ function Work({ work, animals, today, people, save, can }: any) {
   );
 }
 function Events({ animals, today, items, save, can }: any) {
-  const [type, setType] = useState("observation"),
-    [animal, setAnimal] = useState(""),
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const [type, setType] = useState(params.get("type") || "observation"),
+    [animal, setAnimal] = useState(params.get("cattleId") || ""),
     [supplies, setSupplies] = useState<any[]>([]),
     [calves, setCalves] = useState([
       { tagNumber: "", gender: "female", weight: "" },
     ]);
+  useEffect(() => { setAnimal(new URLSearchParams(search).get("cattleId") || ""); setType(new URLSearchParams(search).get("type") || "observation"); }, [search]);
   const history = useQuery<any[]>({
     queryKey: [`/api/operations/events?cattleId=${animal}`],
     enabled: !!animal,
@@ -446,6 +475,8 @@ function Events({ animals, today, items, save, can }: any) {
               "weight",
               "lifeStage",
               "productionStatus",
+              "vaccineName",
+              "nextDueDate",
               "reproductiveStatus",
               "healthStatus",
               "status",
@@ -458,7 +489,7 @@ function Events({ animals, today, items, save, can }: any) {
               "quantity",
             ])
               if (d[k] !== undefined && d[k] !== "") details[k] = Number(d[k]);
-            if (medical) details.supplies = numSupplies(supplies);
+            if (medical) { details.supplies = numSupplies(supplies); details.continuousRepeat = d.continuousRepeat === "yes"; }
             if (birth) details.calves = calves;
             return save(
               "/events",
@@ -591,6 +622,7 @@ function Events({ animals, today, items, save, can }: any) {
               </Button>
             </div>
           )}
+          {type === "vaccination" && <InputField label="Vaccine name" name="vaccineName" required />}
           {medical && (
             <>
               <InputField
@@ -601,7 +633,7 @@ function Events({ animals, today, items, save, can }: any) {
               <Supplies items={items} value={supplies} onChange={setSupplies} />
               <div className="grid sm:grid-cols-3 gap-2">
                 <InputField
-                  label="Repeat after days"
+                  label="Follow-up after days"
                   name="repeatAfterDays"
                   type="number"
                   min="1"
@@ -621,6 +653,7 @@ function Events({ animals, today, items, save, can }: any) {
               </div>
             </>
           )}
+          {medical && <SelectField label="Repeat schedule" name="continuousRepeat" defaultValue="no" options={[{value:"no",label:"One follow-up"},{value:"yes",label:"Continue at this interval (approved plan)"}]} />}
           {["calf_feeding", "colostrum"].includes(type) && (
             <InputField
               label="Amount supplied (litres; explain method in notes)"
@@ -1118,6 +1151,8 @@ function Protocols({ protocols, items, save }: any) {
   );
 }
 function Diets({ diets, animals, groups, items, today, save }: any) {
+  const search = useSearch();
+  const cattleId = new URLSearchParams(search).get("cattleId") || "";
   const [ingredients, setIngredients] = useState<any[]>([]);
   return (
     <div className="grid lg:grid-cols-2 gap-5">
@@ -1140,6 +1175,7 @@ function Diets({ diets, animals, groups, items, today, save }: any) {
           <SelectField
             label="Individual animal"
             name="cattleId"
+            key={`${cattleId}:${animals.length}`} defaultValue={cattleId}
             options={opts(animals, "tagNumber")}
           />
           <SelectField
@@ -1179,6 +1215,7 @@ function Diets({ diets, animals, groups, items, today, save }: any) {
             <SelectField
               label="Animal"
               name="cattleId"
+            key={`${cattleId}:${animals.length}`} defaultValue={cattleId}
               options={opts(animals, "tagNumber")}
               required
             />
@@ -1469,6 +1506,8 @@ function Quality({ animals, save, can }: any) {
     [error, setError] = useState("");
   return (
     <div className="grid lg:grid-cols-2 gap-5">
+      {can("tasks.view") && <OperationsCoverage />}
+      {can("settings.manage") && <DeliveryStatus />}
       <Panel title="Records needing review">
         {quality.error && <p role="alert">Could not load data review.</p>}
         <h3 className="font-medium">Duplicate tags</h3>
@@ -1572,3 +1611,5 @@ function Quality({ animals, save, can }: any) {
     </div>
   );
 }
+import { OperationsCoverage } from '@/components/operations-coverage';
+import { DeliveryStatus } from '@/components/delivery-status';

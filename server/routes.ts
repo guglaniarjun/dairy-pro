@@ -161,7 +161,7 @@ function subscriptionPlanPayload(body: any, partial = false) {
   return payload;
 }
 
-const notificationRuleTypes = new Set(["birth_followup", "death", "milk_drop", "heat_due", "pregnancy_test_due", "vaccination_due", "low_stock", "cattle_parameter"]);
+const notificationRuleTypes = new Set(["care_tasks", "birth_followup", "death", "milk_drop", "heat_due", "pregnancy_test_due", "vaccination_due", "low_stock", "cattle_parameter"]);
 
 function normalizeNotificationRule(body: any, allowGlobalRecipients: boolean) {
   if (!notificationRuleTypes.has(body?.ruleType)) throw new Error("Invalid notification rule type");
@@ -1182,10 +1182,10 @@ export async function registerRoutes(
       const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
       
       const plData = await Promise.all(cattle.map(async (cow) => {
-        const purchaseTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "purchase");
+        const purchaseTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "purchase" && t.paymentStatus !== "voided");
         const purchaseCost = Number(purchaseTransaction?.amount || 0);
         
-        const saleTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "sale");
+        const saleTransaction = transactions.find(t => t.cattleId === cow.id && t.type === "sale" && t.paymentStatus !== "voided");
         const saleAmount = Number(saleTransaction?.amount || 0);
         
         const costs = await storage.getCattleCostsByCattle(cow.id);
@@ -1230,7 +1230,7 @@ export async function registerRoutes(
       
       // Get purchase cost from cattle transactions
       const transactions = await storage.getCattleTransactionsByTenant(req.tenantId!);
-      const purchaseTransaction = transactions.find(t => t.cattleId === cattleId && t.type === "purchase");
+      const purchaseTransaction = transactions.find(t => t.cattleId === cattleId && t.type === "purchase" && t.paymentStatus !== "voided");
       const purchaseCost = purchaseTransaction?.amount || "0";
       
       // Get total costs from cattle_costs table
@@ -1561,7 +1561,7 @@ export async function registerRoutes(
     try {
       const b=req.body;
       const tag=b.calfTagNumber || /Calf Tag:\s*([^\n,;]+)/i.exec(b.notes||"")?.[1]?.trim();
-      const event=await animalEvent(req.tenantId!, {cattleId:b.cattleId,date:b.date,type:b.outcome==="abortion"?"pregnancy_loss":"calving",notes:b.notes||"",details:{outcome:b.outcome,calves:b.calves||(tag?[{tagNumber:tag,gender:b.calfGender,weight:b.calfWeight}]:[])}},req.user!.id);
+      const event=await animalEvent(req.tenantId!, {cattleId:b.cattleId,date:b.date,type:b.outcome==="abortion"?"pregnancy_loss":"calving",notes:b.notes||"",details:{outcome:b.outcome,calvingEase:b.calvingEase,calves:b.calves||(tag?[{tagNumber:tag,gender:b.calfGender,weight:b.calfWeight}]:[])}},req.user!.id);
       res.status(201).json(event);
     } catch(error:any) {res.status(error.status||400).json({error:error.message});}
   });
@@ -1670,6 +1670,11 @@ export async function registerRoutes(
   app.put("/api/farm-settings", isAuthenticated, withTenant, async (req, res) => {
     try {
       const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, tenantId: _tenantId, ...profile } = req.body || {};
+      if (profile.heiferInseminationAgeMonths != null && profile.heiferInseminationAgeDays == null) profile.heiferInseminationAgeDays = Math.round(Number(profile.heiferInseminationAgeMonths) * 30.4375);
+      delete profile.heiferInseminationAgeMonths;
+      for (const key of ["heatIntervalDays", "gestationDays", "dryPeriodDays", "pregnancyTestDays", "heiferInseminationAgeDays"]) {
+        if (profile[key] != null && (!Number.isInteger(Number(profile[key])) || Number(profile[key]) < 1 || Number(profile[key]) > 3650)) return res.status(400).json({ error: "Enter a valid interval in days" });
+      }
       const settings = await storage.upsertFarmSettings({
         ...profile,
         tenantId: req.tenantId,
@@ -1680,6 +1685,7 @@ export async function registerRoutes(
       if (profile.phone !== undefined) tenantUpdates.phone = profile.phone ? String(profile.phone).trim() : null;
       if (profile.language !== undefined) tenantUpdates.language = String(profile.language).trim() || "en";
       if (Object.keys(tenantUpdates).length) await storage.updateTenant(req.tenantId!, tenantUpdates);
+      await (await import("./care-reconciliation")).reconcileCare(req.tenantId!);
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to update farm settings" });

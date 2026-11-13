@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { addDays } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -60,7 +63,7 @@ export default function VaccinationPage() {
     defaultValues: {
       cattleId: "",
       vaccineId: "",
-      vaccineName: "",
+      vaccineName: new URLSearchParams(window.location.search).get("vaccine") || "",
       date: format(new Date(), "yyyy-MM-dd"),
       batchNumber: "",
       nextDueDate: "",
@@ -68,18 +71,21 @@ export default function VaccinationPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const handleVaccineChange = (vaccineId: string) => {
     const vaccine = vaccines?.find((v) => v.id === vaccineId);
     if (vaccine) {
       form.setValue("vaccineName", vaccine.name);
       if (vaccine.intervalDays) {
-        const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + vaccine.intervalDays);
-        form.setValue("nextDueDate", format(dueDate, "yyyy-MM-dd"));
+        form.setValue("nextDueDate", addDays(form.getValues("date"), vaccine.intervalDays));
       }
     }
   };
+
+  const doseDate = form.watch("date"), chosenVaccine = form.watch("vaccineId");
+  useEffect(() => { const v = vaccines?.find(v => v.id === chosenVaccine); if (v?.intervalDays && doseDate) form.setValue("nextDueDate", addDays(doseDate,v.intervalDays)); }, [doseDate, chosenVaccine, vaccines, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: VaccinationFormValues) => {
@@ -126,7 +132,7 @@ export default function VaccinationPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cattle *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-cattle">
                           <SelectValue placeholder="Select cattle" />
@@ -157,7 +163,7 @@ export default function VaccinationPage() {
                           field.onChange(val);
                           handleVaccineChange(val);
                         }}
-                        defaultValue={field.value}
+                        value={field.value || ""}
                       >
                         <FormControl>
                           <SelectTrigger data-testid="select-vaccine">

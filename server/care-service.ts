@@ -1,3 +1,8 @@
+import {
+  breedingOverview,
+  activeAnimal,
+  currentVaccinations,
+} from "@shared/farm-overview";
 import crypto from "node:crypto";
 import { and, eq, sql, desc } from "drizzle-orm";
 import { db } from "./db";
@@ -194,7 +199,7 @@ export async function triggerProtocols(
     (p) =>
       p.status === "approved" &&
       p.trigger === trigger &&
-      matchesAnimal(animal, p.eligibility, anchor),
+      (trigger === "age" || matchesAnimal(animal, p.eligibility, anchor)),
   );
   for (const p of protocols)
     for (const [index, step] of p.steps.entries()) {
@@ -220,6 +225,7 @@ export async function triggerProtocols(
           anchor,
           step.offsetDays + occurrence * (step.repeatEveryDays || 0),
         );
+        if (trigger === "age" && !matchesAnimal(animal, p.eligibility, dueDate)) continue;
         const existing = (await rows(tasks, tenantId)).find(
           (t) => t.sourceKey === sourceKey,
         );
@@ -269,7 +275,7 @@ export async function schedulePregnancy(
     animal.breedingCycleId
       ? animal.breedingCycleId
       : crypto.randomUUID();
-  await db
+  if (animal.expectedCalvingDate !== expected || animal.reproductiveStatus !== "pregnant" || animal.breedingCycleId !== cycle) await db
     .update(cattle)
     .set({
       expectedCalvingDate: expected,
@@ -302,13 +308,14 @@ export async function schedulePregnancy(
   for (const item of due) {
     const sourceKey = `pregnancy:${animal.id}:${cycle}:${item.suffix}`;
     const date = addDays(expected, item.days);
+    if (item.suffix === "dry" && !isLactating(updated)) continue;
     const old = (await rows(tasks, tenantId)).find(
       (t) => t.sourceKey === sourceKey,
     );
-    if (old && !finishedTask(old.status))
+    if (old && old.status !== "postponed" && (old.dueDate !== date || finishedTask(old.status)) && (!finishedTask(old.status) || old.reason === "Animal is no longer active in this herd" || (item.suffix === "calving" && old.status === "completed")))
       await db
         .update(tasks)
-        .set({ dueDate: date, updatedAt: new Date() })
+        .set({ dueDate: date, status: finishedTask(old.status) ? "pending" : old.status, ...(finishedTask(old.status)?{completedAt:null,completedBy:null,reason:null}:{}), revision:sql`${tasks.revision}+1`, updatedAt: new Date() })
         .where(eq(tasks.id, old.id));
     else if (!old)
       await makeTask(tenantId, {
@@ -340,7 +347,6 @@ export async function closePregnancy(
   for (const task of await rows(tasks, tenantId))
     if (
       task.cattleId === animal.id &&
-      task.cycleId === animal.breedingCycleId &&
       ["expected_calving", "insemination", "heat"].includes(task.trigger) &&
       !finishedTask(task.status)
     )
@@ -531,6 +537,12 @@ export async function completeTask(
     fail("Completion evidence is required");
   const cfg = await settings(tenantId);
   const date = daySchema.parse(input.date || farmDay(cfg.timezone));
+  if (task.sourceKey?.endsWith(":calving"))
+    fail("Record the calving or pregnancy loss from Animal care before closing this task", 409);
+  if (task.sourceKey?.startsWith("service:") && task.sourceKey.endsWith(":test"))
+    fail("Record the pregnancy test result from Breeding before closing this task", 409);
+  if (task.sourceKey?.startsWith("vaccine:"))
+    fail("Record the administered vaccine and next due date from Vaccinations before closing this task", 409);
   if (date > farmDay(cfg.timezone))
     fail("An action cannot be completed in the future");
   if (
@@ -587,6 +599,9 @@ export async function completeTask(
     }
     if (Object.keys(hold).length)
       await db.update(cattle).set(hold).where(eq(cattle.id, animal.id));
+    for (const [field, until] of Object.entries(hold))
+      await makeTask(tenantId, { cattleId: animal.id, title: `Review ${field === 'milkWithholdUntil' ? 'milk' : 'meat'} withdrawal release`, type: 'health',
+        dueDate: farmDay(cfg.timezone, new Date(until as any)), sourceKey: `withdrawal:${id}:${field}`, evidenceRequired: true });
   }
   const [updated] = await db
     .update(tasks)
@@ -594,7 +609,7 @@ export async function completeTask(
       status: "completed",
       completedAt: new Date(),
       completedBy: actor,
-      evidence: { notes: input.evidence || "", ...supply },
+      evidence: { notes: input.evidence || "", date, ...supply },
       updatedAt: new Date(),
       revision: sql`${tasks.revision}+1`,
     })
@@ -638,13 +653,18 @@ export async function completeTask(
       clinical: task.clinical,
       evidenceRequired: task.evidenceRequired,
       dueDate: addDays(task.dueDate || date, interval),
-      sourceKey: `recurrence:${id}`,
+      sourceKey: task.sourceKey?.startsWith('coverage:') ? `coverage:${task.sourceKey.split(':')[1]}:${id}` : `recurrence:${id}`,
     });
   }
   return updated;
 }
 export async function animalEvent(tenantId: string, raw: any, actor?: string) {
   const input = eventSchema.parse(raw);
+  if (input.type === "status_change" && input.details.productionStatus === "dry") {
+    await animalEvent(tenantId, { ...input, type: "dry_off" }, actor);
+  }
+  if (input.type === "status_change" && input.details.reproductiveStatus === "lost")
+    return animalEvent(tenantId, { ...input, type: "pregnancy_loss" }, actor);
   let animal = await owned(cattle, tenantId, input.cattleId);
   if (animal.mergedIntoId || animal.status !== "active")
     fail("Choose an active animal");
@@ -707,6 +727,7 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
     patch.breedingCycleId = null;
     patch.expectedCalvingDate = null;
     patch.healthStatus = "under_care";
+    await db.insert(calvings).values({ tenantId, cattleId: animal.id, date: input.date, outcome: "abortion", notes: input.notes });
     await makeTask(tenantId, {
       cattleId: animal.id,
       title: "Veterinary review following pregnancy loss",
@@ -761,6 +782,7 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
         cattleId: animal.id,
         date: input.date,
         calfId: born.id,
+        calvingEase: detail.calvingEase || "normal",
         calfGender: born.gender,
         calfWeight: born.weightKg,
         outcome: "live",
@@ -794,6 +816,7 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
         cattleId: animal.id,
         date: input.date,
         outcome: "stillborn",
+        calvingEase: detail.calvingEase || "normal",
         notes: input.notes,
       });
     await makeTask(tenantId, {
@@ -820,12 +843,17 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
   }
   if (input.type === "weaning") patch.lifeStage = "weaned_calf";
   if (input.type === "status_change") {
+    if (detail.reproductiveStatus === "unserved" && animal.reproductiveStatus !== "unserved") {
+      await closePregnancy(tenantId, animal, input.notes || "Reproductive status reviewed");
+      patch.expectedCalvingDate = null;
+      patch.breedingCycleId = null;
+    }
     for (const [key, options] of Object.entries({
       lifeStage: ["calf", "weaned_calf", "heifer", "adult"],
       productionStatus: ["lactating", "dry", "not_lactating"],
       reproductiveStatus: ["unserved", "served", "pregnant", "lost"],
       healthStatus: ["healthy", "under_care", "quarantine"],
-      status: ["active", "sold", "dead", "culled"],
+      status: ["active", "sold", "dead", "culled", "inactive", "transferred", "archived"],
     }))
       if (detail[key]) {
         if (!options.includes(detail[key])) fail(`Invalid ${key}`);
@@ -869,8 +897,10 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
         const until = farmMidnight(addDays(input.date, days + 1), cfg.timezone);
         const old = animal[field];
         patch[field] = old && new Date(old) > until ? old : until;
+        await makeTask(tenantId, { cattleId: animal.id, title: `Review ${field === 'milkWithholdUntil' ? 'milk' : 'meat'} withdrawal release`, type: 'health',
+          dueDate: farmDay(cfg.timezone, new Date(patch[field])), sourceKey: `withdrawal:${event.id}:${field}`, evidenceRequired: true });
       }
-    if (detail.repeatAfterDays)
+    if (detail.repeatAfterDays && input.type !== "vaccination")
       await makeTask(tenantId, {
         cattleId: animal.id,
         title: `Repeat ${input.type}: ${detail.instructions}`,
@@ -887,9 +917,24 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
           meatWithdrawalDays: detail.meatWithdrawalDays,
         },
         evidenceRequired: true,
+        isRecurring: detail.continuousRepeat === true,
+        recurringPattern: String(detail.repeatAfterDays),
       });
+    if (input.type === "vaccination") {
+      if (!detail.vaccineName?.trim()) fail("Enter the vaccine name so its history and next dose can be tracked");
+      await db.insert(vaccinations).values({ tenantId, cattleId: animal.id, vaccineId: detail.vaccineId || null,
+        vaccineName: detail.vaccineName.trim(), date: input.date, notes: detail.instructions,
+        nextDueDate: detail.nextDueDate || (detail.repeatAfterDays ? addDays(input.date, Number(detail.repeatAfterDays)) : null),
+        administeredBy: actor });
+    }
   }
   await db.update(cattle).set(patch).where(eq(cattle.id, animal.id));
+  if (patch.healthStatus === 'quarantine')
+    await makeTask(tenantId, { cattleId: animal.id, title: 'Review quarantine, required tests and release decision', type: 'health',
+      dueDate: input.date, sourceKey: `quarantine:${event.id}`, evidenceRequired: true, priority: 'high' });
+  if (patch.healthStatus === 'healthy')
+    for (const t of await rows(tasks,tenantId)) if(t.cattleId===animal.id&&t.sourceKey?.startsWith('quarantine:')&&!finishedTask(t.status))
+      await db.update(tasks).set({status:'completed',completedAt:new Date(),completedBy:actor,evidence:{date:input.date,notes:input.notes}}).where(eq(tasks.id,t.id));
   if (!["expected_calving", "birth", "calving"].includes(input.type))
     await triggerProtocols(
       tenantId,
@@ -1010,7 +1055,7 @@ export async function stockForecast(tenantId: string, date: string) {
   return items.map((item) => {
     const own = lots.filter((l) => l.itemId === item.id);
     const available = own
-      .filter((l) => lotExpiry(l) >= date)
+      .filter((l) => lotExpiry(l) >= date && l.receivedDate <= date)
       .reduce((n, l) => n + Number(l.quantity), 0);
     const required = work
       .filter(
@@ -1119,9 +1164,13 @@ export async function buildDailyReport(
     .reduce((n, e) => n + Number(e.payload.quantity || 0), 0);
   const relevant = work.filter(
     (t) =>
-      t.dueDate &&
-      t.dueDate <= addDays(date, 14) &&
-      (!finishedTask(t.status) || onDay(t.completedAt) || onDay(t.updatedAt)),
+      ((!finishedTask(t.status) &&
+        (!t.dueDate || t.dueDate <= addDays(date, 30))) ||
+        ((t.evidence as any)?.date ? (t.evidence as any).date === date : onDay(t.completedAt)) ||
+        onDay(t.updatedAt)) &&
+      (!t.cattleId ||
+        animals.some((a) => a.id === t.cattleId && activeAnimal(a)) ||
+        ((t.evidence as any)?.date ? (t.evidence as any).date === date : onDay(t.completedAt))),
   );
   const legacy: any[] = [];
   for (const [label, table, key] of [
@@ -1137,7 +1186,12 @@ export async function buildDailyReport(
     ["animal_payment", cattlePayments, "date"],
   ] as const)
     for (const r of await rows(table, tenantId))
-      if (String(r[key]).slice(0, 10) === date || onDay(r.createdAt))
+      if (
+        (key === "detectedAt"
+          ? farmDay(cfg.timezone, new Date(r[key]))
+          : String(r[key]).slice(0, 10)) === date ||
+        onDay(r.createdAt)
+      )
         legacy.push({ type: label, ...r });
   const healthRecords = await rows(healthEvents, tenantId);
   for (const treatment of await rows(treatments, tenantId))
@@ -1149,13 +1203,204 @@ export async function buildDailyReport(
           ?.cattleId,
       });
   describe(legacy);
+  const [
+    services,
+    tests,
+    births,
+    observations,
+    vaccineRecords,
+    plans,
+    groups,
+    supplies,
+  ] = await Promise.all([
+    rows(inseminations, tenantId),
+    rows(pregnancyTests, tenantId),
+    rows(calvings, tenantId),
+    rows(heats, tenantId),
+    rows(vaccinations, tenantId),
+    rows(dietPlans, tenantId),
+    rows(animalGroups, tenantId),
+    rows(inventoryItems, tenantId),
+  ]);
+  const enrichSupplies = (values: any[]) =>
+    (values || []).map((v) => ({
+      ...v,
+      name: supplies.find((i) => i.id === v.itemId)?.name,
+      unit: supplies.find((i) => i.id === v.itemId)?.unit,
+    }));
+  relevant.forEach((t) => {
+    t.supplies = enrichSupplies(t.supplies);
+  });
+  todayEvents.forEach((e) => {
+    if (e.payload?.supplies)
+      e.payload = {
+        ...e.payload,
+        supplies: enrichSupplies(e.payload.supplies),
+      };
+  });
+  const overview = breedingOverview(
+    animals,
+    services,
+    tests,
+    births,
+    observations,
+    cfg,
+    date,
+  );
+  const reminders: any[] = [];
+  const remind = (
+    cow: any,
+    kind: string,
+    title: string,
+    dueDate: string | null,
+    instructions: string,
+    href: string,
+    duplicate?: (t: any) => boolean,
+  ) => {
+    if (
+      duplicate &&
+      relevant.some(
+        (t) => t.cattleId === cow.id && !finishedTask(t.status) && duplicate(t),
+      )
+    )
+      return;
+    reminders.push({
+      id: `${kind}:${cow.id}`,
+      cattleId: cow.id,
+      title,
+      dueDate,
+      instructions,
+      assignedTo: "Unassigned",
+      status: "pending",
+      href,
+    });
+  };
+  for (const p of overview.calvingDue)
+    remind(
+      p.cow,
+      "calving",
+      "Expected calving: monitor and prepare",
+      p.cow.expectedCalvingDate,
+      "Repeat daily until calving is recorded.",
+      `/breeding/calving?cattleId=${p.cattleId}`,
+      (t) => t.sourceKey?.endsWith(":calving"),
+    );
+  for (const p of overview.dryDue)
+    remind(
+      p.cow,
+      "dry",
+      "Planned dry-off",
+      p.dueDate,
+      `Farm dry period: ${cfg.dryPeriodDays} days. Repeat until dry-off is recorded.`,
+      `/care?tab=events&type=dry_off&cattleId=${p.cattleId}`,
+      (t) => t.sourceKey?.endsWith(":dry"),
+    );
+  for (const c of overview.heatDue)
+    remind(
+      c,
+      "heat",
+      "Expected heat: observe and record",
+      c.dueDate,
+      "Expected from the latest recorded heat or service.",
+      `/breeding/heat?cattleId=${c.id}`,
+      (t) => t.trigger === "heat" || t.sourceKey?.endsWith(":heat"),
+    );
+  for (const p of overview.ptDue)
+    remind(
+      p.cow,
+      "test",
+      "Pregnancy test",
+      p.dueDate,
+      "Link the result to the service record.",
+      `/breeding/pregnancy-test?cattleId=${p.cattleId}&inseminationId=${p.id}`,
+      (t) => t.sourceKey?.endsWith(":test"),
+    );
+  for (const c of overview.pregnant.filter((c) => !c.expectedCalvingDate))
+    remind(
+      c,
+      "date",
+      "Record expected calving date",
+      date,
+      "Pregnant animal has no expected date; dry-off and calving dates cannot be calculated.",
+      `/care?tab=events&type=expected_calving&cattleId=${c.id}`,
+    );
+  for (const p of overview.calvingDue.filter((p) => p.daysToCalving! <= 20)) {
+    const applicable = plans.filter(
+      (plan) =>
+        plan.status === "approved" &&
+        plan.startDate <= date &&
+        (!plan.endDate || plan.endDate >= date) &&
+        (plan.cattleId === p.cattleId ||
+          (!plan.cattleId &&
+            groups.some(
+              (g) =>
+                g.id === plan.groupId &&
+                (g.kind === "dynamic"
+                  ? matchesAnimal(p.cow, g.criteria, date)
+                  : g.cattleIds?.includes(p.cattleId)),
+            ))),
+    );
+    const direct = applicable
+      .filter((plan) => plan.cattleId === p.cattleId)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+    const plan = direct || (applicable.length === 1 ? applicable[0] : null);
+    const instructions = plan
+      ? `${plan.name}: ${plan.instructions || "Follow the approved ration."} ${enrichSupplies(
+          plan.ingredients,
+        )
+          .map(
+            (i) =>
+              `${i.name || "Item"}: ${i.quantity} ${i.unit || ""} per feeding`,
+          )
+          .join("; ")}`
+      : applicable.length > 1
+        ? "Overlapping group diets: resolve the applicable approved ration."
+        : "No approved diet on file. Arrange a nutritionist/veterinary review of feed and supplements; record the approved instructions.";
+    remind(
+      p.cow,
+      "transition",
+      "Pre-calving diet and supplements",
+      p.cow.expectedCalvingDate,
+      instructions,
+      `/care?tab=diets&cattleId=${p.cattleId}`,
+    );
+  }
+  for (const v of currentVaccinations(vaccineRecords, animals, date)) {
+    const cow = animals.find((a) => a.id === v.cattleId);
+    remind(
+      cow,
+      `vaccine:${v.vaccineId || v.vaccineName}`,
+      `Vaccination: ${v.vaccineName}`,
+      v.nextDueDate,
+      "Record the administration to update the next due date.",
+      `/health/vaccination?cattleId=${v.cattleId}&vaccine=${encodeURIComponent(v.vaccineName)}`,
+    );
+  }
+  const [farm] = await db
+    .select()
+    .from(tenants)
+    .where(eq(tenants.id, tenantId));
   const report: any = {
     date,
     timezone: cfg.timezone,
     generatedAt,
     cutoff: generatedAt,
     revision: null,
+    farmName: farm?.name || "DairyFlow",
+    reminders,
+    activeHealth: healthRecords.filter(
+      (h) =>
+        h.date <= date &&
+        (h.status !== "resolved" ||
+          (h.resolvedAt &&
+            farmDay(cfg.timezone, new Date(h.resolvedAt)) >= date)),
+    ),
     milk: {
+      sessions: [
+        "morning",
+        "evening",
+        ...(cfg.milkingSessions === 3 ? ["night"] : []),
+      ],
       produced,
       opening,
       discardedAtMilking,
@@ -1206,7 +1451,9 @@ export async function buildDailyReport(
     stockMovements: (await rows(stockLedger, tenantId)).filter(
       (l) => l.date === date,
     ),
-    dairySales: await (await import("./sales-service")).salesOverview(tenantId, date),
+    dairySales: await (
+      await import("./sales-service")
+    ).salesOverview(tenantId, date),
     finance: {
       income: income.filter((r) => r.date === date),
       expenses: expense.filter((r) => r.date === date),

@@ -72,7 +72,7 @@ function SectionHeader({ title, href }: { title: string; href?: string }) {
 }
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useQuery<any>({
+  const { data: stats, isLoading, error, refetch } = useQuery<any>({
     queryKey: ["/api/dashboard/stats"],
   });
 
@@ -85,6 +85,7 @@ export default function DashboardPage() {
     : 0;
 
   const s = stats || {};
+  if (error) return <div className="p-6" role="alert"><p>Dashboard could not be loaded: {error.message}</p><Button onClick={() => refetch()}>Retry</Button></div>;
 
   return (
     <div className="p-3 md:p-6 space-y-5 max-w-6xl mx-auto">
@@ -164,7 +165,7 @@ export default function DashboardPage() {
             href="/milk"
             loading={isLoading}
           />
-          <KPICard label="Month Total" value={`${(s.monthMilk || 0).toFixed(0)} L`} sub="This month" icon={BarChart3} color="blue" href="/milk" loading={isLoading} />
+          <KPICard label="Month Total" value={`${(s.monthMilk || 0).toFixed(0)} L`} sub="This month" icon={BarChart3} color="blue" href="/milk?dateFilter=month" loading={isLoading} />
           <KPICard label="Herd Avg/Day" value={`${(s.herdAvgMilk || 0).toFixed(1)} L`} sub="Per milking cow" icon={TrendingUp} color="teal" href="/milk" loading={isLoading} />
           <KPICard label="Month Avg" value={`${(s.monthAvgMilk || 0).toFixed(1)} L/day`} sub="Month to date" icon={Activity} color="purple" href="/reports" loading={isLoading} />
         </div>
@@ -176,7 +177,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <KPICard label="This Month Revenue" value={`₹${(s.monthRevenue || 0).toLocaleString("en-IN")}`} sub="Milk + byproducts" icon={TrendingUp} color="green" href="/finances?tab=income" loading={isLoading} />
           <KPICard label="This Month Expense" value={`₹${(s.monthExpense || 0).toLocaleString("en-IN")}`} sub="All categories" icon={TrendingDown} color="red" href="/finances?tab=expenses" loading={isLoading} />
-          <KPICard label="Receivables" value={`₹${(s.pendingReceivables || 0).toLocaleString("en-IN")}`} sub="Outstanding dairy sales" icon={Wallet} color="orange" href="/finances?tab=income" loading={isLoading} />
+          <KPICard label="Receivables" value={`₹${(s.pendingReceivables || 0).toLocaleString("en-IN")}`} sub="Outstanding dairy sales" icon={Wallet} color="orange" href="/customers" loading={isLoading} />
           <KPICard label="Cost/kg Milk" value={s.costPerKgMilk ? `₹${Number(s.costPerKgMilk).toFixed(2)}` : "—"} sub="Feed+health/milk" icon={BarChart3} color="purple" href="/reports" loading={isLoading} />
         </div>
       </div>
@@ -186,9 +187,9 @@ export default function DashboardPage() {
         <SectionHeader title="💉 Health & Vaccination" href="/health" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <KPICard label="Active Health Issues" value={s.activeHealthIssues} sub="Under treatment" icon={Stethoscope} color="red" href="/health" loading={isLoading} />
-          <KPICard label="Vaccination Due" value={s.vaccinationDue} sub="Next 30 days" icon={Syringe} color="orange" href="/health?tab=vaccination" loading={isLoading} />
-          <KPICard label="Overdue Vaccinations" value={s.vaccinationOverdue} sub="Past due date" icon={AlertTriangle} color="red" href="/health?tab=vaccination" loading={isLoading} />
-          <KPICard label="Deworming Due" value={s.dewormingDue} sub="Next 30 days" icon={Activity} color="amber" href="/health?tab=vaccination" loading={isLoading} />
+          <KPICard label="Vaccination Due" value={s.vaccinationDue} sub="Next 30 days" icon={Syringe} color="orange" href="/health?tab=vaccination&filter=upcoming" loading={isLoading} />
+          <KPICard label="Overdue Vaccinations" value={s.vaccinationOverdue} sub="Past due date" icon={AlertTriangle} color="red" href="/health?tab=vaccination&filter=overdue" loading={isLoading} />
+          <KPICard label="Deworming Due" value={s.dewormingDue} sub="Overdue + next 30 days" icon={Activity} color="amber" href="/tasks?search=deworm&status=open" loading={isLoading} />
         </div>
       </div>
 
@@ -199,7 +200,7 @@ export default function DashboardPage() {
           <KPICard label="Open Cattle" value={s.openCattle} sub="Not pregnant" icon={Heart} color="orange" href="/breeding?filter=open" loading={isLoading} />
           <KPICard label="Repeat Breeders" value={s.repeatBreeders} sub="3+ failed AIs" icon={AlertTriangle} color="red" href="/breeding?filter=repeat" loading={isLoading} />
           <KPICard label="Conception Rate" value={s.conceptionRate ? `${s.conceptionRate}%` : "—"} sub="Confirmed / tested services" icon={Activity} color="teal" href="/reports" loading={isLoading} />
-          <KPICard label="Total Inseminations" value={s.totalInseminations} sub="All time" icon={Users} color="purple" href="/breeding" loading={isLoading} />
+          <KPICard label="Total Inseminations" value={s.totalInseminations} sub="All time" icon={Users} color="purple" href="/breeding?tab=ai" loading={isLoading} />
         </div>
       </div>
 
@@ -260,8 +261,8 @@ export default function DashboardPage() {
                   <EventRow icon="🌡️" label="Heats Due" value={s.expectedHeat} color="pink" href="/breeding?filter=heat-due" />
                   <EventRow icon="🔬" label="Pregnancy Tests" value={s.pregnancyTestDue} color="orange" href="/breeding?filter=pt-due" />
                   <EventRow icon="🐄" label="Expected Calvings" value={s.expectedCalving} color="teal" href="/breeding?filter=calving-due" />
-                  <EventRow icon="💉" label="Vaccinations Due" value={s.vaccinationDue} color="amber" href="/health?tab=vaccination" />
-                  <EventRow icon="💊" label="Deworming Due" value={s.dewormingDue} color="green" href="/health?tab=vaccination" />
+                  <EventRow icon="💉" label="Vaccinations Due" value={s.vaccinationDue} color="amber" href="/health?tab=vaccination&filter=upcoming" />
+                  <EventRow icon="💊" label="Deworming Due" value={s.dewormingDue} color="green" href="/tasks?search=deworm&status=open" />
                 </>
               )}
             </CardContent>

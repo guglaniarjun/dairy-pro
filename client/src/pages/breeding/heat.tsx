@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -55,12 +57,14 @@ export default function RecordHeatPage() {
     resolver: zodResolver(heatFormSchema),
     defaultValues: {
       cattleId: "",
-      detectedAt: new Date().toISOString().slice(0, 16),
+      detectedAt: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
       intensity: "normal",
       detectedBy: "",
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const createMutation = useMutation({
     mutationFn: async (data: HeatFormData) => {

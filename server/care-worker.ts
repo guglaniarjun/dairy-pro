@@ -1,3 +1,5 @@
+import { reconcileCare } from "./care-reconciliation";
+import { countdown } from "@shared/farm-overview";
 import { eq, sql } from "drizzle-orm";
 import { db, transactionContext } from "./db";
 import {
@@ -29,90 +31,8 @@ export async function evaluateCare(tenantId: string, now = new Date()) {
       );
       const cfg = await settings(tenantId),
         today = farmDay(cfg.timezone, now);
-      const existingWork = await rows(tasks, tenantId);
+      await reconcileCare(tenantId, today);
       const animals = await rows(cattle, tenantId);
-      const services = await rows(inseminations, tenantId),
-        tests = await rows(pregnancyTests, tenantId),
-        births = await rows(calvings, tenantId);
-      for (const animal of animals.filter(
-        (a) => a.status === "active" && !a.mergedIntoId,
-      )) {
-        const service = services
-          .filter((s) => s.cattleId === animal.id)
-          .sort((a, b) => b.date.localeCompare(a.date))[0];
-        if (
-          service &&
-          animal.reproductiveStatus !== "pregnant" &&
-          !births.some(
-            (b) => b.cattleId === animal.id && b.date >= service.date,
-          ) &&
-          !tests.some(
-            (t) =>
-              t.inseminationId === service.id && t.result !== "inconclusive",
-          )
-        ) {
-          for (const step of [
-            {
-              key: "test",
-              title: "Pregnancy confirmation due",
-              days: cfg.pregnancyTestDays,
-            },
-            {
-              key: "heat",
-              title: "Observe expected return to heat (prediction)",
-              days: cfg.heatIntervalDays,
-            },
-          ])
-            await makeTask(tenantId, {
-              cattleId: animal.id,
-              title: step.title,
-              type: "breeding",
-              dueDate: addDays(service.date, step.days),
-              trigger: "insemination",
-              cycleId: service.id,
-              sourceKey: `service:${service.id}:${step.key}`,
-            });
-        }
-        if (
-          animal.expectedCalvingDate &&
-          animal.reproductiveStatus === "pregnant" &&
-          !existingWork.some(
-            (t) =>
-              t.cattleId === animal.id &&
-              t.sourceKey?.startsWith(
-                `pregnancy:${animal.id}:${animal.breedingCycleId}:`,
-              ),
-          )
-        )
-          await schedulePregnancy(
-            tenantId,
-            animal,
-            animal.expectedCalvingDate,
-            "scheduler",
-          );
-      }
-      const vaccineRecords = await rows(vaccinations, tenantId);
-      for (const v of vaccineRecords) {
-        if (
-          !v.nextDueDate ||
-          !animals.some((a) => a.id === v.cattleId && a.status === "active") ||
-          vaccineRecords.some(
-            (n) =>
-              n.cattleId === v.cattleId &&
-              n.vaccineId === v.vaccineId &&
-              n.date > v.date,
-          )
-        )
-          continue;
-        await makeTask(tenantId, {
-          cattleId: v.cattleId,
-          title: `Follow-up: ${v.vaccineName || "vaccination"}`,
-          type: "health",
-          dueDate: v.nextDueDate,
-          sourceKey: `vaccine:${v.vaccineId}:${v.id}`,
-          evidenceRequired: true,
-        });
-      }
       for (const task of await rows(tasks, tenantId)) {
         if (
           task.cattleId &&
@@ -135,47 +55,34 @@ export async function evaluateCare(tenantId: string, now = new Date()) {
             .where(eq(tasks.id, task.id));
           continue;
         }
-        if (!task.dueDate || task.dueDate > today || finishedTask(task.status))
+        const leadDays = task.sourceKey?.endsWith(':calving') ? 20 : task.sourceKey?.endsWith(':dry') ? 14 : task.sourceKey?.startsWith('vaccine:') ? 7 : 1;
+        const existingAlerts = (await rows(alerts, tenantId)).filter(a => a.referenceType === 'care_task' && a.referenceId === task.id);
+        if (!task.dueDate || task.dueDate > addDays(today, leadDays) || finishedTask(task.status)) {
+          for (const a of existingAlerts) if (!a.isDismissed) await db.update(alerts).set({ isDismissed:true }).where(eq(alerts.id,a.id));
           continue;
-        const overdue = task.dueDate < today;
-        await db
-          .insert(alerts)
-          .values({
-            tenantId,
-            type: "task",
-            title: task.title,
-            message: `${overdue ? "Overdue since" : "Due"} ${task.dueDate}. ${task.reason || ""}`,
-            severity: overdue ? "critical" : "warning",
-            cattleId: task.cattleId,
-            referenceType: "care_task",
-            referenceId: task.id,
-            dedupeKey: `care:${tenantId}:${task.id}:${overdue ? "overdue" : "due"}`,
-          })
-          .onConflictDoNothing();
+        }
+        const currentTime = new Intl.DateTimeFormat('en-GB', { timeZone: cfg.timezone, hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).format(now);
+        const upcoming = task.dueDate > today || (task.dueDate === today && task.dueTime && task.dueTime > currentTime);
+        const message = countdown(task.dueDate,today) + (task.dueTime ? ' at '+task.dueTime : '') + '. ' + (task.reason || '');
+        const old = existingAlerts.find(a => a.dedupeKey === 'care:'+tenantId+':'+task.id);
+        const changed = old?.message !== message;
+        const nextDay = old?.scheduledFor && farmDay(cfg.timezone,new Date(old.scheduledFor)) !== today;
+        const values:any = { title:task.title, message, severity: upcoming ? 'info' : task.priority === 'urgent' || task.dueDate < today ? 'critical' : 'warning',
+          isDismissed: old && !changed && !nextDay ? old.isDismissed : false, scheduledFor:now };
+        if (old) await db.update(alerts).set(values).where(eq(alerts.id,old.id));
+        else await db.insert(alerts).values({ ...values, tenantId, type:'task', cattleId:task.cattleId, referenceType:'care_task', referenceId:task.id, dedupeKey:'care:'+tenantId+':'+task.id }).onConflictDoNothing();
+        for (const a of existingAlerts.filter(a => a.id !== old?.id)) await db.update(alerts).set({isDismissed:true}).where(eq(alerts.id,a.id));
       }
-      const work = await rows(tasks, tenantId);
-      for (const alert of await rows(alerts, tenantId))
-        if (
-          alert.referenceType === "care_task" &&
-          work.some((t) => t.id === alert.referenceId && finishedTask(t.status))
-        )
-          await db
-            .update(alerts)
-            .set({ isDismissed: true })
-            .where(eq(alerts.id, alert.id));
-      for (const item of await stockForecast(tenantId, today))
-        if (item.lowStock || item.shortage || item.expired.length)
-          await db
-            .insert(alerts)
-            .values({
-              tenantId,
-              type: "inventory",
-              title: `Review stock: ${item.name}`,
-              message: `Usable ${item.available} ${item.unit}; required ${item.required}; shortage ${item.shortage}; expired lots ${item.expired.length}`,
-              severity: item.shortage ? "critical" : "warning",
-              dedupeKey: `stock:${tenantId}:${item.id}:${today}`,
-            })
-            .onConflictDoNothing();
+      for (const item of await stockForecast(tenantId, today)) {
+        const key = 'stock:'+tenantId+':'+item.id;
+        const old = (await rows(alerts,tenantId)).find(a=>a.dedupeKey===key);
+        const active = !!(item.lowStock || item.shortage || item.expired.length || item.expiring.length);
+        const data:any = { title:'Review stock: '+item.name, message:'Usable '+item.available+' '+item.unit+'; required '+item.required+'; shortage '+item.shortage+'; expired '+item.expired.length+'; expiring '+item.expiring.length,
+          severity:item.shortage?'critical':'warning', isDismissed:!active, scheduledFor:now };
+        if(old) await db.update(alerts).set(data).where(eq(alerts.id,old.id));
+        else if(active) await db.insert(alerts).values({...data,tenantId,type:'inventory',dedupeKey:key}).onConflictDoNothing();
+        for(const stale of (await rows(alerts,tenantId)).filter(a=>a.dedupeKey?.startsWith(key+':')&&!a.isDismissed)) await db.update(alerts).set({isDismissed:true}).where(eq(alerts.id,stale.id));
+      }
       const schedule = (await rows(reportSchedules, tenantId))[0];
       if (!schedule || schedule.status !== "active") return;
       const time = new Intl.DateTimeFormat("en-GB", {
@@ -216,7 +123,7 @@ export function startCareWorkers() {
         .select()
         .from(tenants)
         .where(eq(tenants.isActive, true)))
-        await evaluateCare(farm.id);
+        try { await evaluateCare(farm.id); } catch (error) { console.error("Care worker failed for farm", farm.id, error); }
     } catch (error) {
       console.error("Care/report worker failed", error);
     } finally {

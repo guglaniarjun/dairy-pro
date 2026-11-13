@@ -1,4 +1,5 @@
-import { isLactating } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
+import { isLactating, farmDay } from "@shared/care";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -65,7 +66,7 @@ export default function AddMilkEntryPage() {
     resolver: zodResolver(milkFormSchema),
     defaultValues: {
       cattleId: "",
-      date: format(new Date(), "yyyy-MM-dd"),
+      date: new URLSearchParams(window.location.search).get("date") || farmDay(),
       session: new Date().getHours() < 12 ? "morning" : "evening",
       quantity: "",
       destination: "bulk",
@@ -75,6 +76,8 @@ export default function AddMilkEntryPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const createMutation = useMutation({
     mutationFn: async (data: MilkFormData) => {

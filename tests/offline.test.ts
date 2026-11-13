@@ -6,6 +6,7 @@ import {
   saveOfflineOperation,
   syncOfflineOperations,
   update,
+  overlayPending,
 } from "../client/src/lib/offline-store";
 import {
   rememberSession,
@@ -18,6 +19,13 @@ const events = new EventTarget();
 Object.defineProperty(globalThis, "window", {
   value: events,
   configurable: true,
+});
+
+test('offline customers created on this device remain selectable without applying rejected edits',()=>{
+ const pending:any={id:'one',path:'/api/sales/customers',method:'POST',data:{name:'New customer'}};
+ const rejected:any={id:'two',path:'/api/sales/customers/existing',method:'PATCH',data:{name:'Wrong'},rejected:true};
+ const result=overlayPending('/api/sales?date=2026-11-14',{customers:[{id:'existing',name:'Existing'}],products:[]},[pending,rejected]);
+ assert.equal(result.customers[0].name,'Existing');assert.equal(result.customers[1].id,'pending:one');
 });
 Object.defineProperty(globalThis, "navigator", {
   value: { onLine: false },
@@ -94,20 +102,29 @@ test("wrong farm and revision conflicts preserve the queued entry for review", a
   assert.equal(queue.length, 1);
   assert.match(queue[0].error!, /Task changed/);
 });
-test("offline cached views are scoped and financial endpoints are never cached", () => {
+test("offline cached views are scoped and financial endpoints are never cached", async () => {
   rememberSession(user);
-  cacheFarmData("/api/cattle", [{ tag: "A1" }]);
-  cacheFarmData("/api/milk", [{ cattleId: "A1", quantity: "0" }]);
-  cacheFarmData("/api/incomes", [{ amount: 100 }]);
-  assert.deepEqual(cachedFarmData("/api/cattle"), [{ tag: "A1" }]);
-  assert.deepEqual(cachedFarmData("/api/milk"), [
+  await cacheFarmData("/api/cattle", [{ tag: "A1" }]);
+  await cacheFarmData("/api/milk", [{ cattleId: "A1", quantity: "0" }]);
+  await cacheFarmData("/api/incomes", [{ amount: 100 }]);
+  assert.deepEqual(await cachedFarmData("/api/cattle"), [{ tag: "A1" }]);
+  assert.deepEqual(await cachedFarmData("/api/milk"), [
     { cattleId: "A1", quantity: "0" },
   ]);
-  assert.equal(cachedFarmData("/api/incomes"), undefined);
+  assert.equal(await cachedFarmData("/api/incomes"), undefined);
   rememberSession({ ...user, tenantId: "farm-b" });
-  assert.equal(cachedFarmData("/api/cattle"), undefined);
-  assert.equal(cachedFarmData("/api/milk"), undefined);
+  assert.equal(await cachedFarmData("/api/cattle"), undefined);
+  assert.equal(await cachedFarmData("/api/milk"), undefined);
   rememberSession(null);
   assert.equal(rememberedSession(), null);
-  assert.equal(cachedFarmData("/api/cattle"), undefined);
+  assert.equal(await cachedFarmData("/api/cattle"), undefined);
+});
+
+
+test("a rejected queue entry does not stop unrelated entries from syncing",async()=>{
+ await saveOfflineOperation(user,'/events',{notes:'conflict'});
+ await saveOfflineOperation(user,'/events',{notes:'independent'});
+ globalThis.fetch=async(url,init)=> url==='/api/auth/user'?response(user): JSON.parse(String(init?.body)).notes==='conflict'?response({error:'Review record'},409):response({id:'accepted'});
+ await assert.rejects(()=>syncOfflineOperations(user),/Review record/);
+ const remaining=await queuedOperations('user-a:farm-a');assert.equal(remaining.length,1);assert.equal(remaining[0].rejected,true);
 });

@@ -1,3 +1,4 @@
+import { farmDay } from "@shared/care";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -38,7 +39,7 @@ const cattleFormSchema = z.object({
   dateOfEntry: z.string().min(1, "Date of entry is required"),
   source: z.enum(["born", "purchased"]),
   purchasePrice: z.string().optional(),
-  status: z.enum(["active", "sold", "dead", "culled"]),
+  status: z.enum(["active", "sold", "dead", "culled", "inactive", "transferred", "archived"]),
   stage: z.enum(["calf", "heifer", "milking", "dry", "pregnant"]),
   species: z.enum(["cattle", "buffalo"]).default("cattle"),
   lifeStage: z.string().optional(),
@@ -95,7 +96,7 @@ export default function AddCattlePage() {
       tagNumber: "",
       name: "",
       gender: "female",
-      dateOfEntry: new Date().toISOString().split("T")[0],
+      dateOfEntry: farmDay(),
       source: "born",
       status: "active",
       stage: "heifer",
@@ -516,7 +517,9 @@ export default function AddCattlePage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status *</FormLabel>
+                        {isEditing&&<p className="text-xs text-muted-foreground">Record exits or reactivation in the animal profile to retain the date and reason.</p>}
                         <Select
+                          disabled={isEditing}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -530,6 +533,9 @@ export default function AddCattlePage() {
                             <SelectItem value="sold">Sold</SelectItem>
                             <SelectItem value="dead">Dead</SelectItem>
                             <SelectItem value="culled">Culled</SelectItem>
+                            <SelectItem value="inactive">Inactive</SelectItem>
+                            <SelectItem value="transferred">Transferred</SelectItem>
+                            <SelectItem value="archived">Archived</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

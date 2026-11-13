@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+const matchedAlerts = new AsyncLocalStorage<Set<string>>();
+import { currentVaccinations } from "@shared/farm-overview";
 import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
 import { db } from "./db";
 import {
@@ -13,10 +16,12 @@ import {
   tenants,
   vaccinations,
   whatsappLogs,
+  tasks,
+  heats,
   type NotificationRule,
   type Tenant,
 } from "@shared/schema";
-import { farmDay, inStage } from "@shared/care";
+import { farmDay, inStage, addDays, finishedTask } from "@shared/care";
 import { whatsappWebGateway } from "./whatsapp-web";
 
 type RuleLike =
@@ -93,6 +98,7 @@ async function createAlert(
 ) {
   const ruleKey = rule.id || rule.ruleType;
   const dedupeKey = `${tenant.id}:${ruleKey}:${data.referenceType}:${data.referenceId}:${data.occurrenceKey}`;
+  matchedAlerts.getStore()?.add(dedupeKey);
   const [created] = await db
     .insert(alerts)
     .values({
@@ -142,7 +148,7 @@ async function createAlert(
 
 function matchesScope(rule: RuleLike, cow: typeof cattle.$inferSelect) {
   return (
-    (!rule.cattleId || rule.cattleId === cow.id) &&
+    (cow.status === "active" || (rule.ruleType === "death" && cow.status === "dead")) && !cow.mergedIntoId && (!rule.cattleId || rule.cattleId === cow.id) &&
     (!rule.cattleStage || inStage(cow, rule.cattleStage))
   );
 }
@@ -160,6 +166,7 @@ function compare(
 }
 
 export async function evaluateTenantRules(tenantId: string): Promise<void> {
+  return matchedAlerts.run(new Set<string>(), async () => {
   const [tenant] = await db
     .select()
     .from(tenants)
@@ -191,6 +198,23 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
       Array.isArray(rule.offsetsDays) && rule.offsetsDays.length
         ? rule.offsetsDays
         : [rule.daysBeforeEvent ?? 0];
+    if (rule.ruleType === 'care_tasks') {
+      if(!rule.channels?.includes('whatsapp')) continue;
+      const work=await db.select().from(tasks).where(eq(tasks.tenantId,tenantId));
+      const phones=Array.from(new Set(await recipientPhones(tenant,rule)));
+      const logs=await db.select().from(whatsappLogs).where(eq(whatsappLogs.tenantId,tenantId));
+      for(const task of work) {
+        const cow=task.cattleId?cows.find(c=>c.id===task.cattleId):null;
+        if(finishedTask(task.status)||!task.dueDate||task.dueDate>addDays(today,Math.max(...offsets))||(task.cattleId&&(!cow||!matchesScope(rule,cow))))continue;
+        const nowTime=new Intl.DateTimeFormat('en-GB',{timeZone:cfg?.timezone||'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now);
+        if(task.dueDate===today&&task.dueTime&&task.dueTime>nowTime)continue;
+        const trigger=`care_tasks:${rule.id}:${today}`;
+        for(const phone of phones)if(!logs.some(l=>l.referenceId===task.id&&l.triggerType===trigger&&l.toPhone===phone))
+          await db.insert(whatsappLogs).values({tenantId,toPhone:phone,messageType:'text',status:'pending',attempts:0,nextAttemptAt:now,referenceType:'care_task',referenceId:task.id,triggerType:trigger,
+            message:renderTemplate(rule.messageTemplate,{farm:tenant.name,title:task.title,message:`${cow?.tagNumber||'Farm'}: ${task.title}. Due ${task.dueDate}${task.dueTime?' '+task.dueTime:''}. ${task.description||''}`,cattle:cow?.tagNumber||''})});
+      }
+      continue;
+    }
 
     if (rule.ruleType === "birth_followup") {
       const births = await db
@@ -199,7 +223,8 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
         .where(eq(calvings.tenantId, tenantId));
       for (const birth of births) {
         const ageDays = daysBetween(now, new Date(birth.date));
-        if (!offsets.includes(ageDays)) continue;
+        const checkpoint=offsets.filter(o=>ageDays>=o).sort((a,b)=>b-a)[0];
+        if (checkpoint==null || birth.outcome === "abortion" || birth.outcome === "stillborn") continue;
         const calf = birth.calfId
           ? cows.find((c) => c.id === birth.calfId)
           : undefined;
@@ -212,7 +237,7 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
           cattleId: calf?.id || mother?.id,
           referenceType: "birth_followup",
           referenceId: birth.id,
-          occurrenceKey: `day-${ageDays}`,
+          occurrenceKey: `day-${checkpoint}`,
           title: `Calf follow-up: ${cattleName}`,
           message:
             ageDays === 0
@@ -229,13 +254,14 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
       )) {
         const eventDate = cow.updatedAt || cow.createdAt || now;
         const elapsed = daysBetween(now, new Date(eventDate));
-        if (!offsets.includes(elapsed)) continue;
+        const checkpoint=offsets.filter(o=>elapsed>=o).sort((a,b)=>b-a)[0];
+        if (checkpoint==null) continue;
         await createAlert(tenant, rule, {
           type: "health",
           cattleId: cow.id,
           referenceType: "cattle_death",
           referenceId: cow.id,
-          occurrenceKey: `day-${elapsed}`,
+          occurrenceKey: `day-${checkpoint}`,
           title: `Cattle death recorded: ${cow.name || cow.tagNumber}`,
           message: `${cow.name || cow.tagNumber} is recorded as dead. Review records and complete the configured follow-up.`,
         });
@@ -261,7 +287,8 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
               (totals.get(r.date) || 0) + Number(r.quantity || 0),
             ),
           );
-        const dates = Array.from(totals.keys()).sort();
+        const sessions = cfg?.milkingSessions === 3 ? ["morning","evening","night"] : ["morning","evening"];
+        const dates = Array.from(totals.keys()).filter(d => sessions.every(session => records.some(r => r.cattleId === cow.id && r.date === d && r.session === session))).sort();
         if (dates.length < 2) continue;
         const latestDate = dates[dates.length - 1];
         const previous = dates
@@ -310,6 +337,7 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
     }
 
     if (rule.ruleType === "heat_due") {
+      const observed = await db.select().from(heats).where(eq(heats.tenantId,tenantId));
       const services = await db
         .select()
         .from(inseminations)
@@ -319,21 +347,22 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
         .from(calvings)
         .where(eq(calvings.tenantId, tenantId));
       for (const cow of cows.filter(
-        (c) => ["milking", "heifer"].includes(c.stage) && matchesScope(rule, c),
+        (c) => c.gender === "female" && !inStage(c,"pregnant") && ["milking", "heifer"].some(stage => inStage(c,stage)) && matchesScope(rule, c),
       )) {
         const dates = [
           ...services.filter((x) => x.cattleId === cow.id).map((x) => x.date),
-          ...births.filter((x) => x.cattleId === cow.id).map((x) => x.date),
+          ...observed.filter(x=>x.cattleId===cow.id).map(x=>farmDay(cfg?.timezone||'Asia/Kolkata',new Date(x.detectedAt))),
         ].sort();
         const latest = dates[dates.length - 1];
-        if (!latest || !offsets.includes(daysBetween(now, new Date(latest))))
+        const checkpoint=latest?offsets.filter(o=>daysBetween(now,new Date(latest))>=o).sort((a,b)=>b-a)[0]:undefined;
+        if (!latest || checkpoint==null || births.some(b=>b.cattleId===cow.id&&b.date>=latest))
           continue;
         await createAlert(tenant, rule, {
           type: "breeding",
           cattleId: cow.id,
           referenceType: "heat_due",
           referenceId: cow.id,
-          occurrenceKey: today,
+          occurrenceKey: `${latest}:${checkpoint}`,
           title: `Heat due: ${cow.name || cow.tagNumber}`,
           message: `${cow.name || cow.tagNumber} is due for heat observation.`,
         });
@@ -353,14 +382,15 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
       for (const service of services) {
         const cow = cows.find((c) => c.id === service.cattleId);
         const elapsed = daysBetween(now, new Date(service.date));
+        const checkpoint=offsets.filter(o=>elapsed>=o).sort((a,b)=>b-a)[0];
         if (
-          !cow ||
+          !cow || inStage(cow,"pregnant") || (cow.breedingCycleId && cow.breedingCycleId !== service.id) ||
           !matchesScope(rule, cow) ||
-          !offsets.includes(elapsed) ||
+          checkpoint == null ||
           tests.some(
             (t) =>
-              t.cattleId === cow.id &&
-              new Date(t.testDate) > new Date(service.date),
+              t.cattleId === cow.id && t.result !== "inconclusive" &&
+              new Date(t.testDate) >= new Date(service.date),
           )
         )
           continue;
@@ -369,7 +399,7 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
           cattleId: cow.id,
           referenceType: "pt_due",
           referenceId: service.id,
-          occurrenceKey: `day-${elapsed}`,
+          occurrenceKey: `day-${checkpoint}`,
           title: `Pregnancy test due: ${cow.name || cow.tagNumber}`,
           message: `${cow.name || cow.tagNumber} was inseminated ${elapsed} days ago.`,
         });
@@ -382,18 +412,19 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
         .select()
         .from(vaccinations)
         .where(eq(vaccinations.tenantId, tenantId));
-      for (const vaccination of records) {
+      for (const vaccination of currentVaccinations(records,cows,today)) {
         if (!vaccination.nextDueDate) continue;
         const cow = cows.find((c) => c.id === vaccination.cattleId);
         const daysUntil = daysBetween(new Date(vaccination.nextDueDate), now);
-        if (!cow || !matchesScope(rule, cow) || !offsets.includes(daysUntil))
+        const checkpoint=offsets.filter(o=>daysUntil<=o).sort((a,b)=>a-b)[0];
+        if (!cow || !matchesScope(rule, cow) || checkpoint==null)
           continue;
         await createAlert(tenant, rule, {
           type: "health",
           cattleId: cow.id,
           referenceType: "vaccination",
           referenceId: vaccination.id,
-          occurrenceKey: `before-${daysUntil}`,
+          occurrenceKey: `before-${checkpoint}`,
           title: `Vaccination due: ${cow.name || cow.tagNumber}`,
           message: `${vaccination.vaccineName} is due ${daysUntil === 0 ? "today" : `in ${daysUntil} day(s)`}.`,
         });
@@ -426,6 +457,11 @@ export async function evaluateTenantRules(tenantId: string): Promise<void> {
       }
     }
   }
+  for (const alert of await db.select().from(alerts).where(eq(alerts.tenantId,tenantId))) {
+    if(alert.ruleId && !alert.isDismissed && !matchedAlerts.getStore()!.has(alert.dedupeKey || ''))
+      await db.update(alerts).set({isDismissed:true}).where(eq(alerts.id,alert.id));
+  }
+  });
 }
 
 export async function evaluateAllTenants(): Promise<void> {
@@ -433,7 +469,7 @@ export async function evaluateAllTenants(): Promise<void> {
     .select({ id: tenants.id })
     .from(tenants)
     .where(eq(tenants.isActive, true));
-  for (const tenant of active) await evaluateTenantRules(tenant.id);
+  for (const tenant of active) { try { await evaluateTenantRules(tenant.id); } catch(error) { console.error("Notification evaluation failed for farm",tenant.id,error); } }
 }
 
 export async function queueWhatsappMessage(
@@ -476,6 +512,8 @@ export async function queueWhatsappBroadcast(message: string) {
 }
 
 export async function processWhatsappOutbox(limit = 25): Promise<void> {
+  await db.update(whatsappLogs).set({status:'review_required',errorMessage:'Delivery acknowledgement was interrupted. Verify the recipient/gateway before retrying to avoid duplicate messages.'})
+    .where(and(eq(whatsappLogs.status,'processing'),lte(whatsappLogs.nextAttemptAt,new Date())));
   if (whatsappWebGateway.getStatus().state !== "connected") return;
   const pending = await db
     .select()
@@ -492,7 +530,7 @@ export async function processWhatsappOutbox(limit = 25): Promise<void> {
   for (const log of pending) {
     const [claimed] = await db
       .update(whatsappLogs)
-      .set({ status: "processing" })
+      .set({ status: "processing", nextAttemptAt: new Date(Date.now()+10*60_000) })
       .where(
         and(
           eq(whatsappLogs.id, log.id),

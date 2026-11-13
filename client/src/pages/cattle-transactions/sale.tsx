@@ -1,3 +1,5 @@
+import { farmDay } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -60,7 +62,7 @@ export default function CattleSalePage() {
     resolver: zodResolver(saleSchema),
     defaultValues: {
       cattleId: "",
-      saleDate: new Date().toISOString().split("T")[0],
+      saleDate: farmDay(),
       amount: "",
       partyName: "",
       partyPhone: "",
@@ -71,6 +73,8 @@ export default function CattleSalePage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const selectedCattleId = form.watch("cattleId");
   const isFullPayment = form.watch("isFullPayment");
@@ -110,19 +114,6 @@ export default function CattleSalePage() {
         notes: data.notes || null,
       });
       const transaction = await transactionRes.json();
-      
-      if (Number(paymentAmount) > 0) {
-        await apiRequest("POST", `/api/cattle-transactions/${transaction.id}/payments`, {
-          date: data.saleDate,
-          amount: paymentAmount,
-          paymentMethod: data.paymentMethod,
-          notes: "Payment at sale",
-        });
-      }
-      
-      await apiRequest("PATCH", `/api/cattle/${data.cattleId}`, {
-        status: "sold",
-      });
       
       return transaction;
     },

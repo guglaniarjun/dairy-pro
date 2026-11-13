@@ -22,6 +22,7 @@ import { rows, buildDailyReport } from "../server/care-service";
 import { evaluateCare } from "../server/care-worker";
 import { reportWorkbook, reportPdf } from "../server/report-export";
 import ExcelJS from "exceljs";
+import { dailyBrief } from "../shared/daily-brief";
 let engine: any,
   app: any,
   owner: any,
@@ -137,6 +138,33 @@ before(async () => {
 after(async () => {
   await engine?.close();
   await pool.end();
+});
+
+test("daily brief repeats dry-off and culling countdowns, includes approved transition diets, and stops completed work", async () => {
+  const animal = await post("/api/cattle", {
+    tagNumber: "REPORT-COUNTDOWN", dateOfEntry: today, gender: "female", stage: "milking",
+    productionStatus: "lactating", lifeStage: "adult",
+  });
+  await post("/api/operations/events", { cattleId: animal.id, type: "expected_calving", date: today, details: { expectedDate: addDays(today, 20) } });
+  const feed = await post("/api/inventory", { name: "Approved transition feed", unit: "kg", currentStock: "0" });
+  await post("/api/operations/diets", { name: "Approved transition plan", cattleId: animal.id, startDate: today,
+    ingredients: [{ itemId: feed.id, quantity: 2 }], instructions: "Approved instructions REF-20; check intake daily" });
+  const planned = await post("/api/tasks", { cattleId: animal.id, title: "Planned culling review", type: "other", dueDate: addDays(today, 5) });
+  let report = await buildDailyReport(farm.id, today);
+  let brief = dailyBrief(report);
+  assert.ok(brief.actions.some(t => t.id === planned.id && t.countdown === "5 days left"));
+  assert.ok(brief.actions.some(t => t.id === `transition:${animal.id}` && t.instructions.includes("REF-20") && t.instructions.includes("2 kg")));
+  assert.equal(brief.actions.filter(t => t.cattleId === animal.id && /dry.off/i.test(t.title)).length, 1, "Do not duplicate the scheduled dry-off with a synthetic reminder");
+  brief = dailyBrief(await buildDailyReport(farm.id, addDays(today, 1)));
+  assert.ok(brief.actions.some(t => t.id === planned.id && t.countdown === "4 days left"));
+  const dryTask = report.tasks.find((t: any) => t.cattleId === animal.id && t.sourceKey?.endsWith(":dry"));
+  assert.equal((await owner.patch(`/api/tasks/${dryTask.id}`).send({ status: "completed" })).status, 400, "A generic checkbox must not silently complete dry-off without the animal event");
+  await post("/api/operations/events", { cattleId: animal.id, type: "dry_off", date: today });
+  brief = dailyBrief(await buildDailyReport(farm.id, today));
+  assert.equal(brief.actions.filter(t => t.cattleId === animal.id && /dry.off/i.test(t.title) && t.status !== "completed").length, 0);
+  ok(await owner.patch(`/api/cattle/${animal.id}`).send({ status: "culled" }));
+  brief = dailyBrief(await buildDailyReport(farm.id, today));
+  assert.equal(brief.actions.some(t => t.id === planned.id), false, "Culled animals must not keep open culling reminders");
 });
 test("independent statuses allow pregnant animals to remain in milk", async () => {
   await post("/api/operations/events", {
@@ -1377,4 +1405,127 @@ test("legacy treatments remain in individual reports and enforce milk withdrawal
       ),
     true,
   );
+});
+
+
+test("audit: purchase is atomic and initial payment is recorded once", async()=>{
+ const result=await post('/api/operations/cattle-purchase',{animal:{tagNumber:'AUDIT-BUY',dateOfEntry:today,gender:'female',species:'buffalo',lifeStage:'adult',productionStatus:'lactating',reproductiveStatus:'unserved'},transaction:{date:today,amount:'100',paidAmount:'20',paymentMethod:'cash'}});
+ assert.equal(result.cattle.productionStatus,'lactating');
+ const payments=(await rows(s.cattlePayments,farm.id)).filter(p=>p.transactionId===result.transaction.id);
+ assert.equal(payments.length,1);assert.equal(Number(payments[0].amount),20);
+ const bad=await owner.post('/api/operations/cattle-purchase').send({animal:{tagNumber:'AUDIT-BAD-BUY',dateOfEntry:today,gender:'female',productionStatus:'dry',lifeStage:'adult'},transaction:{date:today,amount:'100',paidAmount:'200'}});
+ assert.ok(bad.status>=400);assert.equal((await rows(s.cattle,farm.id)).some(a=>a.tagNumber==='AUDIT-BAD-BUY'),false);
+});
+
+test("audit: advance calving alert, event completion guard and stable revisions",async()=>{
+ const animal=await post('/api/cattle',{tagNumber:'AUDIT-CALVING',dateOfEntry:today,gender:'female',stage:'milking',productionStatus:'lactating'});
+ await post('/api/operations/events',{cattleId:animal.id,type:'expected_calving',date:today,details:{expectedDate:addDays(today,10)}});
+ const before=(await rows(s.cattle,farm.id)).find(a=>a.id===animal.id);
+ await evaluateCare(farm.id);
+ const tasks=(await rows(s.tasks,farm.id)).filter(t=>t.cattleId===animal.id);
+ const calving=tasks.find(t=>t.sourceKey?.endsWith(':calving'));
+ assert.ok((await rows(s.alerts,farm.id)).some(a=>a.referenceId===calving.id&&!a.isDismissed));
+ assert.equal((await owner.post('/api/operations/tasks/'+calving.id+'/complete').send({date:today,evidence:'checkbox'})).status,409);
+ assert.equal((await rows(s.cattle,farm.id)).find(a=>a.id===animal.id).revision,before.revision);
+ assert.equal((await owner.post('/api/breeding/inseminations').send({cattleId:animal.id,date:addDays(today,-60),method:'ai'})).status,409);
+ await post('/api/operations/events',{cattleId:animal.id,type:'status_change',date:today,details:{productionStatus:'dry'}});
+ assert.equal((await rows(s.tasks,farm.id)).find(t=>t.cattleId===animal.id&&t.sourceKey?.endsWith(':dry')).status,'completed');
+});
+
+test("audit: vaccine identities, superseded doses and follow-up completion",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-VACCINE',dateOfEntry:today});
+ const first=await post('/api/vaccinations',{cattleId:a.id,vaccineName:'Alpha',vaccineId:null,date:addDays(today,-10),nextDueDate:today});
+ await post('/api/vaccinations',{cattleId:a.id,vaccineName:'Beta',vaccineId:null,date:addDays(today,-5),nextDueDate:addDays(today,10)});
+ await evaluateCare(farm.id);
+ let work=(await rows(s.tasks,farm.id)).filter(t=>t.cattleId===a.id&&t.status==='pending'&&t.sourceKey?.startsWith('vaccine:'));
+ assert.equal(work.length,2);
+ assert.equal((await owner.post('/api/operations/tasks/'+work[0].id+'/complete').send({date:today,evidence:'done'})).status,409);
+ await post('/api/vaccinations',{cattleId:a.id,vaccineName:'Alpha',date:today,nextDueDate:null});
+ await evaluateCare(farm.id);
+ work=(await rows(s.tasks,farm.id)).filter(t=>t.cattleId===a.id&&t.status==='pending'&&t.sourceKey?.startsWith('vaccine:'));
+ assert.equal(work.length,1);assert.match(work[0].title,/Beta/);
+});
+
+test("audit: age eligibility uses action date and illness resolution preserves yesterday",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-AGE',dateOfEntry:today,dateOfBirth:addDays(today,-60),lifeStage:'calf'});
+ const p=await post('/api/operations/protocols',{name:'Synthetic age review',trigger:'age',eligibility:{minAgeDays:30},steps:[{title:'Age review',offsetDays:30}]});
+ await post('/api/operations/protocols/'+p.id+'/approve',{note:'Synthetic approval'},owner,200);
+ assert.ok((await rows(s.tasks,farm.id)).some(t=>t.protocolId===p.id&&t.cattleId===a.id));
+ const h=await post('/api/health',{cattleId:a.id,date:addDays(today,-5),eventType:'illness',description:'Synthetic illness',severity:'critical',status:'active'});
+ assert.ok((await rows(s.tasks,farm.id)).some(t=>t.sourceKey==='health:'+h.id&&t.priority==='urgent'));
+ ok(await owner.patch('/api/health/'+h.id).send({status:'resolved'}));
+ const report=await buildDailyReport(farm.id,addDays(today,-1));assert.ok(report.activeHealth.some(hh=>hh.id===h.id));
+});
+
+test("audit: post-sale milk correction rolls back and future allocations fail",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-MILK-CORRECTION',dateOfEntry:today,stage:'milking',productionStatus:'lactating'});
+ const date=addDays(today,-100);
+ const m=await post('/api/milk',{cattleId:a.id,date,session:'morning',quantity:10});
+ await post('/api/milk-sales',{date,quantity:8,pricePerLiter:40});
+ assert.equal((await owner.patch('/api/operations/milk/'+m.id).send({quantity:2,reason:'Correction'})).status,409);
+ assert.equal(Number((await rows(s.milkEntries,farm.id)).find(v=>v.id===m.id).quantity),10);
+ assert.equal((await owner.post('/api/operations/milk-disposition').send({date:addDays(today,5),kind:'calf_feed',quantity:100})).status,400);
+});
+
+test("audit: exit preserves history, reactivation reviews care, abortion appears in calving history",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-EXIT',dateOfEntry:today,stage:'milking',gender:'female',productionStatus:'lactating'});
+ await post('/api/milk',{cattleId:a.id,date:today,session:'morning',quantity:2});
+ await post('/api/operations/cattle/'+a.id+'/status',{status:'inactive',date:today,reason:'Temporary move'},owner,200);
+ assert.equal((await rows(s.milkEntries,farm.id)).filter(m=>m.cattleId===a.id).length,1);
+ await post('/api/operations/cattle/'+a.id+'/status',{status:'active',date:today,reason:'Returned'},owner,200);
+ await post('/api/operations/events',{cattleId:a.id,type:'expected_calving',date:today,details:{expectedDate:addDays(today,30)}});
+ await post('/api/breeding/calvings',{cattleId:a.id,date:today,outcome:'abortion'});
+ assert.ok((await rows(s.calvings,farm.id)).some(c=>c.cattleId===a.id&&c.outcome==='abortion'));
+ assert.equal((await rows(s.cattle,farm.id)).find(c=>c.id===a.id).expectedCalvingDate,null);
+});
+
+
+test("audit: dismissed work returns tomorrow and postponement clears stale alerts",async()=>{
+ const task=await post('/api/tasks',{title:'Audit persistent review',type:'other',dueDate:addDays(today,-1)});
+ await evaluateCare(farm.id);let alert=(await rows(s.alerts,farm.id)).find(a=>a.referenceId===task.id&&!a.isDismissed);assert.ok(alert);
+ ok(await owner.patch('/api/alerts/'+alert.id).send({isDismissed:true}));
+ await evaluateCare(farm.id);assert.equal((await rows(s.alerts,farm.id)).find(a=>a.id===alert.id).isDismissed,true);
+ await evaluateCare(farm.id,new Date(addDays(today,1)+'T10:00:00Z'));
+ assert.equal((await rows(s.alerts,farm.id)).find(a=>a.id===alert.id).isDismissed,false);
+ await owner.patch('/api/operations/tasks/'+task.id).send({status:'postponed',reason:'Reviewed new date',dueDate:addDays(today,10)});
+ await evaluateCare(farm.id);assert.equal((await rows(s.alerts,farm.id)).some(a=>a.referenceId===task.id&&!a.isDismissed),false);
+});
+
+test("audit: settings reschedule open pregnancy checks and heifer review uses stored days",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-SETTINGS',dateOfEntry:today,gender:'female',lifeStage:'heifer',dateOfBirth:addDays(today,-400)});
+ const ai=await post('/api/breeding/inseminations',{cattleId:a.id,date:today,method:'ai'});
+ const cfg=ok(await owner.get('/api/farm-settings'));
+ ok(await owner.put('/api/farm-settings').send({pregnancyTestDays:40,heiferInseminationAgeDays:500}));
+ assert.equal((await rows(s.tasks,farm.id)).find(t=>t.sourceKey==='service:'+ai.id+':test').dueDate,addDays(today,40));
+ ok(await owner.put('/api/farm-settings').send({pregnancyTestDays:cfg.pregnancyTestDays,heiferInseminationAgeDays:cfg.heiferInseminationAgeDays||365}));
+});
+
+test("audit: reversing a mistaken sale retains its audit and cancels its balance",async()=>{
+ const a=await post('/api/cattle',{tagNumber:'AUDIT-VOID',dateOfEntry:today,productionStatus:'dry'});
+ const tx=await post('/api/cattle-transactions',{cattleId:a.id,type:'sale',date:today,amount:'100',paidAmount:'20',paymentMethod:'cash'});
+ const corrected=await post('/api/operations/cattle-transactions/'+tx.id+'/void',{date:today,reason:'Wrong animal selected',confirmIncorrectRecord:true},owner,200);
+ assert.equal(corrected.paymentStatus,'voided');
+ assert.equal((await rows(s.cattle,farm.id)).find(c=>c.id===a.id).status,'active');
+ assert.equal((await rows(s.cattlePayments,farm.id)).filter(p=>p.transactionId===tx.id).reduce((n,p)=>n+Number(p.amount),0),0);
+ assert.ok((await rows(s.farmEvents,farm.id)).some(e=>e.type==='cattle_transaction_voided'&&e.payload.before.id===tx.id));
+ assert.equal((await owner.post('/api/cattle-transactions/'+tx.id+'/payments').send({amount:5,date:today})).status,409);
+});
+
+test("audit: mobile snapshot enforces farm permissions and coverage review recurs",async()=>{
+ const view=ok(await worker.get('/api/operations/mobile-snapshot'));
+ assert.equal(view.tenantId,farm.id);assert.ok(view.data['/api/cattle']);assert.equal(view.data['/api/incomes'],undefined);assert.equal(view.data['/api/cattle-costs'],undefined);
+ const review=await post('/api/operations/coverage',{key:'milking_hygiene',date:today,interval:1,instructions:'Reviewed cleaning checklist'});
+ await post('/api/operations/tasks/'+review.id+'/complete',{date:today,evidence:'Checklist recorded'},owner,200);
+ assert.ok((await rows(s.tasks,farm.id)).some(t=>t.sourceKey==='coverage:milking_hygiene:'+review.id&&t.dueDate===addDays(today,1)));
+ assert.equal(ok(await owner.get('/api/operations/coverage')).categories.find(c=>c.key==='milking_hygiene').scheduled,1);
+});
+
+
+test("audit: historical reports default to a saved revision and explicit rebuild remains available",async()=>{
+ const date=addDays(today,-3);
+ const saved=await post('/api/operations/daily-report',{date});
+ const loaded=ok(await owner.get('/api/operations/daily-report?date='+date));
+ assert.equal(loaded.revision,saved.revision);assert.equal(loaded.generatedAt,saved.generatedAt);
+ const rebuilt=ok(await owner.get('/api/operations/daily-report?date='+date+'&live=1'));
+ assert.equal(rebuilt.revision,null);
 });

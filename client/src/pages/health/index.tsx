@@ -1,3 +1,6 @@
+import { farmDay } from "@shared/care";
+import { daysUntil } from "@shared/farm-overview";
+import { cattleAction } from "@/hooks/use-cattle-context";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
@@ -32,6 +35,9 @@ export default function HealthPage() {
   const search = useSearch();
   const urlCattleId = new URLSearchParams(search).get("cattleId");
   const urlTab = new URLSearchParams(search).get("tab");
+  const urlFilter = new URLSearchParams(search).get("filter") || "all";
+  const [vacFilter, setVacFilter] = useState(urlFilter);
+  useEffect(() => setVacFilter(urlFilter), [urlFilter]);
   const urlStatus = new URLSearchParams(search).get("status");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -57,17 +63,19 @@ export default function HealthPage() {
   const resolveMutation = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/health/${id}`, { status: "resolved" }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/health"] });
+      queryClient.invalidateQueries();
       toast({ title: "Issue marked as resolved" });
     },
+    onError: (error: Error) => toast({ title: "Could not resolve issue", description: error.message, variant: "destructive" }),
   });
 
   const getCowName = (id: number | string) => {
     const c = cattle.find((c: any) => c.id === id || c.id === Number(id));
-    return c?.name || c?.tagNumber || `#${id}`;
+    return c ? [c.tagNumber, c.name].filter(Boolean).join(" · ") : `#${id}`;
   };
 
-  const filteredEvents = healthEvents.filter((e: any) => {
+  const scopedEvents = healthEvents.filter(e => (cattleFilter === "all" || e.cattleId === cattleFilter) && getCowName(e.cattleId).toLowerCase().includes(searchQuery.toLowerCase()) && (typeFilter === "all" || e.eventType === typeFilter));
+  const filteredEvents = scopedEvents.filter((e: any) => {
     const matchesSearch = getCowName(e.cattleId).toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = typeFilter === "all" || e.eventType === typeFilter;
     const matchesStatus = statusFilter === "all" || e.status === statusFilter;
@@ -77,17 +85,20 @@ export default function HealthPage() {
 
   const filteredCow = cattleFilter !== "all" ? cattle.find((c: any) => c.id === cattleFilter) : null;
 
-  const now = new Date();
-  const vacOverdue = vaccinationsDue.filter((v: any) => differenceInDays(parseISO(v.nextDueDate), now) < 0).length;
-  const vacDueSoon = vaccinationsDue.filter((v: any) => {
-    const d = differenceInDays(parseISO(v.nextDueDate), now);
+  const { data: preferences } = useQuery<any>({ queryKey: ["/api/operations/preferences"] });
+  const today = farmDay(preferences?.timezone);
+  const scopedVaccinations = vaccinationsDue.filter(v => cattleFilter === "all" || v.cattleId === cattleFilter);
+  const vacOverdue = scopedVaccinations.filter((v: any) => daysUntil(v.nextDueDate, today) < 0).length;
+  const vacDueSoon = scopedVaccinations.filter((v: any) => {
+    const d = daysUntil(v.nextDueDate, today);
     return d >= 0 && d <= 7;
   }).length;
 
   // Group vaccination due by cattle
   const vacDueByCattle: Record<string, any[]> = {};
-  vaccinationsDue.forEach((v: any) => {
-    const name = getCowName(v.cattleId);
+  const matchingVaccinations = scopedVaccinations.filter(v => (cattleFilter === "all" || v.cattleId === cattleFilter) && (vacFilter === "overdue" ? v.nextDueDate < today : vacFilter === "upcoming" ? v.nextDueDate >= today : vacFilter === "week" ? daysUntil(v.nextDueDate, today) >= 0 && daysUntil(v.nextDueDate, today) <= 7 : true));
+  matchingVaccinations.forEach((v: any) => {
+    const name = v.cattleId;
     if (!vacDueByCattle[name]) vacDueByCattle[name] = [];
     vacDueByCattle[name].push(v);
   });
@@ -107,12 +118,12 @@ export default function HealthPage() {
           <p className="text-muted-foreground text-sm">Track health events, vaccinations and treatments</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/health/vaccination">
+          <Link href={cattleAction("/health/vaccination", cattleFilter)}>
             <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-vaccination">
               <Syringe className="w-4 h-4" /> Vaccinate
             </Button>
           </Link>
-          <Link href="/health/new">
+          <Link href={cattleAction("/health/new", cattleFilter)}>
             <Button size="sm" className="gap-1.5" data-testid="button-report-illness">
               <Plus className="w-4 h-4" /> Report Issue
             </Button>
@@ -146,12 +157,12 @@ export default function HealthPage() {
           onClick={() => { setActiveTab("issues"); setStatusFilter("active"); }}
           data-testid="stat-active-issues"
         >
-          <div className="text-2xl font-bold text-red-600">{healthEvents.filter((e: any) => e.status === "active").length}</div>
+          <div className="text-2xl font-bold text-red-600">{scopedEvents.filter((e: any) => e.status === "active").length}</div>
           <div className="text-xs text-muted-foreground">Active Issues →</div>
         </button>
         <button
           className="rounded-xl p-3 bg-orange-50 dark:bg-orange-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => setActiveTab("vaccinations")}
+          onClick={() => { setActiveTab("vaccinations"); setVacFilter("overdue"); }}
           data-testid="stat-vac-overdue"
         >
           <div className="text-2xl font-bold text-orange-600">{vacOverdue}</div>
@@ -159,7 +170,7 @@ export default function HealthPage() {
         </button>
         <button
           className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/40 text-center cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => setActiveTab("vaccinations")}
+          onClick={() => { setActiveTab("vaccinations"); setVacFilter("week"); }}
           data-testid="stat-vac-due-soon"
         >
           <div className="text-2xl font-bold text-amber-600">{vacDueSoon}</div>
@@ -170,7 +181,7 @@ export default function HealthPage() {
           onClick={() => { setActiveTab("issues"); setStatusFilter("resolved"); }}
           data-testid="stat-resolved"
         >
-          <div className="text-2xl font-bold text-green-600">{healthEvents.filter((e: any) => e.status === "resolved").length}</div>
+          <div className="text-2xl font-bold text-green-600">{scopedEvents.filter((e: any) => e.status === "resolved").length}</div>
           <div className="text-xs text-muted-foreground">Resolved →</div>
         </button>
       </div>
@@ -276,11 +287,12 @@ export default function HealthPage() {
 
         {/* Vaccinations Due Tab */}
         <TabsContent value="vaccinations">
-          {vaccinationsDue.length === 0 ? (
+          <div className="flex flex-wrap gap-2 mb-4">{[["all", "All due"], ["overdue", "Overdue"], ["upcoming", "Next 30 days"], ["week", "This week"]].map(([value, label]) => <Button key={value} size="sm" variant={vacFilter === value ? "default" : "outline"} onClick={() => setVacFilter(value)}>{label}</Button>)}</div>
+          {matchingVaccinations.length === 0 ? (
             <div className="text-center py-12">
               <CheckCircle2 className="w-16 h-16 mx-auto text-green-400 mb-4" />
-              <p className="font-semibold text-lg mb-1">All vaccinations up to date!</p>
-              <p className="text-muted-foreground text-sm">No vaccinations due in the next 30 days.</p>
+              <p className="font-semibold text-lg mb-1">No matching vaccinations due</p>
+              <p className="text-muted-foreground text-sm">Try another date filter or animal.</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -290,21 +302,21 @@ export default function HealthPage() {
                     <div className="flex items-center gap-3 mb-2">
                       <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg">💉</div>
                       <div className="flex-1">
-                        <p className="font-semibold">{cowName}</p>
+                        <Link href={`/cattle/${cowName}`} className="font-semibold text-primary">{getCowName(cowName)}</Link>
                         <p className="text-xs text-muted-foreground">{vacs.length} vaccination(s) due</p>
                       </div>
                     </div>
                     <div className="space-y-1 ml-13 pl-13">
                       {vacs.map((v: any, i: number) => {
-                        const dueInDays = differenceInDays(parseISO(v.nextDueDate), now);
+                        const dueInDays = daysUntil(v.nextDueDate, today);
                         return (
-                          <div key={i} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5">
+                          <div key={i} className="flex flex-wrap gap-2 items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5">
                             <span className="text-sm">{v.vaccineName}</span>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">{fmtDate(v.nextDueDate)}</span>
                               <DaysBadge days={dueInDays} />
                               <Link href={`/health/vaccination?cattleId=${v.cattleId}&vaccine=${encodeURIComponent(v.vaccineName)}`}>
-                                <Button size="sm" variant="outline" className="h-6 text-xs px-2">Record</Button>
+                                <Button size="sm" variant="outline" className="min-h-10 text-xs px-2">Record</Button>
                               </Link>
                             </div>
                           </div>
@@ -324,7 +336,7 @@ export default function HealthPage() {
             <div className="text-center py-12">
               <Syringe className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
               <p className="text-muted-foreground">No vaccination records yet</p>
-              <Link href="/health/vaccination">
+              <Link href={cattleAction("/health/vaccination", cattleFilter)}>
                 <Button className="mt-4 gap-2">
                   <Plus className="w-4 h-4" /> Record Vaccination
                 </Button>
@@ -332,7 +344,7 @@ export default function HealthPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {vaccinations.slice().reverse().map((v: any) => (
+              {vaccinations.filter(v => cattleFilter === "all" || v.cattleId === cattleFilter).slice().reverse().map((v: any) => (
                 <Card key={v.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg">💉</div>

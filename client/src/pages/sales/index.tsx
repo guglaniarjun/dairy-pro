@@ -476,6 +476,7 @@ export default function SalesPage() {
       </div>
       {query.isLoading && <p>Loading sales…</p>}
       {query.error && <p role="alert">{query.error.message}</p>}
+      {data?.offline&&<p className="rounded border p-3 text-sm">Showing downloaded records. Milk availability was last checked {data.stockAsOf||'at the last sync'}. Pending device entries and changes from other users are confirmed when the VPS sync completes.</p>}
       {data && (
         <>
           {!data.products.length ? (

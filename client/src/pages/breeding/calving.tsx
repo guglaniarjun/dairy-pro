@@ -1,3 +1,6 @@
+import { farmDay } from "@shared/care";
+import { inStage } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -22,6 +25,9 @@ const schema = z.object({
   calfWeight: z.string().optional(),
   calfTagNumber: z.string().optional(),
   notes: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.outcome === "live" && !data.calfTagNumber?.trim()) ctx.addIssue({ code: "custom", path: ["calfTagNumber"], message: "Enter a unique tag to register the live calf." });
+  if (data.outcome === "live" && !["male", "female"].includes(data.calfGender || "")) ctx.addIssue({ code: "custom", path: ["calfGender"], message: "Select the calf's sex." });
 });
 
 export default function RecordCalvingPage() {
@@ -30,14 +36,14 @@ export default function RecordCalvingPage() {
   const params = new URLSearchParams(window.location.search);
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
-  const pregnantCattle = cattle.filter((c: any) => c.stage === "pregnant" && c.status === "active");
+  const pregnantCattle = cattle.filter((c: any) => inStage(c, "pregnant") && c.status === "active" && !c.mergedIntoId);
   const femaleCattle = cattle.filter((c: any) => c.gender === "female" && c.status === "active");
 
   const form = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       cattleId: params.get("cattleId") || "",
-      date: new Date().toISOString().split("T")[0],
+      date: farmDay(),
       outcome: "live" as const,
       calvingEase: "normal" as const,
       calfGender: "",
@@ -46,6 +52,8 @@ export default function RecordCalvingPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const watchOutcome = form.watch("outcome");
 
@@ -56,8 +64,9 @@ export default function RecordCalvingPage() {
       outcome: data.outcome,
       calvingEase: data.calvingEase,
       calfGender: data.calfGender || null,
+      calves: data.outcome === "live" ? [{ tagNumber: data.calfTagNumber, gender: data.calfGender, weight: data.calfWeight ? Number(data.calfWeight) : undefined }] : [],
       calfWeight: data.calfWeight ? parseFloat(data.calfWeight) : null,
-      notes: [data.notes, data.calfTagNumber ? `Calf Tag: ${data.calfTagNumber}` : ""].filter(Boolean).join(" | ") || null,
+      notes: data.notes || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/breeding/calvings"] });
@@ -66,7 +75,7 @@ export default function RecordCalvingPage() {
       toast({ title: "Calving recorded successfully" });
       navigate("/breeding");
     },
-    onError: () => toast({ title: "Failed to record calving", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Calving could not be saved", description: error.message, variant: "destructive" }),
   });
 
   return (
@@ -91,7 +100,7 @@ export default function RecordCalvingPage() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl><SelectTrigger data-testid="select-cattle"><SelectValue placeholder="Select pregnant cattle" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {(pregnantCattle.length > 0 ? pregnantCattle : femaleCattle).map((c: any) => (
+                      {femaleCattle.map((c: any) => (
                         <SelectItem key={c.id} value={String(c.id)}>{c.name ? `${c.name} (${c.tagNumber})` : c.tagNumber}</SelectItem>
                       ))}
                     </SelectContent>
@@ -145,14 +154,14 @@ export default function RecordCalvingPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <FormField control={form.control} name="calfGender" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Calf Gender</FormLabel>
+                        <FormLabel>Calf Gender *</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl><SelectTrigger data-testid="select-calf-gender"><SelectValue placeholder="Select" /></SelectTrigger></FormControl>
                           <SelectContent>
                             <SelectItem value="male">Male (Bull Calf)</SelectItem>
                             <SelectItem value="female">Female (Heifer Calf)</SelectItem>
                           </SelectContent>
-                        </Select>
+                        </Select><FormMessage />
                       </FormItem>
                     )} />
                     <FormField control={form.control} name="calfWeight" render={({ field }) => (
@@ -165,8 +174,8 @@ export default function RecordCalvingPage() {
 
                   <FormField control={form.control} name="calfTagNumber" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Calf Tag Number (register calf separately in Cattle)</FormLabel>
-                      <FormControl><Input placeholder="e.g. C-001 (for reference)" {...field} data-testid="input-calf-tag" /></FormControl>
+                      <FormLabel>Calf Tag Number * (creates the calf record automatically)</FormLabel>
+                      <FormControl><Input placeholder="e.g. C-001" {...field} data-testid="input-calf-tag" /></FormControl><FormMessage />
                     </FormItem>
                   )} />
                 </>

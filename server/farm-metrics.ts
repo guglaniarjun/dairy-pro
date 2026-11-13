@@ -10,126 +10,55 @@ import {
 } from "@shared/schema";
 import { rows, settings } from "./care-service";
 import { farmDay, addDays, isLactating, finishedTask } from "@shared/care";
+import { breedingOverview, pendingWork } from "@shared/farm-overview";
 export async function breedingMetrics(tenantId: string) {
   const cfg = await settings(tenantId),
-    today = farmDay(cfg.timezone),
-    future = addDays(today, 30);
-  const animals = (await rows(cattle, tenantId)).filter(
-    (c) => c.status === "active" && !c.mergedIntoId,
+    today = farmDay(cfg.timezone);
+  const [animals, services, tests, births, observations, work] =
+    await Promise.all([
+      rows(cattle, tenantId),
+      rows(inseminations, tenantId),
+      rows(pregnancyTests, tenantId),
+      rows(calvings, tenantId),
+      rows(heats, tenantId),
+      rows(tasks, tenantId),
+    ]);
+  const b = breedingOverview(
+    animals,
+    services,
+    tests,
+    births,
+    observations,
+    cfg,
+    today,
   );
-  const services = await rows(inseminations, tenantId),
-    tests = await rows(pregnancyTests, tenantId),
-    births = await rows(calvings, tenantId),
-    observations = await rows(heats, tenantId),
-    work = await rows(tasks, tenantId);
-  const confirmed = new Set<string>(),
-    tested = new Set<string>();
-  for (const service of services) {
-    const result = tests
-      .filter((t) => t.inseminationId === service.id)
-      .sort((a, b) => b.testDate.localeCompare(a.testDate))[0];
-    if (result && result.result !== "inconclusive") {
-      tested.add(service.id);
-      if (result.result === "positive") confirmed.add(service.id);
-    }
-  }
-  let expectedHeat = 0,
-    pregnancyTestDue = 0,
-    expectedCalving = 0,
-    dryOffDue = 0,
-    openCattle = 0,
-    repeatBreeders = 0;
-  for (const animal of animals) {
-    const service = services
-      .filter((s) => s.cattleId === animal.id)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const birth = births
-      .filter((b) => b.cattleId === animal.id)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const pregnant =
-      animal.reproductiveStatus === "pregnant" ||
-      (!animal.reproductiveStatus && animal.stage === "pregnant");
-    const failedServices = services.filter(
-      (service) =>
-        service.cattleId === animal.id &&
-        (!birth || service.date > birth.date) &&
-        tested.has(service.id) &&
-        !confirmed.has(service.id),
-    );
-    if (!pregnant && failedServices.length >= 3) repeatBreeders++;
-    if (pregnant && animal.expectedCalvingDate) {
-      if (animal.expectedCalvingDate <= future) expectedCalving++;
-      if (
-        isLactating(animal) &&
-        addDays(animal.expectedCalvingDate, -cfg.dryPeriodDays) <= today
-      )
-        dryOffDue++;
-    }
-    if (
-      service &&
-      (!birth || birth.date < service.date) &&
-      !pregnant &&
-      !tests.some(
-        (t) => t.inseminationId === service.id && t.result !== "inconclusive",
-      ) &&
-      addDays(service.date, cfg.pregnancyTestDays) <= today
-    )
-      pregnancyTestDue++;
-    if (
-      !pregnant &&
-      animal.gender === "female" &&
-      !["calf", "weaned_calf"].includes(animal.lifeStage || animal.stage)
-    ) {
-      openCattle++;
-      const heat = observations
-        .filter((h) => h.cattleId === animal.id)
-        .sort(
-          (a, b) =>
-            new Date(b.detectedAt).valueOf() - new Date(a.detectedAt).valueOf(),
-        )[0];
-      const anchor =
-        service?.date ||
-        (heat ? farmDay(cfg.timezone, new Date(heat.detectedAt)) : null);
-      if (anchor && addDays(anchor, cfg.heatIntervalDays) <= today)
-        expectedHeat++;
-    }
-  }
   return {
     today,
-    repeatBreeders,
-    totalCattle: animals.length,
-    pregnant: animals.filter(
-      (a) =>
-        a.reproductiveStatus === "pregnant" ||
-        (!a.reproductiveStatus && a.stage === "pregnant"),
-    ).length,
-    dry: animals.filter(
+    totalCattle: b.active.length,
+    pregnant: b.pregnant.length,
+    dry: b.active.filter(
       (a) =>
         a.productionStatus === "dry" ||
         (!a.productionStatus && a.stage === "dry"),
     ).length,
-    milking: animals.filter(isLactating).length,
-    heifer: animals.filter((a) => (a.lifeStage || a.stage) === "heifer").length,
-    openCattle,
-    expectedHeat,
-    pregnancyTestDue,
-    expectedPregnancyTests: pregnancyTestDue,
-    expectedCalving,
-    expectedCalvings: expectedCalving,
-    dryOffDue,
+    milking: b.active.filter(isLactating).length,
+    heifer: b.active.filter((a) => (a.lifeStage || a.stage) === "heifer")
+      .length,
+    openCattle: b.open.length,
+    repeatBreeders: b.repeatBreeders.length,
+    expectedHeat: b.heatDue.length,
+    pregnancyTestDue: b.ptDue.length,
+    expectedPregnancyTests: b.ptDue.length,
+    expectedCalving: b.calvingDue.length,
+    expectedCalvings: b.calvingDue.length,
+    dryOffDue: b.dryDue.length,
     totalInseminations: services.length,
-    totalCalvings: births.length,
-    conceptionRate: tested.size
-      ? Math.round((confirmed.size / tested.size) * 100)
-      : null,
-    testedServices: tested.size,
-    confirmedServices: confirmed.size,
-    dewormingDue: work.filter(
-      (t) =>
-        !finishedTask(t.status) &&
-        t.dueDate &&
-        t.dueDate <= today &&
-        /deworm/i.test(t.title),
+    totalCalvings: births.filter(b => b.outcome !== "abortion").length,
+    conceptionRate: b.conceptionRate,
+    testedServices: b.testedServices,
+    confirmedServices: b.confirmedServices,
+    dewormingDue: pendingWork(work, today).filter((t) =>
+      /deworm/i.test(t.title),
     ).length,
   };
 }

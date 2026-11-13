@@ -1,10 +1,15 @@
 import { cacheFarmData, cachedFarmData } from "./offline-cache";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { isAndroid } from './native';
+import { saveOfflineOperation, queuedOperations, scopeFor, overlayPending } from './offline-store';
+import { rememberedSession } from './offline-cache';
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let message = text;
+    try { const body = JSON.parse(text); message = body.error || body.message || text; } catch {}
+    throw new Error(`${res.status}: ${message}`);
   }
 }
 
@@ -13,6 +18,13 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const user:any = queryClient.getQueryData(['/api/auth/user']);
+  if (isAndroid && user?.tenantId && !['GET','HEAD'].includes(method.toUpperCase()) &&
+      /^\/api\/(cattle(?:\/|$|-transactions)|milk(?:\/|$|-sales)|health(?:\/|$)|vaccinations(?:\/|$)|breeding\/|tasks(?:\/|$)|feed(?:\/|$)|sales(?:\/|$)|inventory(?:\/|$)|byproducts(?:\/|$)|expenses(?:\/|$)|incomes(?:\/|$)|operations\/)/.test(url)) {
+    const result=await saveOfflineOperation(user,url,data,method);
+    void queryClient.invalidateQueries();
+    return new Response(JSON.stringify(result),{status:result.queued?202:200,headers:{'Content-Type':'application/json'}});
+  }
   const res = await fetch(url, {
     method,
     headers: {
@@ -35,6 +47,7 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  if (!["GET", "HEAD"].includes(method.toUpperCase())) void queryClient.invalidateQueries();
   return res;
 }
 
@@ -49,8 +62,8 @@ export const getQueryFn: <T>(options: {
     try {
       res = await fetch(url, { credentials: "include" });
     } catch (error) {
-      const cached = cachedFarmData(url);
-      if (cached !== undefined) return cached;
+      const cached = await cachedFarmData(url);
+      if (cached !== undefined) return isAndroid ? overlayPending(url,cached,await queuedOperations(scopeFor(rememberedSession()))) : cached;
       throw error;
     }
 
@@ -60,8 +73,8 @@ export const getQueryFn: <T>(options: {
 
     await throwIfResNotOk(res);
     const data = await res.json();
-    cacheFarmData(url, data);
-    return data;
+    await cacheFarmData(url, data);
+    return isAndroid ? overlayPending(url,data,await queuedOperations(scopeFor(rememberedSession()))) : data;
   };
 
 export const queryClient = new QueryClient({

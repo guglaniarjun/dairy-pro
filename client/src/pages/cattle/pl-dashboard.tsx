@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +50,7 @@ interface CattlePLData {
 }
 
 export default function CattlePLDashboard() {
+  const cattleId = new URLSearchParams(useSearch()).get("cattleId");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -62,7 +63,7 @@ export default function CattlePLDashboard() {
       item.tagNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.name?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && (!cattleId || item.id === cattleId);
   });
 
   const formatCurrency = (amount: number) => {
@@ -82,7 +83,7 @@ export default function CattlePLDashboard() {
   const activeCount = filteredData?.filter(i => i.status === "active").length || 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-6">
       <div className="flex items-center gap-4">
         <Link href="/cattle">
           <Button variant="ghost" size="icon" data-testid="button-back">

@@ -18,6 +18,7 @@ app.use(
     limit: 50,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => req.method === 'GET' && req.path === '/user',
   }),
 );
 app.use((req, res, next) => {

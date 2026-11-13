@@ -1,7 +1,8 @@
+import { AnimalStatus } from "@/components/animal-status";
 import { inStage } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,17 +31,19 @@ import type { Cattle, Breed } from "@shared/schema";
 
 export default function CattleListPage() {
   const search = useSearch();
+  const [, navigate] = useLocation();
   const urlStage = new URLSearchParams(search).get("stage") || "all";
   const urlStatus = new URLSearchParams(search).get("status") || "active";
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string>(urlStage);
-  const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
+  const stageFilter = urlStage;
+  const setStageFilter = (stage: string) => navigate(`/cattle?stage=${stage}&status=${statusFilter}`);
+  const statusFilter = urlStatus;
+  const setStatusFilter = (status: string) => navigate(`/cattle?stage=${stageFilter}&status=${status}`);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
-  useEffect(() => { setStageFilter(urlStage); }, [urlStage]);
-  useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
 
-  const { data: cattle, isLoading } = useQuery<Cattle[]>({
+
+  const { data: cattle, isLoading, error, refetch } = useQuery<Cattle[]>({
     queryKey: ["/api/cattle"],
   });
 
@@ -48,14 +51,16 @@ export default function CattleListPage() {
     queryKey: ["/api/breeds"],
   });
 
-  const filteredCattle = cattle?.filter((cow) => {
+  const matchingCattle = cattle?.filter((cow) => {
     const matchesSearch =
       cow.tagNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       cow.name?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStage = stageFilter === "all" || inStage(cow, stageFilter);
     const matchesStatus = statusFilter === "all" || cow.status === statusFilter;
-    return matchesSearch && matchesStage && matchesStatus;
+    return !cow.mergedIntoId && matchesSearch && matchesStatus;
   });
+
+  const filteredCattle = matchingCattle?.filter(cow => stageFilter === "all" || inStage(cow, stageFilter));
 
   const getBreedName = (breedId: string | null) => {
     if (!breedId) return "Unknown";
@@ -83,15 +88,16 @@ export default function CattleListPage() {
   };
 
   const stageStats = [
-    { label: "Milking", stage: "milking", count: cattle?.filter(c => inStage(c, "milking")).length || 0, color: "text-blue-600", activeRing: "ring-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-950/30" },
-    { label: "Dry", stage: "dry", count: cattle?.filter(c => inStage(c, "dry")).length || 0, color: "text-amber-600", activeRing: "ring-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-950/30" },
-    { label: "Pregnant", stage: "pregnant", count: cattle?.filter(c => inStage(c, "pregnant")).length || 0, color: "text-purple-600", activeRing: "ring-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-950/30" },
-    { label: "Heifers", stage: "heifer", count: cattle?.filter(c => inStage(c, "heifer")).length || 0, color: "text-green-600", activeRing: "ring-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-950/30" },
-    { label: "Calves", stage: "calf", count: cattle?.filter(c => inStage(c, "calf")).length || 0, color: "text-pink-600", activeRing: "ring-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-950/30" },
+    { label: "Milking", stage: "milking", count: matchingCattle?.filter(c => inStage(c, "milking")).length || 0, color: "text-blue-600", activeRing: "ring-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-950/30" },
+    { label: "Dry", stage: "dry", count: matchingCattle?.filter(c => inStage(c, "dry")).length || 0, color: "text-amber-600", activeRing: "ring-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-950/30" },
+    { label: "Pregnant", stage: "pregnant", count: matchingCattle?.filter(c => inStage(c, "pregnant")).length || 0, color: "text-purple-600", activeRing: "ring-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-950/30" },
+    { label: "Heifers", stage: "heifer", count: matchingCattle?.filter(c => inStage(c, "heifer")).length || 0, color: "text-green-600", activeRing: "ring-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-950/30" },
+    { label: "Calves", stage: "calf", count: matchingCattle?.filter(c => inStage(c, "calf")).length || 0, color: "text-pink-600", activeRing: "ring-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-950/30" },
   ];
 
+  if (error) return <div className="p-6" role="alert"><p>Cattle could not be loaded: {error.message}</p><Button onClick={() => refetch()}>Retry</Button></div>;
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -100,7 +106,7 @@ export default function CattleListPage() {
             {cattle?.length || 0} total cattle registered
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/cattle/pl">
             <Button variant="outline" className="gap-2" data-testid="button-pl-dashboard">
               <TrendingUp className="w-4 h-4" />
@@ -173,7 +179,7 @@ export default function CattleListPage() {
             data-testid="input-search-cattle"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Select value={stageFilter} onValueChange={setStageFilter}>
             <SelectTrigger className="w-[140px]" data-testid="select-stage-filter">
               <SelectValue placeholder="Stage" />
@@ -206,7 +212,7 @@ export default function CattleListPage() {
               onClick={() => setViewMode("grid")}
               data-testid="button-view-grid"
             >
-              <Grid3X3 className="w-4 h-4" />
+              <Grid3X3 aria-label="Grid view" className="w-4 h-4" />
             </Button>
             <Button
               variant={viewMode === "list" ? "secondary" : "ghost"}
@@ -214,7 +220,7 @@ export default function CattleListPage() {
               onClick={() => setViewMode("list")}
               data-testid="button-view-list"
             >
-              <List className="w-4 h-4" />
+              <List aria-label="List view" className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -251,18 +257,7 @@ export default function CattleListPage() {
                               Tag: {cow.tagNumber}
                             </p>
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setStageFilter(stageFilter === cow.stage ? "all" : cow.stage);
-                            }}
-                            className="flex-shrink-0"
-                          >
-                            <Badge className={`${getStageColor(cow.stage)} cursor-pointer hover:opacity-80 transition-opacity`}>
-                              {cow.stage}
-                            </Badge>
-                          </button>
+                          <AnimalStatus animal={cow} />
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
                           {getBreedName(cow.breedId)}
@@ -301,7 +296,7 @@ export default function CattleListPage() {
                           {cow.tagNumber.slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex-1 min-w-0 grid grid-cols-4 gap-4 items-center">
+                      <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
                         <div>
                           <h3 className="font-semibold text-foreground">
                             {cow.name || `#${cow.tagNumber}`}
@@ -315,17 +310,7 @@ export default function CattleListPage() {
                           <p className="text-sm font-medium">{getBreedName(cow.breedId)}</p>
                         </div>
                         <div>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setStageFilter(stageFilter === cow.stage ? "all" : cow.stage);
-                            }}
-                          >
-                            <Badge className={`${getStageColor(cow.stage)} cursor-pointer hover:opacity-80`}>
-                              {cow.stage}
-                            </Badge>
-                          </button>
+                          <AnimalStatus animal={cow} />
                         </div>
                         <div className="flex items-center justify-end">
                           <ChevronRight className="w-5 h-5 text-muted-foreground" />

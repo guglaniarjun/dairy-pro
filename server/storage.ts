@@ -1,3 +1,4 @@
+import { currentVaccinations } from "@shared/farm-overview";
 import { salesReceivables } from "./sales-service";
 import { eq, desc, asc, and, gte, lte, sql, lt, gt } from "drizzle-orm";
 import { db } from "./db";
@@ -443,6 +444,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateHealthEvent(id: string, data: Partial<HealthEvent>): Promise<HealthEvent | undefined> {
+    if (data.status === "resolved") data = { ...data, resolvedAt: data.resolvedAt || new Date() };
+    else if (data.status) data = { ...data, resolvedAt: null };
     const [updated] = await db.update(healthEvents).set(data).where(eq(healthEvents.id, id)).returning();
     return updated;
   }
@@ -602,7 +605,7 @@ export class DatabaseStorage implements IStorage {
 
     // Pending tasks & alerts
     const pendingTasksResult = await db.select().from(tasks).where(
-      and(eq(tasks.tenantId, tenantId), eq(tasks.status, "pending"))
+      and(eq(tasks.tenantId, tenantId), sql`${tasks.status} NOT IN ('completed','cancelled','excluded')`)
     );
     const activeAlertsResult = await db.select().from(alerts).where(
       and(eq(alerts.tenantId, tenantId), eq(alerts.isDismissed, false))
@@ -615,9 +618,9 @@ export class DatabaseStorage implements IStorage {
 
     const breeding = await breedingMetrics(tenantId);
     const vaccinationsAll = await rows(vaccinations,tenantId);
-    const currentVaccinations = vaccinationsAll.filter(v=>!vaccinationsAll.some(n=>n.cattleId===v.cattleId&&n.vaccineId===v.vaccineId&&n.date>v.date));
-    const vaccinationDue = currentVaccinations.filter(v=>v.nextDueDate&&v.nextDueDate>=today&&v.nextDueDate<=addDays(today,14)).length;
-    const vaccinationOverdue = currentVaccinations.filter(v=>v.nextDueDate&&v.nextDueDate<today).length;
+    const current = currentVaccinations(vaccinationsAll, allCattle, today);
+    const vaccinationDue = current.filter(v => v.nextDueDate >= today).length;
+    const vaccinationOverdue = current.filter(v => v.nextDueDate < today).length;
     // Finance
     const monthExpenses = await db.select({ total: sql<number>`COALESCE(SUM(${expenses.amount}::numeric), 0)` })
       .from(expenses).where(and(eq(expenses.tenantId, tenantId), gte(expenses.date, monthStart)));
@@ -640,10 +643,10 @@ export class DatabaseStorage implements IStorage {
 
     return {
       // Herd
-      totalCattle: allCattle.length,
+      totalCattle: breeding.totalCattle,
       milkingCattle: milkingCattle.length,
-      pregnantCattle: pregnantCattle.length,
-      dryCattle: dryCattle.length,
+      pregnantCattle: breeding.pregnant,
+      dryCattle: breeding.dry,
       // Milk
       todayMilk,
       yesterdayMilk: Number(yesterdayMilkResult[0]?.total || 0),
@@ -1007,20 +1010,9 @@ export class DatabaseStorage implements IStorage {
 
   // Vaccination due
   async getVaccinationsDue(tenantId: string): Promise<any[]> {
-    const today = new Date().toISOString().split('T')[0];
-    const future30 = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
-    return db.select({
-      id: vaccinations.id,
-      cattleId: vaccinations.cattleId,
-      vaccineName: vaccinations.vaccineName,
-      date: vaccinations.date,
-      nextDueDate: vaccinations.nextDueDate,
-    }).from(vaccinations)
-      .where(and(
-        eq(vaccinations.tenantId, tenantId),
-        lte(vaccinations.nextDueDate, future30)
-      ))
-      .orderBy(vaccinations.nextDueDate);
+    const today = farmDay((await settings(tenantId)).timezone);
+    return currentVaccinations(await rows(vaccinations, tenantId), await rows(cattle, tenantId), today)
+      .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
   }
 
   // Breeding analytics
@@ -1045,6 +1037,7 @@ export class DatabaseStorage implements IStorage {
     }).from(cattleTransactions).where(and(
       eq(cattleTransactions.tenantId, tenantId),
       eq(cattleTransactions.type, "sale"),
+      sql`${cattleTransactions.paymentStatus} <> 'voided'`,
     ));
 
     const pendingPayables = await db.select({
@@ -1052,6 +1045,7 @@ export class DatabaseStorage implements IStorage {
     }).from(cattleTransactions).where(and(
       eq(cattleTransactions.tenantId, tenantId),
       eq(cattleTransactions.type, "purchase"),
+      sql`${cattleTransactions.paymentStatus} <> 'voided'`,
     ));
 
     const totalExpenses = Number(monthExpenses[0]?.total || 0);

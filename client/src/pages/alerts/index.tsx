@@ -31,8 +31,9 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const { toast } = useToast();
 
-  const { data: alerts, isLoading } = useQuery<Alert[]>({
+  const { data: alerts, isLoading, isError } = useQuery<Alert[]>({
     queryKey: ["/api/alerts"],
+    refetchInterval: 60_000,
   });
 
   const { data: cattle } = useQuery<Cattle[]>({
@@ -80,6 +81,8 @@ export default function AlertsPage() {
   });
 
   const getActionLink = (alert: Alert) => {
+    if (alert.referenceType === "care_task") return `/care?tab=work&cattleId=${alert.cattleId || ""}&taskId=${alert.referenceId}`;
+    if (alert.type === "health" && alert.referenceType !== "vaccination") return `/health?cattleId=${alert.cattleId || ""}`;
     if (alert.referenceType === "vaccination" || alert.type === "health") {
       return alert.cattleId ? `/health?cattleId=${alert.cattleId}&tab=vaccination` : "/health?tab=vaccination";
     }
@@ -313,7 +316,7 @@ export default function AlertsPage() {
               All caught up!
             </h3>
             <p className="text-muted-foreground">
-              No alerts to show. Everything is running smoothly.
+              {isError ? "Alerts could not be loaded. Reconnect and try again." : "No alerts match this view. Check Care & Work for all scheduled operations."}
             </p>
           </div>
         </Card>

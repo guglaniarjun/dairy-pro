@@ -1,3 +1,5 @@
+import { farmDay, inStage } from "@shared/care";
+import { activeAnimal, reportingRange, breedingOverview } from "@shared/farm-overview";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -80,14 +82,11 @@ export default function ReportsPage() {
     return c?.name || c?.tagNumber || `#${id}`;
   };
 
-  const now = new Date();
-  const startDate = period === "week" ? new Date(now.getTime() - 7 * 86400000) :
-    period === "month" ? startOfMonth(now) :
-    period === "quarter" ? new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1) :
-    new Date(now.getFullYear(), 0, 1);
-
+  const { data: preferences } = useQuery<any>({ queryKey: ["/api/operations/preferences"] });
+  const today = farmDay(preferences?.timezone);
+  const range = reportingRange(period, today);
   const inPeriod = (d: any[], key = "date") =>
-    d.filter((i: any) => { try { return new Date(i[key]) >= startDate && new Date(i[key]) <= now; } catch { return false; } });
+    d.filter((i: any) => i[key] >= range.from && i[key] <= range.to);
 
   const pMilk = inPeriod(milkEntries);
   const pExpenses = inPeriod(expenses);
@@ -125,7 +124,8 @@ export default function ReportsPage() {
 
   // Breeding metrics
   const positivePT = pPT.filter((p: any) => p.result === "positive").length;
-  const conceptionRate = pIns.length > 0 ? ((positivePT / pIns.length) * 100).toFixed(1) : null;
+  const cohort = breedingOverview([], pIns, pregnancyTests, [], [], preferences, today);
+  const conceptionRate = cohort.conceptionRate == null ? null : cohort.conceptionRate.toFixed(1);
 
   // Health by type
   const healthByType: Record<string, number> = {};
@@ -136,14 +136,11 @@ export default function ReportsPage() {
   // Herd composition
   const byStatus: Record<string, number> = {};
   const byStage: Record<string, number> = {};
-  cattle.forEach((c: any) => {
-    if (c.status !== "sold" && c.status !== "dead") {
-      byStatus[c.status || "active"] = (byStatus[c.status || "active"] || 0) + 1;
-      byStage[c.stage || "milking"] = (byStage[c.stage || "milking"] || 0) + 1;
-    }
-  });
+  cattle.filter(c => !c.mergedIntoId).forEach((c: any) => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
+  for (const stage of ["milking", "pregnant", "dry", "heifer", "calf"]) byStage[stage] = cattle.filter(c => activeAnimal(c) && inStage(c, stage)).length;
 
-  const periodLabel = period === "week" ? "This Week" : period === "month" ? "This Month" :
+
+  const periodLabel = period === "week" ? "Last 7 Days" : period === "month" ? "This Month" :
     period === "quarter" ? "This Quarter" : "This Year";
 
   // Export functions
@@ -190,7 +187,7 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
           <p className="text-muted-foreground text-sm">Generate and export farm reports</p>
-          <Link className="text-sm text-primary underline" href="/daily-report">Daily sales, receipts and stock report →</Link>
+          <Link className="text-sm text-primary underline" href="/daily-report">Daily farm brief: milk, health, customers and upcoming work →</Link>
         </div>
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger className="w-[160px]" data-testid="select-period">
@@ -198,7 +195,7 @@ export default function ReportsPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="week">This Week</SelectItem>
+            <SelectItem value="week">Last 7 Days</SelectItem>
             <SelectItem value="month">This Month</SelectItem>
             <SelectItem value="quarter">This Quarter</SelectItem>
             <SelectItem value="year">This Year</SelectItem>
@@ -208,10 +205,10 @@ export default function ReportsPage() {
 
       {/* Quick Stats — click to navigate to the relevant module */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-        <StatCard label="Total Milk" value={`${totalMilk.toFixed(0)} L`} icon={<Milk className="w-5 h-5" />} color="blue" href="/milk" />
-        <StatCard label="Revenue" value={INR(totalRevenue)} icon={<TrendingUp className="w-5 h-5" />} color="green" href="/finances?tab=income" />
-        <StatCard label="Expenses" value={INR(totalExpense)} icon={<Wallet className="w-5 h-5" />} color="purple" href="/finances?tab=expenses" />
-        <StatCard label="Conception Rate" value={conceptionRate ? `${conceptionRate}%` : "—"} icon={<Heart className="w-5 h-5" />} color="amber" href="/breeding?tab=pregnancy" />
+        <StatCard label="Total Milk" value={`${totalMilk.toFixed(0)} L`} icon={<Milk className="w-5 h-5" />} color="blue" href={`/milk?dateFilter=${period}`} />
+        <StatCard label="Revenue" value={INR(totalRevenue)} icon={<TrendingUp className="w-5 h-5" />} color="green" href={`/finances?tab=income&period=${period}`} />
+        <StatCard label="Expenses" value={INR(totalExpense)} icon={<Wallet className="w-5 h-5" />} color="purple" href={`/finances?tab=expenses&period=${period}`} />
+        <StatCard label="Conception (tested services)" value={conceptionRate ? `${conceptionRate}%` : "—"} icon={<Heart className="w-5 h-5" />} color="amber" href="/breeding?tab=pregnancy" />
       </div>
 
       <Tabs defaultValue="milk" className="w-full">
@@ -268,7 +265,7 @@ export default function ReportsPage() {
                           <Link href={`/cattle/${cattleId}`}>
                             <span className="font-medium truncate max-w-[120px] text-primary hover:underline cursor-pointer">{name}</span>
                           </Link>
-                          <Link href={`/milk?cattleId=${cattleId}`}>
+                          <Link href={`/milk?cattleId=${cattleId}&dateFilter=${period}`}>
                             <span className="font-medium text-blue-600 hover:underline cursor-pointer">{total.toFixed(1)} L →</span>
                           </Link>
                         </div>
@@ -288,7 +285,7 @@ export default function ReportsPage() {
               <CardHeader className="pb-2"><CardTitle className="text-sm">Session Breakdown</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
-                  {["morning", "evening", "night"].map(session => {
+                  {[...new Set(["morning", "evening", ...pMilk.map((m: any) => m.session)])].map(session => {
                     const total = pMilk.filter((m: any) => m.session === session).reduce((s: number, m: any) => s + parseFloat(m.quantity || 0), 0);
                     const pct = totalMilk > 0 ? (total / totalMilk * 100).toFixed(0) : 0;
                     return (
@@ -314,7 +311,7 @@ export default function ReportsPage() {
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm">Herd by Stage</CardTitle></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Active herd by status (statuses can overlap)</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   {Object.entries(byStage).map(([stage, count]) => (
@@ -517,8 +514,8 @@ export default function ReportsPage() {
                     <span className="font-medium text-green-600">{positivePT}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Conception Rate</span>
-                    <span className="font-medium text-blue-600">{conceptionRate ? `${conceptionRate}%` : "—"}</span>
+                    <span className="text-sm text-muted-foreground">Conception (tested services)</span>
+                    <span title={`${cohort.confirmedServices} confirmed / ${cohort.testedServices} tested services from this period`} className="font-medium text-blue-600">{conceptionRate ? `${conceptionRate}%` : "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Currently Pregnant</span>

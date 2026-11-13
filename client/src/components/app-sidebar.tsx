@@ -1,10 +1,11 @@
+import { useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
+  SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -40,6 +41,8 @@ const managementNavItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { setOpenMobile } = useSidebar();
+  useEffect(() => setOpenMobile(false), [location, setOpenMobile]);
   const { user, logout } = useAuth();
   const isSuperAdmin = !!(user as any)?.isSuperAdmin;
   const actingTenantName = (user as any)?.actingTenantName as string | null;
@@ -120,7 +123,7 @@ export function AppSidebar() {
                 const active = isActive(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={active} className="h-9 rounded-lg">
+                    <SidebarMenuButton asChild isActive={active} className="h-11 md:h-9 rounded-lg">
                       <Link
                         href={item.url}
                         data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}
@@ -152,7 +155,7 @@ export function AppSidebar() {
                 const active = isActive(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={active} className="h-9 rounded-lg">
+                    <SidebarMenuButton asChild isActive={active} className="h-11 md:h-9 rounded-lg">
                       <Link
                         href={item.url}
                         data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}
@@ -179,7 +182,7 @@ export function AppSidebar() {
             <SidebarMenu className="gap-0.5">
               {isSuperAdmin && (
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/admin")} className="h-9 rounded-lg">
+                  <SidebarMenuButton asChild isActive={isActive("/admin")} className="h-11 md:h-9 rounded-lg">
                     <Link href="/admin" data-testid="nav-super-admin" className="flex items-center gap-3 px-3">
                       <ShieldCheck className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/admin") ? "text-primary" : "text-emerald-600"}`} />
                       <span className="text-[13px] font-medium">Super Admin</span>
@@ -188,7 +191,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               )}
               {can("team.manage") && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/team")} className="h-9 rounded-lg">
+                <SidebarMenuButton asChild isActive={isActive("/team")} className="h-11 md:h-9 rounded-lg">
                   <Link href="/team" data-testid="nav-team" className="flex items-center gap-3 px-3">
                     <Users className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/team") ? "text-primary" : "text-cyan-600"}`} />
                     <span className="text-[13px] font-medium">Users & Roles</span>
@@ -196,7 +199,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>}
               {can("alerts.view") && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/alerts")} className="h-9 rounded-lg">
+                <SidebarMenuButton asChild isActive={isActive("/alerts")} className="h-11 md:h-9 rounded-lg">
                   <Link href="/alerts" data-testid="nav-alerts" className="flex items-center gap-3 px-3">
                     <Bell className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/alerts") ? "text-primary" : "text-amber-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Alerts</span>
@@ -212,7 +215,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>}
               {can("billing.manage") && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/billing")} className="h-9 rounded-lg">
+                <SidebarMenuButton asChild isActive={isActive("/billing")} className="h-11 md:h-9 rounded-lg">
                   <Link href="/billing" data-testid="nav-billing" className="flex items-center gap-3 px-3">
                     <CreditCard className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/billing") ? "text-primary" : "text-purple-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Billing</span>
@@ -220,7 +223,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>}
               {can("import_export.manage") && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/import-export")} className="h-9 rounded-lg">
+                <SidebarMenuButton asChild isActive={isActive("/import-export")} className="h-11 md:h-9 rounded-lg">
                   <Link href="/import-export" data-testid="nav-import-export" className="flex items-center gap-3 px-3">
                     <ArrowLeftRight className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/import-export") ? "text-primary" : "text-indigo-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Import / Export</span>
@@ -228,7 +231,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>}
               {can("settings.manage") && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/settings")} className="h-9 rounded-lg">
+                <SidebarMenuButton asChild isActive={isActive("/settings")} className="h-11 md:h-9 rounded-lg">
                   <Link href="/settings" data-testid="nav-settings" className="flex items-center gap-3 px-3">
                     <Settings className={`w-[17px] h-[17px] flex-shrink-0 ${isActive("/settings") ? "text-primary" : "text-gray-500"} opacity-90`} />
                     <span className="text-[13px] font-medium">Settings</span>

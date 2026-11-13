@@ -33,10 +33,14 @@ import {
   recordEvent,
   triggerProtocols,
   makeTask,
+  schedulePregnancy,
 } from "./care-service";
 import { validateFarmRequest } from "./request-safety";
 import { storage } from "./storage";
 import { reportPdf, reportWorkbook } from "./report-export";
+import { operationCatalog } from '@shared/operation-catalog';
+import { reconcileCare } from './care-reconciliation';
+import { salesOverview } from './sales-service';
 
 export function registerOperations(
   app: Express,
@@ -71,6 +75,103 @@ export function registerOperations(
     app.post(`/api/operations${url}`, auth, tenant, permit(p), wrap(fn));
   const patch = (url: string, p: string, fn: any) =>
     app.patch(`/api/operations${url}`, auth, tenant, permit(p), wrap(fn));
+  app.get('/api/cattle-costs',auth,tenant,permit('finances.view'),wrap(async(req:any,res:any)=>res.json(await rows(s.cattleCosts,req.tenantId))));
+  post('/cattle-transactions/:id/void','finances.manage',async(req:any,res:any)=>{
+    if(!req.tenantPermissions.includes('cattle.manage'))fail('Animal-management permission is required',403);
+    const transaction=await owned(s.cattleTransactions,req.tenantId,req.params.id);
+    if(transaction.paymentStatus==='voided')return res.json(transaction);
+    const input=z.object({reason:z.string().trim().min(1),date:daySchema,confirmIncorrectRecord:z.literal(true)}).parse(req.body);
+    if(input.date>farmDay((await settings(req.tenantId)).timezone)||input.date<transaction.date)fail('Choose a correction date on or after the original entry and no later than today');
+    const animal=await owned(s.cattle,req.tenantId,transaction.cattleId);
+    if(transaction.type==='sale'&&animal.status!=='sold')fail('The animal status changed after this sale. Review its history before reversing the transaction.',409);
+    const paid=(await rows(s.cattlePayments,req.tenantId)).filter(p=>p.transactionId===transaction.id).reduce((n,p)=>n+Number(p.amount),0);
+    if(paid)await db.insert(s.cattlePayments).values({tenantId:req.tenantId,transactionId:transaction.id,date:input.date,amount:String(-paid),paymentMethod:transaction.paymentMethod,notes:`Correction reversal: ${input.reason}`,createdBy:req.user.id});
+    const updated=await storage.updateCattleTransaction(transaction.id,{paymentStatus:'voided',paidAmount:'0'});
+    if(transaction.type==='sale'){
+      await storage.updateCattle(animal.id,{status:'active',revision:animal.revision+1});
+      await makeTask(req.tenantId,{cattleId:animal.id,title:'Review animal restored after sale correction',type:'health',dueDate:input.date,sourceKey:`sale-reversed:${transaction.id}`,evidenceRequired:true});
+    }
+    await recordEvent(req.tenantId,'cattle_transaction_voided',input.date,{before:transaction,reason:input.reason,reversedPayment:paid},animal.id,req.user.id);
+    await reconcileCare(req.tenantId);res.json(updated);
+  });
+  get('/delivery-status','settings.manage',async(req:any,res:any)=>res.json((await rows(s.whatsappLogs,req.tenantId)).sort((a,b)=>new Date(b.createdAt).valueOf()-new Date(a.createdAt).valueOf()).slice(0,100)));
+  post('/delivery-status/:id/retry','settings.manage',async(req:any,res:any)=>{
+    const log=await owned(s.whatsappLogs,req.tenantId,req.params.id);
+    if(!['review_required','failed_permanent'].includes(log.status))fail('Only failed or interrupted deliveries can be reviewed');
+    if(req.body.verifiedNotDelivered!==true)fail('Verify that this message was not delivered before retrying');
+    const [updated]=await db.update(s.whatsappLogs).set({status:'pending',attempts:0,nextAttemptAt:new Date(),errorMessage:null}).where(eq(s.whatsappLogs.id,log.id)).returning();
+    await recordEvent(req.tenantId,'delivery_retry_reviewed',farmDay((await settings(req.tenantId)).timezone),{logId:log.id},null,req.user.id);
+    res.json(updated);
+  });
+  get('/mobile-sales','sales.view',async(req:any,res:any)=>{
+    const date=farmDay((await settings(req.tenantId)).timezone), overview=await salesOverview(req.tenantId,date);
+    res.json({date,products:await rows(s.salesProducts,req.tenantId),customers:await rows(s.salesCustomers,req.tenantId),
+      sales:await rows(s.dairySales,req.tenantId),payments:await rows(s.salesPayments,req.tenantId),movements:await rows(s.productStock,req.tenantId),
+      milkAvailable:overview.products.find(p=>p.isMilk)?.stock||0});
+  });
+  get('/mobile-snapshot','cattle.view',async(req:any,res:any)=>{
+    const data:Record<string,any>={};
+    const sources:[string,string,any][]=[
+      ['/api/cattle','cattle.view',s.cattle],['/api/milk','milk.view',s.milkEntries],['/api/health','health.view',s.healthEvents],
+      ['/api/vaccinations','health.view',s.vaccinations],['/api/breeding/heats','breeding.view',s.heats],['/api/breeding/inseminations','breeding.view',s.inseminations],
+      ['/api/breeding/pregnancy-tests','breeding.view',s.pregnancyTests],['/api/breeding/calvings','breeding.view',s.calvings],
+      ['/api/tasks','tasks.view',s.tasks],['/api/alerts','alerts.view',s.alerts],['/api/operations/events','cattle.view',s.farmEvents],
+      ['/api/cattle-costs','finances.view',s.cattleCosts],['/api/cattle-transactions','finances.view',s.cattleTransactions],
+      ['/api/incomes','finances.view',s.incomes],['/api/expenses','finances.view',s.expenses],['/api/milk-sales','milk.view',s.milkSales],
+      ['/api/operations/protocols','health.view',s.careProtocols],['/api/operations/diets','feed.view',s.dietPlans],
+    ];
+    for(const [path,permission,table] of sources)if(req.tenantPermissions.includes(permission))data[path]=await rows(table,req.tenantId);
+    res.json({userId:req.user.id,tenantId:req.tenantId,generatedAt:new Date().toISOString(),data});
+  });
+  post('/cattle/:id/status','cattle.manage',async(req:any,res:any)=>{
+    const before=await owned(s.cattle,req.tenantId,req.params.id);
+    const input=z.object({status:z.enum(['active','dead','culled','inactive','transferred','archived']),date:daySchema,reason:z.string().trim().min(1),reference:z.string().optional(),revision:z.number().optional()}).parse(req.body);
+    if(input.date>farmDay((await settings(req.tenantId)).timezone))fail('Use a dated task for a planned exit');
+    if(input.revision!=null&&input.revision!==before.revision)fail('This animal changed; refresh before recording its status',409);
+    if(before.mergedIntoId)fail('Merged identities cannot be reactivated');
+    if(input.status==='active'&&before.status==='sold')fail('Reverse the sale transaction before reactivation',409);
+    if(input.status==='culled'&&before.meatWithholdUntil&&new Date(before.meatWithholdUntil)>new Date(input.date))fail('Meat withdrawal is active. Review the withdrawal record before culling.',409);
+    const updated=await storage.updateCattle(before.id,{status:input.status,revision:before.revision+1});
+    await recordEvent(req.tenantId,'animal_status',input.date,{before,status:input.status,reason:input.reason,reference:input.reference},before.id,req.user.id);
+    if(input.status==='active')await makeTask(req.tenantId,{cattleId:before.id,title:'Review restored animal: health, breeding, milk status and care plan',type:'health',dueDate:input.date,priority:'high',sourceKey:`restore:${before.id}:${before.revision}`,evidenceRequired:true});
+    await reconcileCare(req.tenantId);
+    res.json(updated);
+  });
+  get('/coverage','tasks.view',async(req:any,res:any)=>{
+    const work=await rows(s.tasks,req.tenantId), protocols=await rows(s.careProtocols,req.tenantId), animals=(await rows(s.cattle,req.tenantId)).filter(a=>a.status==='active'&&!a.mergedIntoId);
+    const doses=await rows(s.vaccinations,req.tenantId);
+    res.json({categories:operationCatalog.map(c=>({...c,plans:protocols.filter(p=>p.status==='approved'&&p.name.toLowerCase().includes(c.key)).length,
+      scheduled:work.filter(t=>t.sourceKey?.startsWith(`coverage:${c.key}:`)&&!finishedTask(t.status)).length})),
+      unassigned:work.filter(t=>!t.assignedTo&&!finishedTask(t.status)).length,
+      missingExpectedDates:animals.filter(a=>a.reproductiveStatus==='pregnant'&&!a.expectedCalvingDate),
+      noVaccineHistory:animals.filter(a=>!doses.some(v=>v.cattleId===a.id))});
+  });
+  post('/coverage','tasks.manage',async(req:any,res:any)=>{
+    const input=z.object({key:z.string(),date:daySchema,assignedTo:z.string().optional(),interval:positive.int(),instructions:z.string().trim().min(1)}).parse(req.body);
+    const category=operationCatalog.find(c=>c.key===input.key);if(!category)fail('Choose a farm operation');
+    if(input.interval>3650)fail('Interval is too large');
+    await validateFarmRequest({...req,body:{assignedTo:input.assignedTo},path:'/api/tasks',method:'POST'});
+    const task=await makeTask(req.tenantId,{title:category.title,description:input.instructions,type:category.type,dueDate:input.date,
+      assignedTo:input.assignedTo||null,isRecurring:true,recurringPattern:String(input.interval),sourceKey:`coverage:${category.key}:${crypto.randomUUID()}`,evidenceRequired:true});
+    res.status(201).json(task);
+  });
+  post("/cattle-purchase", "cattle.manage", async (req: any, res: any) => {
+    if (!req.tenantPermissions.includes("finances.manage")) fail("Finance permission is required to record a purchase", 403);
+    const animal = { ...req.body.animal, status: "active", source: "purchased" };
+    const transaction = req.body.transaction || {};
+    await validateFarmRequest({ ...req, path: "/api/cattle", method: "POST", body: animal });
+    positive.parse(transaction.amount);
+    daySchema.parse(transaction.date);
+    if (transaction.date > farmDay((await settings(req.tenantId)).timezone)) fail("Record an actual purchase on or before today");
+    animal.stage = animal.productionStatus === "lactating" ? "milking" : animal.productionStatus === "dry" ? "dry" : animal.lifeStage;
+    const created = await storage.createCattle({ ...animal, tenantId: req.tenantId });
+    const tx = await storage.createCattleTransaction({ ...transaction, type: "purchase", cattleId: created.id, tenantId: req.tenantId, createdBy: req.user.id });
+    if (created.expectedCalvingDate) await schedulePregnancy(req.tenantId, created, created.expectedCalvingDate, req.user.id);
+    if (created.dateOfBirth) await triggerProtocols(req.tenantId, created, "age", created.dateOfBirth, created.id);
+    await makeTask(req.tenantId, { cattleId: created.id, title: "Purchase intake: health, quarantine and preventive care review", type: "health", priority: "high", dueDate: transaction.date, sourceKey: `intake:${created.id}`, evidenceRequired: true });
+    await recordEvent(req.tenantId, "cattle_purchase", transaction.date, { animal: created, transaction: tx }, created.id, req.user.id);
+    res.status(201).json({ cattle: created, transaction: tx });
+  });
   post("/milk-bulk", "milk.manage", async (req: any, res: any) => {
     const entries = z
       .array(z.record(z.any()))
@@ -606,6 +707,7 @@ export function registerOperations(
         notes: z.string().default(""),
       })
       .parse(req.body);
+    if (input.date > farmDay((await settings(req.tenantId)).timezone)) fail("Milk allocations must describe actual activity on or before today");
     if (input.kind === "opening_stock" && !input.notes.trim())
       fail("Explain the source of opening milk stock");
     res
@@ -639,22 +741,24 @@ export function registerOperations(
       before.cattleId,
       req.user.id,
     );
+    for (const event of await rows(s.farmEvents, req.tenantId))
+      if (event.type === "milk_disposition" && event.payload.milkEntryId === before.id)
+        await db.update(s.farmEvents).set({ payload: { ...event.payload, quantity: input.quantity } }).where(eq(s.farmEvents.id, event.id));
+    const report = await buildDailyReport(req.tenantId, before.date);
+    if (report.milk.unallocated < -0.0001)
+      fail("This correction leaves sales and milk allocations above available milk. Reconcile those records or enter explained opening stock first.", 409);
     res.json(entry);
   });
-  get("/daily-report", "reports.view", async (req: any, res: any) =>
-    res.json(
-      req.query.id
-        ? (await owned(s.dailyReports, req.tenantId, String(req.query.id)))
-            .snapshot
-        : await buildDailyReport(
-            req.tenantId,
-            daySchema.parse(
-              req.query.date ||
-                farmDay((await settings(req.tenantId)).timezone),
-            ),
-          ),
-    ),
-  );
+  const reportForRequest=async(req:any)=>{
+    if(req.query.id)return (await owned(s.dailyReports,req.tenantId,String(req.query.id))).snapshot;
+    const today=farmDay((await settings(req.tenantId)).timezone), date=daySchema.parse(req.query.date||today);
+    if(date<today&&req.query.live!=='1'){
+      const saved=(await rows(s.dailyReports,req.tenantId)).filter(r=>r.date===date).sort((a,b)=>b.revision-a.revision)[0];
+      if(saved)return {...saved.snapshot,reportId:saved.id};
+    }
+    return buildDailyReport(req.tenantId,date);
+  };
+  get('/daily-report','reports.view',async(req:any,res:any)=>res.json(await reportForRequest(req)));
   post("/daily-report", "reports.view", async (req: any, res: any) =>
     res
       .status(201)
@@ -675,14 +779,12 @@ export function registerOperations(
     ),
   );
   get("/daily-report/export", "reports.view", async (req: any, res: any) => {
-    const report = req.query.id
-      ? (await owned(s.dailyReports, req.tenantId, req.query.id)).snapshot
-      : await buildDailyReport(req.tenantId, daySchema.parse(req.query.date));
+    const report = await reportForRequest(req);
     if (req.query.format === "pdf") {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="daily-report-${report.date}.pdf"`,
+        `${req.query.inline === "1" ? "inline" : "attachment"}; filename="daily-report-${report.date}.pdf"`,
       );
       res.send(await reportPdf(report));
     } else {

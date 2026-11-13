@@ -1,3 +1,6 @@
+import { AnimalStatus } from "@/components/animal-status";
+import { CattleExit } from '@/components/cattle-exit';
+import { inStage, farmDay, addDays } from "@shared/care";
 import { useParams, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -210,13 +213,12 @@ export default function CattleDetailPage() {
   }
 
   const breedName = breeds?.find(b => b.id === cow.breedId)?.name || "Unknown Breed";
-  const lastCalving = calvings[0]?.date;
+  const lastCalving = calvings.find(c => c.outcome !== "abortion")?.date;
   const dim = calcDIM(lastCalving);
 
   // Milk stats
   const last30DaysMilk = milkEntries.filter(m => {
-    const entryDate = parseISO(m.date);
-    return differenceInDays(new Date(), entryDate) <= 30;
+    return m.date >= addDays(farmDay(), -29) && m.date <= farmDay();
   });
   const totalMilk30Days = last30DaysMilk.reduce((sum, m) => sum + Number(m.quantity || 0), 0);
   const avgDailyMilk = last30DaysMilk.length > 0 ? totalMilk30Days / 30 : 0;
@@ -242,6 +244,7 @@ export default function CattleDetailPage() {
       </div>
 
       {/* Hero Header */}
+      <CattleExit animal={cow} />
       <Card className="border-2">
         <CardContent className="p-4 md:p-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start">
@@ -252,7 +255,7 @@ export default function CattleDetailPage() {
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-xl md:text-2xl font-bold">{cow.name || "Unnamed"}</h1>
                 <StatusBadge status={cow.status} />
-                <StageBadge stage={cow.stage} />
+                <AnimalStatus animal={cow} />
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1"><Tag className="w-3 h-3" /> Tag: {cow.tagNumber}</span>
@@ -327,14 +330,15 @@ export default function CattleDetailPage() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-base">Production Status</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <Row label="Stage" value={<StageBadge stage={cow.stage} />} />
+                <Row label="Stage" value={<AnimalStatus animal={cow} />} />
                 <Row label="Status" value={<StatusBadge status={cow.status} />} />
                 <Row label="Lactation Number" value={cow.lactationNumber || 0} />
                 <Row label="Last Calving" value={fmtDate(lastCalving)} />
                 <Row label="DIM (Days in Milk)" value={dim != null ? `${dim} days` : "—"} />
                 <Row label="Last Heat" value={heats[0] ? fmtDate(heats[0].detectedAt?.split('T')[0]) : "—"} />
                 <Row label="Last AI" value={inseminations[0] ? fmtDate(inseminations[0].date) : "—"} />
-                <Row label="Pregnancy Status" value={lastPT ? <Badge variant={lastPT.result === "positive" ? "default" : "secondary"}>{lastPT.result}</Badge> : "—"} />
+                <Row label="Expected Calving" value={cow.expectedCalvingDate || "Not recorded"} />
+                <Row label="Pregnancy Status" value={<Badge variant={inStage(cow, "pregnant") ? "default" : "secondary"}>{inStage(cow, "pregnant") ? "Pregnant" : cow.reproductiveStatus || "Not recorded"}</Badge>} />
               </CardContent>
             </Card>
             {cow.notes && (
@@ -365,18 +369,18 @@ export default function CattleDetailPage() {
                 href={`/breeding?tab=ai&cattleId=${id}`}
               />
               <StatCard
-                label="Confirmed Pregnant"
-                value={pregnancyTests.filter(p => p.result === "positive").length}
+                label="Currently Pregnant"
+                value={inStage(cow, "pregnant") ? "Yes" : "No"}
                 icon={<Baby className="w-4 h-4 text-purple-500" />}
                 color="purple"
-                href={`/breeding?tab=pregnancy-tests&cattleId=${id}`}
+                href={`/breeding?tab=pregnancy&cattleId=${id}`}
               />
               <StatCard
                 label="Calvings"
-                value={calvings.length}
+                value={calvings.filter(c => c.outcome !== "abortion").length}
                 icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
                 color="green"
-                href={`/breeding?tab=calvings&cattleId=${id}`}
+                href={`/breeding?tab=calving&cattleId=${id}`}
               />
             </div>
             {/* Timeline */}
@@ -432,7 +436,7 @@ export default function CattleDetailPage() {
                 value={`${fmtNum(totalMilk30Days, 0)} L`}
                 icon={<TrendingUp className="w-4 h-4 text-green-500" />}
                 color="green"
-                href={`/milk?cattleId=${id}&dateFilter=month`}
+                href={`/milk?cattleId=${id}&dateFilter=30days`}
               />
               <StatCard
                 label="Daily Avg (30d)"
@@ -622,7 +626,7 @@ export default function CattleDetailPage() {
                 value={`₹${Number(plSummary?.purchaseCost || 0).toLocaleString("en-IN")}`}
                 icon={<Wallet className="w-4 h-4 text-red-500" />}
                 color="red"
-                href={`/cattle-transactions?cattleId=${id}`}
+                href={`/cattle/pl?cattleId=${id}`}
               />
               <StatCard
                 label="Other Costs"
@@ -711,8 +715,8 @@ export default function CattleDetailPage() {
                 {[
                   ...heats.map(h => ({ type: "heat", date: h.detectedAt?.split('T')[0], label: `Heat detected (${h.intensity || "normal"})`, icon: "🌡️", href: `/breeding?tab=heats&cattleId=${id}` })),
                   ...inseminations.map(i => ({ type: "ai", date: i.date, label: `Insemination (${i.method?.toUpperCase() || "AI"})`, icon: "💉", href: `/breeding?tab=ai&cattleId=${id}` })),
-                  ...pregnancyTests.map(p => ({ type: "pt", date: p.testDate, label: `Pregnancy test: ${p.result}`, icon: p.result === "positive" ? "✅" : "❌", href: `/breeding?tab=pregnancy-tests&cattleId=${id}` })),
-                  ...calvings.map(c => ({ type: "calving", date: c.date, label: `Calving — ${c.outcome} ${c.calfGender || ""} calf`, icon: "🐄", href: `/breeding?tab=calvings&cattleId=${id}` })),
+                  ...pregnancyTests.map(p => ({ type: "pt", date: p.testDate, label: `Pregnancy test: ${p.result}`, icon: p.result === "positive" ? "✅" : "❌", href: `/breeding?tab=pregnancy&cattleId=${id}` })),
+                  ...calvings.map(c => ({ type: "calving", date: c.date, label: `Calving — ${c.outcome} ${c.calfGender || ""} calf`, icon: "🐄", href: `/breeding?tab=calving&cattleId=${id}` })),
                   ...healthEvents.map(h => ({ type: "health", date: h.date, label: `${h.eventType}: ${h.description || h.diagnosis || ""}`, icon: "🏥", href: `/health?cattleId=${id}` })),
                   ...vaccinations.map(v => ({ type: "vaccination", date: v.date, label: `Vaccination: ${v.vaccineName}`, icon: "💊", href: `/health?tab=vaccination&cattleId=${id}` })),
                   ...milkEntries.slice(0, 10).map(m => ({ type: "milk", date: m.date, label: `Milk: ${Number(m.quantity).toFixed(1)}L (${m.session})`, icon: "🥛", href: `/milk?cattleId=${id}` })),

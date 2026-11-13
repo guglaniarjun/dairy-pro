@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Milk, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { apiRequest } from "@/lib/queryClient";
+import { isAndroid, FarmSync } from '@/lib/native';
 
 const loginSchema = z.object({
   email: z.string().trim().min(1, "Username or email is required"),
@@ -37,7 +38,7 @@ export default function LoginPage() {
     },
     onError: async (err: any) => {
       const body = await err.response?.json?.().catch(() => ({}));
-      setServerError(body?.message ?? "Login failed. Please try again.");
+      setServerError(body?.message ?? err.message ?? "Login failed. Please try again.");
     },
   });
 
@@ -128,6 +129,7 @@ export default function LoginPage() {
               </form>
             </CardContent>
           </Card>
+          {isAndroid&&<Button className="w-full" variant="outline" onClick={async()=>{try{await FarmSync.configure({reset:true});location.reload();}catch(e:any){setServerError(e.message);}}}>Change farm server address</Button>}
 
           <p className="text-center text-sm text-muted-foreground">
             Don't have an account?{" "}

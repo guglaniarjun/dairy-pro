@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { farmDay, addDays, finishedTask } from "@shared/care";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,13 @@ import {
 import type { Task, Cattle } from "@shared/schema";
 
 export default function TasksPage() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const [searchQuery, setSearchQuery] = useState(params.get("search") || "");
+  const [statusFilter, setStatusFilter] = useState<string>(params.get("status") || "pending");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const { toast } = useToast();
+  useEffect(() => { const p = new URLSearchParams(search); setSearchQuery(p.get("search") || ""); setStatusFilter(p.get("status") || "pending"); }, [search]);
 
   const { data: tasks, isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -50,8 +54,9 @@ export default function TasksPage() {
       });
       return response.json();
     },
+    onError: (error: Error) => toast({ title: "Task could not be completed", description: error.message, variant: "destructive" }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries();
       toast({
         title: "Task completed",
         description: "The task has been marked as done.",
@@ -67,9 +72,9 @@ export default function TasksPage() {
 
   const filteredTasks = tasks?.filter((task) => {
     const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || task.status === statusFilter;
+    const matchesStatus = statusFilter === "all" || (statusFilter === "open" ? !finishedTask(task.status) && (!task.dueDate || task.dueDate <= addDays(farmDay(), 30)) : task.status === statusFilter);
     const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
-    return matchesSearch && matchesStatus && matchesPriority;
+    return matchesSearch && matchesStatus && matchesPriority && (!params.get("cattleId") || params.get("cattleId") === task.cattleId);
   });
 
   const getPriorityColor = (priority: string) => {
@@ -120,7 +125,7 @@ export default function TasksPage() {
           <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
           <p className="text-muted-foreground">Manage farm tasks and schedules</p>
         </div>
-        <Link href="/tasks/new">
+        <Link href={`/tasks/new${params.get("cattleId") ? `?cattleId=${encodeURIComponent(params.get("cattleId")!)}` : ""}`}>
           <Button className="gap-2" data-testid="button-add-task">
             <Plus className="w-4 h-4" />
             Add Task
@@ -185,6 +190,7 @@ export default function TasksPage() {
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="open">Open: overdue + next 30 days</SelectItem>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
@@ -219,9 +225,11 @@ export default function TasksPage() {
           {filteredTasks.map((task) => (
             <Card key={task.id} className="hover-elevate" data-testid={`task-item-${task.id}`}>
               <CardContent className="p-4">
+                {!finishedTask(task.status) && (task.supplies?.length || task.protocolId || task.batchId || task.evidenceRequired || task.sourceKey?.startsWith("pregnancy:")) ? <Link className="inline-flex min-h-10 items-center text-primary underline text-sm" href={`/care?tab=work&taskId=${task.id}${task.cattleId ? `&cattleId=${task.cattleId}` : ""}`}>Update care task with evidence →</Link> : null}
                 <div className="flex items-start gap-4">
                   <Checkbox
                     checked={task.status === "completed"}
+                    disabled={!!(task.supplies?.length || task.protocolId || task.batchId || task.evidenceRequired || task.sourceKey?.startsWith("pregnancy:"))}
                     onCheckedChange={() => {
                       if (task.status !== "completed") {
                         completeMutation.mutate(task.id);
@@ -288,7 +296,7 @@ export default function TasksPage() {
                 ? "You're all caught up!"
                 : "Try adjusting your filters"}
             </p>
-            <Link href="/tasks/new">
+            <Link href={`/tasks/new${params.get("cattleId") ? `?cattleId=${encodeURIComponent(params.get("cattleId")!)}` : ""}`}>
               <Button className="gap-2" data-testid="button-add-first-task">
                 <Plus className="w-4 h-4" />
                 Add Task

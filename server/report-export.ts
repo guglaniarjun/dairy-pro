@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import PDFDocument from "pdfkit";
+import { compactReportPdf } from "./daily-report-pdf";
 const readable = (value: any): string =>
   value == null
     ? ""
@@ -35,6 +35,8 @@ export function reportSections(report: any): [string, any[]][] {
     ["Events", report.events],
     ["Other entries", report.entries],
     ["Worklist", report.tasks],
+    ["Upcoming reminders", report.reminders || []],
+    ["Active health", report.activeHealth || []],
     [
       "Batch work",
       report.batches.flatMap((b: any) =>
@@ -86,47 +88,4 @@ export async function reportWorkbook(report: any) {
   }
   return Buffer.from(await book.xlsx.writeBuffer());
 }
-export async function reportPdf(report: any): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: "A4", bufferPages: true });
-    const chunks: Buffer[] = [];
-    doc.on("data", (c) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-    if (process.env.REPORT_FONT_PATH) doc.font(process.env.REPORT_FONT_PATH);
-    doc.fontSize(20).text(`Daily Farm Report - ${report.date}`);
-    doc
-      .fontSize(9)
-      .text(
-        `Timezone: ${report.timezone} | Generated: ${report.generatedAt} | Revision: ${report.revision || "preview"}`,
-      );
-    doc.text(
-      "Activity for the date, including late entries and corrections. Animal/work status is as recorded at generation.",
-    );
-    for (const [title, items] of reportSections(report)) {
-      doc.moveDown().fontSize(14).text(`${title} (${items.length})`);
-      doc.fontSize(8);
-      if (!items.length) doc.text("No records.");
-      for (const item of items) {
-        doc.moveDown(0.6);
-        for (const [key, value] of Object.entries(item)) {
-          if (value != null && value !== "")
-            doc.text(`${key}: ${readable(value)}`, { lineGap: 2 });
-        }
-      }
-    }
-    const range = doc.bufferedPageRange();
-    for (let i = range.start; i < range.start + range.count; i++) {
-      doc.switchToPage(i);
-      doc
-        .fontSize(8)
-        .text(
-          `DairyFlow | ${report.date} | Page ${i + 1} of ${range.count}`,
-          40,
-          doc.page.height - 30,
-          { lineBreak: false },
-        );
-    }
-    doc.end();
-  });
-}
+export const reportPdf = compactReportPdf;

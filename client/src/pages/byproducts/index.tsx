@@ -1,3 +1,4 @@
+import { farmDay } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -107,7 +108,7 @@ export default function ByproductsPage() {
     defaultValues: {
       type: "sale",
       byproductTypeId: "",
-      date: new Date().toISOString().split("T")[0],
+      date: farmDay(),
       quantity: "",
       pricePerUnit: "",
       partyName: "",

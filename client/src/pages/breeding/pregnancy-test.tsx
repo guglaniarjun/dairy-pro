@@ -1,3 +1,5 @@
+import { farmDay } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -37,8 +39,8 @@ export default function RecordPregnancyTestPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       cattleId: params.get("cattleId") || "",
-      inseminationId: "",
-      testDate: new Date().toISOString().split("T")[0],
+      inseminationId: params.get("inseminationId") || "",
+      testDate: farmDay(),
       result: "positive" as const,
       method: "rectal",
       testedBy: "",
@@ -46,6 +48,8 @@ export default function RecordPregnancyTestPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const selectedCattleId = form.watch("cattleId");
   const watchResult = form.watch("result");
@@ -63,7 +67,7 @@ export default function RecordPregnancyTestPage() {
       notes: data.notes || null,
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/breeding/pregnancy-tests"] });
+      queryClient.invalidateQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Pregnancy test recorded" });
       navigate("/breeding");
@@ -90,7 +94,7 @@ export default function RecordPregnancyTestPage() {
               <FormField control={form.control} name="cattleId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cattle *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={(value) => { field.onChange(value); form.setValue("inseminationId", ""); }} value={field.value}>
                     <FormControl><SelectTrigger data-testid="select-cattle"><SelectValue placeholder="Select cattle" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {femaleCattle.map((c: any) => (

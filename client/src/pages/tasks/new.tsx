@@ -1,3 +1,4 @@
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -51,6 +52,8 @@ export default function TaskNewPage() {
 
   const { data: cattle } = useQuery<Cattle[]>({ queryKey: ["/api/cattle"] });
 
+  const { data: people = [] } = useQuery<any[]>({ queryKey: ["/api/operations/people"] });
+
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
     defaultValues: {
@@ -67,6 +70,8 @@ export default function TaskNewPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const createMutation = useMutation({
     mutationFn: async (data: TaskFormValues) => {
@@ -143,7 +148,7 @@ export default function TaskNewPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Type *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-type">
                             <SelectValue />
@@ -168,7 +173,7 @@ export default function TaskNewPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Priority *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-priority">
                             <SelectValue />
@@ -222,7 +227,7 @@ export default function TaskNewPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Related Cattle (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-cattle">
                           <SelectValue placeholder="No specific cattle" />
@@ -248,7 +253,10 @@ export default function TaskNewPage() {
                   <FormItem>
                     <FormLabel>Assign To</FormLabel>
                     <FormControl>
-                      <Input placeholder="Worker / staff name (optional)" {...field} data-testid="input-assigned-to" />
+                      <Select value={field.value || "unassigned"} onValueChange={(value) => field.onChange(value === "unassigned" ? "" : value)}>
+                        <SelectTrigger data-testid="input-assigned-to"><SelectValue placeholder="Assign staff" /></SelectTrigger>
+                        <SelectContent><SelectItem value="unassigned">Unassigned</SelectItem>{people.map(person => <SelectItem key={person.id} value={person.id}>{[person.firstName, person.lastName].filter(Boolean).join(" ") || person.email}</SelectItem>)}</SelectContent>
+                      </Select>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

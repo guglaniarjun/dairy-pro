@@ -1,3 +1,5 @@
+import { farmDay } from "@shared/care";
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -39,7 +41,7 @@ export default function RecordAIPage() {
     defaultValues: {
       cattleId: params.get("cattleId") || "",
       heatId: "",
-      date: new Date().toISOString().split("T")[0],
+      date: farmDay(),
       method: "ai",
       bullId: "",
       semenBatchId: "",
@@ -48,6 +50,8 @@ export default function RecordAIPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const selectedCattleId = form.watch("cattleId");
   const cattleHeats = heats.filter((h: any) => String(h.cattleId) === String(selectedCattleId));
@@ -92,7 +96,7 @@ export default function RecordAIPage() {
               <FormField control={form.control} name="cattleId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cattle *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={(value) => { field.onChange(value); form.setValue("heatId", ""); }} value={field.value}>
                     <FormControl><SelectTrigger data-testid="select-cattle"><SelectValue placeholder="Select cattle" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {femaleCattle.map((c: any) => (

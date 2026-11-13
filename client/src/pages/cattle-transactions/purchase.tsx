@@ -1,3 +1,4 @@
+import { farmDay } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -35,6 +36,11 @@ const purchaseSchema = z.object({
   breedId: z.string().min(1, "Breed is required"),
   gender: z.enum(["male", "female"]),
   dateOfBirth: z.string().optional(),
+  species: z.enum(["cattle", "buffalo"]),
+  lifeStage: z.enum(["calf", "weaned_calf", "heifer", "adult"]),
+  productionStatus: z.enum(["lactating", "dry", "not_lactating"]),
+  reproductiveStatus: z.enum(["unserved", "served", "pregnant", "lost"]),
+  expectedCalvingDate: z.string().optional(),
   purchaseDate: z.string().min(1, "Purchase date is required"),
   amount: z.string().min(1, "Amount is required"),
   partyName: z.string().optional(),
@@ -65,8 +71,9 @@ export default function CattlePurchasePage() {
       name: "",
       breedId: "",
       gender: "female",
+      species: "cattle", lifeStage: "adult", productionStatus: "lactating", reproductiveStatus: "unserved", expectedCalvingDate: "",
       dateOfBirth: "",
-      purchaseDate: new Date().toISOString().split("T")[0],
+      purchaseDate: farmDay(),
       amount: "",
       partyName: "",
       partyPhone: "",
@@ -83,46 +90,17 @@ export default function CattlePurchasePage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: PurchaseFormValues) => {
-      const cattleRes = await apiRequest("POST", "/api/cattle", {
-        tagNumber: data.tagNumber,
-        name: data.name || null,
-        breedId: data.breedId,
-        gender: data.gender,
-        dateOfBirth: data.dateOfBirth || null,
-        dateOfEntry: data.purchaseDate,
-        status: "active",
-        source: "purchased",
-      });
-      const cattle = await cattleRes.json();
-      
       const paymentAmount = data.isFullPayment ? data.amount : (data.initialPaymentAmount || "0");
-      const paymentStatus = data.isFullPayment ? "paid" : (Number(paymentAmount) > 0 ? "partial" : "pending");
-      
-      const transactionRes = await apiRequest("POST", "/api/cattle-transactions", {
-        cattleId: cattle.id,
-        type: "purchase",
-        date: data.purchaseDate,
-        amount: data.amount,
-        partyName: data.partyName || null,
-        partyPhone: data.partyPhone || null,
-        partyAddress: data.partyAddress || null,
-        paymentMethod: data.paymentMethod,
-        paymentStatus: paymentStatus,
-        paidAmount: paymentAmount,
-        notes: data.notes || null,
+      const response = await apiRequest("POST", "/api/operations/cattle-purchase", {
+        animal: { tagNumber: data.tagNumber, name: data.name || null, breedId: data.breedId, gender: data.gender,
+          dateOfBirth: data.dateOfBirth || null, dateOfEntry: data.purchaseDate, species: data.species,
+          lifeStage: data.lifeStage, productionStatus: data.productionStatus, reproductiveStatus: data.reproductiveStatus,
+          expectedCalvingDate: data.expectedCalvingDate || null },
+        transaction: { date: data.purchaseDate, amount: data.amount, paidAmount: paymentAmount,
+          partyName: data.partyName || null, partyPhone: data.partyPhone || null, partyAddress: data.partyAddress || null,
+          paymentMethod: data.paymentMethod, notes: data.notes || null }
       });
-      const transaction = await transactionRes.json();
-      
-      if (Number(paymentAmount) > 0) {
-        await apiRequest("POST", `/api/cattle-transactions/${transaction.id}/payments`, {
-          date: data.purchaseDate,
-          amount: paymentAmount,
-          paymentMethod: data.paymentMethod,
-          notes: "Initial payment at purchase",
-        });
-      }
-      
-      return { cattle, transaction };
+      return response.json();
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cattle"] });
@@ -253,6 +231,16 @@ export default function CattlePurchasePage() {
                     />
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {([['species', ['cattle','buffalo']], ['lifeStage', ['calf','weaned_calf','heifer','adult']], ['productionStatus', ['lactating','dry','not_lactating']], ['reproductiveStatus', ['unserved','served','pregnant','lost']]] as const).map(([name, options]) => (
+                      <FormField key={name} control={form.control} name={name} render={({field}) => <FormItem>
+                        <FormLabel>{({species:'Species',lifeStage:'Life stage',productionStatus:'Milk production',reproductiveStatus:'Breeding status'})[name]}</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>{options.map(value => <SelectItem key={value} value={value}>{value.replaceAll('_',' ')}</SelectItem>)}</SelectContent></Select><FormMessage />
+                      </FormItem>} />
+                    ))}
+                    <FormField control={form.control} name="expectedCalvingDate" render={({field}) => <FormItem><FormLabel>Expected calving (if known)</FormLabel><FormControl><Input type="date" {...field}/></FormControl><FormMessage/></FormItem>}/>
+                  </div>
                   <FormField
                     control={form.control}
                     name="dateOfBirth"

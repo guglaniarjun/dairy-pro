@@ -13,3 +13,6 @@ vite.config.ts.*
 !.env.example
 .postgres/
 .deploy-state/
+.android-tools/
+.android-signing/
+artifacts/

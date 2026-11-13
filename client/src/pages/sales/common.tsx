@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isAndroid } from '@/lib/native';
 import { farmDay } from "@shared/care";
 import { cents, decimal, paymentLabel } from "@shared/sales";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ export function useSalesWrite() {
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
     try {
-      const response = await fetch(url, {
+      const response = isAndroid ? await apiRequest(method,url,data) : await fetch(url, {
         method,
         credentials: "include",
         headers: {
@@ -68,7 +69,7 @@ export function useSalesWrite() {
       if (!response.ok) throw new Error(result.error || "Unable to save");
       await queryClient.invalidateQueries();
       retry.current = { signature: "", key: "" };
-      setSuccess("Saved successfully.");
+      setSuccess(result.queued ? "Saved on this phone. Awaiting VPS validation and sync; check pending entries above." : "Saved successfully.");
       return result;
     } catch (e: any) {
       setError(

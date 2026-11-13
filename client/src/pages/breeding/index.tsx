@@ -1,3 +1,4 @@
+import { breedingOverview } from "@shared/farm-overview";
 import { inStage } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -58,7 +59,7 @@ function DaysChip({ days, label }: { days: number; label: string }) {
 }
 
 export default function BreedingPage() {
-  const [location] = useLocation();
+  const [, navigate] = useLocation();
   const search = useSearch();
   const params = new URLSearchParams(search);
   const urlFilter = params.get("filter") || "all";
@@ -95,7 +96,7 @@ export default function BreedingPage() {
               ? "calving"
               : "expected",
     );
-  }, [urlTab]);
+  }, [urlTab, urlFilter, urlCattleId]);
 
   const { data: cattle = [] } = useQuery<any[]>({ queryKey: ["/api/cattle"] });
   const { data: heats = [], isLoading: heatsLoading } = useQuery<any[]>({
@@ -124,107 +125,17 @@ export default function BreedingPage() {
   const { data: config } = useQuery<any>({
     queryKey: ["/api/operations/preferences"],
   });
-  const GESTATION = config?.gestationDays || 280;
-  const PT_DAYS = config?.pregnancyTestDays || 30;
-
-  const active = cattle.filter((c) => c.status === "active" && !c.mergedIntoId);
-  const latestService = (id: string) =>
-    inseminations
-      .filter((i) => i.cattleId === id)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-  const latestBirth = (id: string) =>
-    calvings
-      .filter((i) => i.cattleId === id)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-  const heatDue = active
-    .filter(
-      (c) =>
-        c.gender === "female" && !inStage(c, "pregnant") && !inStage(c, "calf"),
-    )
-    .map((c) => {
-      const ins = latestService(c.id);
-      const heat = heats
-        .filter((h) => h.cattleId === c.id)
-        .sort((a, b) =>
-          String(b.detectedAt).localeCompare(String(a.detectedAt)),
-        )[0];
-      const refDate = ins?.date || heat?.detectedAt;
-      return {
-        ...c,
-        refDate,
-        refType: ins ? "Last service" : "Observed heat",
-        expectedIn: refDate
-          ? (config?.heatIntervalDays || 21) -
-            differenceInDays(now, parseISO(refDate))
-          : Infinity,
-      };
-    })
-    .filter((c) => c.expectedIn <= 7);
-  const ptDue = inseminations
-    .filter((i) => {
-      const cow = getCow(i.cattleId);
-      const birth = latestBirth(i.cattleId);
-      return (
-        cow?.status === "active" &&
-        !inStage(cow, "pregnant") &&
-        latestService(i.cattleId)?.id === i.id &&
-        (!birth || birth.date < i.date) &&
-        !pregnancyTests.some(
-          (pt) => pt.inseminationId === i.id && pt.result !== "inconclusive",
-        ) &&
-        differenceInDays(now, parseISO(i.date)) >= PT_DAYS
-      );
-    })
-    .map((i) => ({
-      ...i,
-      daysAgo: differenceInDays(now, parseISO(i.date)),
-      dueDays: PT_DAYS - differenceInDays(now, parseISO(i.date)),
-      cow: getCow(i.cattleId),
-    }));
-  const pregnancies = active
-    .filter((c) => inStage(c, "pregnant") && c.expectedCalvingDate)
-    .map((c) => ({
-      id: c.id,
-      cattleId: c.id,
-      date: latestService(c.id)?.date,
-      expectedCalving: parseISO(c.expectedCalvingDate),
-      daysToCalving: differenceInDays(parseISO(c.expectedCalvingDate), now),
-      cow: c,
-    }));
-  const calvingDue = pregnancies
-    .filter((p) => p.daysToCalving <= 30)
-    .sort((a, b) => a.daysToCalving - b.daysToCalving);
-  const dryDue = pregnancies
-    .filter((p) => inStage(p.cow, "milking"))
-    .map((p) => ({
-      ...p,
-      dryDaysLeft: p.daysToCalving - (config?.dryPeriodDays || 60),
-    }))
-    .filter((p) => p.dryDaysLeft <= 14);
-  const repeatBreeders = active
-    .filter((c) => !inStage(c, "pregnant"))
-    .map((c) => {
-      const birth = latestBirth(c.id);
-      const ais = inseminations.filter(
-        (i) =>
-          i.cattleId === c.id &&
-          (!birth || i.date > birth.date) &&
-          pregnancyTests
-            .filter((p) => p.inseminationId === i.id)
-            .sort((a, b) => b.testDate.localeCompare(a.testDate))[0]?.result ===
-            "negative",
-      );
-      return { cow: c, ais, count: ais.length };
-    })
-    .filter((c) => c.count >= 3);
-
-  const breedableCattle = cattle.filter(
-    (c: any) =>
-      c.gender === "female" && c.status === "active" && c.stage !== "calf",
-  );
-  const pregnantCount = cattle.filter((c: any) =>
-    inStage(c, "pregnant"),
-  ).length;
+  const overview = breedingOverview(cattle, inseminations, pregnancyTests, calvings, heats, config || {});
+  const selected = (c: any) => cattleFilter === "all" || c.id === cattleFilter;
+  const show = (filter: string) => urlFilter === "all" || urlFilter === filter;
+  const heatDue = show("heat-due") ? overview.heatDue.filter(selected) : [];
+  const ptDue = show("pt-due") ? overview.ptDue.filter(p => selected(p.cow)) : [];
+  const calvingDue = show("calving-due") ? overview.calvingDue.filter(p => selected(p.cow)) : [];
+  const dryDue = show("dry-due") ? overview.dryDue.filter(p => selected(p.cow)) : [];
+  const repeatBreeders = show("repeat") ? overview.repeatBreeders.filter(p => selected(p.cow)) : [];
+  const breedableCattle = overview.open;
+  const pregnantCount = overview.pregnant.length;
+  const contextHref = (path: string) => cattleFilter === "all" ? path : `${path}?cattleId=${encodeURIComponent(cattleFilter)}`;
 
   const filteredHeats = heats.filter((h: any) => {
     const matchesSearch = getCowName(h.cattleId)
@@ -277,7 +188,7 @@ export default function BreedingPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/breeding/heat">
+          <Link href={contextHref("/breeding/heat")}>
             <Button
               variant="outline"
               size="sm"
@@ -287,7 +198,7 @@ export default function BreedingPage() {
               <Heart className="w-4 h-4" /> Record Heat
             </Button>
           </Link>
-          <Link href="/breeding/ai">
+          <Link href={contextHref("/breeding/ai")}>
             <Button
               size="sm"
               className="gap-1.5"
@@ -328,7 +239,7 @@ export default function BreedingPage() {
           value={breedableCattle.length}
           color="pink"
           icon="🐄"
-          href="/breeding?tab=heats"
+          href="/breeding?filter=open"
         />
         <StatCard
           label="Pregnant"
@@ -339,21 +250,21 @@ export default function BreedingPage() {
         />
         <StatCard
           label="Heat Due"
-          value={heatDue.length}
+          value={overview.heatDue.length}
           color="orange"
           icon="🌡️"
           href="/breeding?filter=heat-due"
         />
         <StatCard
           label="PT Due"
-          value={ptDue.length}
+          value={overview.ptDue.length}
           color="amber"
           icon="🔬"
           href="/breeding?filter=pt-due"
         />
         <StatCard
           label="Calving Soon"
-          value={calvingDue.length}
+          value={overview.calvingDue.length}
           color="green"
           icon="🐄"
           href="/breeding?filter=calving-due"
@@ -361,10 +272,10 @@ export default function BreedingPage() {
       </div>
 
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(tab) => navigate(`/breeding?tab=${tab}${cattleFilter !== "all" ? `&cattleId=${cattleFilter}` : ""}`)} className="w-full">
         <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
           <TabsTrigger value="expected" className="text-xs">
-            🗓️ Expected ({heatDue.length + ptDue.length + calvingDue.length})
+            🗓️ Expected ({heatDue.length + ptDue.length + calvingDue.length + dryDue.length})
           </TabsTrigger>
           <TabsTrigger
             value="heats"
@@ -381,7 +292,7 @@ export default function BreedingPage() {
             className="text-xs"
             data-testid="tab-pregnancy"
           >
-            Pregnancy ({filteredPTs.length})
+            Pregnancy ({overview.pregnant.filter(selected).length})
           </TabsTrigger>
           <TabsTrigger
             value="calving"
@@ -395,6 +306,11 @@ export default function BreedingPage() {
         {/* Expected Events */}
         <TabsContent value="expected">
           <div className="space-y-4">
+            {urlFilter !== "all" && <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted p-3 text-sm">
+              <strong>{({ "heat-due": "Expected heat", "pt-due": "Pregnancy tests", "calving-due": "Expected calving", "dry-due": "Dry off", open: "Open cattle", repeat: "Repeat breeders" } as Record<string, string>)[urlFilter] || urlFilter}</strong>
+              <span>Overdue and next 30 days</span><Link className="text-primary underline" href="/breeding">Clear filter</Link>
+            </div>}
+            {urlFilter === "open" && <ExpectedSection title="Open cattle" count={overview.open.filter(selected).length} items={overview.open.filter(selected)} renderItem={(c: any) => <div className="flex flex-wrap justify-between gap-2"><Link href={`/cattle/${c.id}`} className="text-primary">{c.tagNumber} {c.name}</Link><Link href={`/breeding/heat?cattleId=${c.id}`}><Button size="sm" variant="outline">Record heat</Button></Link></div>} />}
             {/* Heat Due */}
             <ExpectedSection
               title="🌡️ Heat Expected"
@@ -402,7 +318,7 @@ export default function BreedingPage() {
               color="orange"
               items={heatDue}
               renderItem={(c: any) => (
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-lg">
                     🌡️
                   </div>
@@ -418,7 +334,7 @@ export default function BreedingPage() {
                   </div>
                   <DaysChip days={c.expectedIn} label="heat" />
                   <Link href={`/breeding/heat?cattleId=${c.id}`}>
-                    <Button size="sm" variant="outline" className="text-xs h-7">
+                    <Button size="sm" variant="outline" className="text-xs min-h-10">
                       Record
                     </Button>
                   </Link>
@@ -433,7 +349,7 @@ export default function BreedingPage() {
               color="amber"
               items={ptDue}
               renderItem={(item: any) => (
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-lg">
                     🔬
                   </div>
@@ -449,9 +365,9 @@ export default function BreedingPage() {
                   </div>
                   <DaysChip days={item.dueDays} label="PT" />
                   <Link
-                    href={`/breeding/pregnancy-test?cattleId=${item.cattleId}`}
+                    href={`/breeding/pregnancy-test?cattleId=${item.cattleId}&inseminationId=${item.id}`}
                   >
-                    <Button size="sm" variant="outline" className="text-xs h-7">
+                    <Button size="sm" variant="outline" className="text-xs min-h-10">
                       Record
                     </Button>
                   </Link>
@@ -466,7 +382,7 @@ export default function BreedingPage() {
               color="teal"
               items={calvingDue}
               renderItem={(item: any) => (
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-lg">
                     🐄
                   </div>
@@ -478,12 +394,12 @@ export default function BreedingPage() {
                     </Link>
                     <p className="text-xs text-muted-foreground">
                       AI on {fmtDate(item.date)} · Due{" "}
-                      {format(item.expectedCalving, "dd MMM yyyy")}
+                      {fmtDate(item.cow.expectedCalvingDate)}
                     </p>
                   </div>
                   <DaysChip days={item.daysToCalving} label="calving" />
                   <Link href={`/breeding/calving?cattleId=${item.cattleId}`}>
-                    <Button size="sm" variant="outline" className="text-xs h-7">
+                    <Button size="sm" variant="outline" className="text-xs min-h-10">
                       Record
                     </Button>
                   </Link>
@@ -499,7 +415,7 @@ export default function BreedingPage() {
                 color="purple"
                 items={dryDue}
                 renderItem={(item: any) => (
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-lg">
                       🛑
                     </div>
@@ -510,11 +426,11 @@ export default function BreedingPage() {
                         </p>
                       </Link>
                       <p className="text-xs text-muted-foreground">
-                        Calving due in {item.daysToCalving}d · Dry now (60d
-                        before)
+                        Calving due in {item.daysToCalving}d · Dry period: {config?.dryPeriodDays || 60}d
                       </p>
                     </div>
                     <DaysChip days={item.dryDaysLeft} label="dry" />
+                    <Link href={`/care?tab=events&type=dry_off&cattleId=${item.cattleId}`}><Button size="sm" variant="outline">Record dry off</Button></Link>
                   </div>
                 )}
               />
@@ -557,11 +473,11 @@ export default function BreedingPage() {
             {heatDue.length === 0 &&
               ptDue.length === 0 &&
               calvingDue.length === 0 &&
-              dryDue.length === 0 && (
+              dryDue.length === 0 && repeatBreeders.length === 0 && urlFilter !== "open" && (
                 <div className="text-center py-12">
                   <CheckCircle2 className="w-16 h-16 mx-auto text-green-400 mb-4" />
                   <p className="text-muted-foreground">
-                    No expected breeding events in the next 30 days
+                    No matching breeding actions due or expected in the next 30 days
                   </p>
                 </div>
               )}
@@ -627,7 +543,7 @@ export default function BreedingPage() {
               icon="🌡️"
               title="No heat records"
               cta="Record Heat"
-              href="/breeding/heat"
+              href={contextHref("/breeding/heat")}
               testId="button-add-first-heat"
             />
           )}
@@ -693,13 +609,23 @@ export default function BreedingPage() {
               icon="💉"
               title="No AI records"
               cta="Record AI"
-              href="/breeding/ai"
+              href={contextHref("/breeding/ai")}
             />
           )}
         </TabsContent>
 
         {/* Pregnancy Tests Tab */}
         <TabsContent value="pregnancy">
+          <Card className="mb-4"><CardHeader><CardTitle className="text-base">Currently pregnant ({overview.pregnant.filter(selected).length})</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {overview.pregnant.filter(selected).map(c => <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                <div><Link className="font-medium text-primary hover:underline" href={`/cattle/${c.id}`}>{c.tagNumber} {c.name}</Link>
+                  <p className="text-sm text-muted-foreground">{c.expectedCalvingDate ? `Expected calving: ${fmtDate(c.expectedCalvingDate)}` : "Expected calving date not recorded"}</p></div>
+                <Link href={`/breeding/calving?cattleId=${c.id}`}><Button variant="outline" size="sm">Record calving</Button></Link>
+              </div>)}
+              {!overview.pregnant.filter(selected).length && <p>No currently pregnant cattle.</p>}
+            </CardContent></Card>
+          <h2 className="font-semibold mb-3">Pregnancy test history ({filteredPTs.length})</h2>
           {filteredPTs.length > 0 ? (
             <div className="space-y-2">
               {filteredPTs.map((pt: any) => (
@@ -738,7 +664,7 @@ export default function BreedingPage() {
               icon="🔬"
               title="No pregnancy tests"
               cta="Add Test Result"
-              href="/breeding/pregnancy-test"
+              href={contextHref("/breeding/pregnancy-test")}
             />
           )}
         </TabsContent>
@@ -779,7 +705,7 @@ export default function BreedingPage() {
               icon="🐄"
               title="No calving records"
               cta="Record Calving"
-              href="/breeding/calving"
+              href={contextHref("/breeding/calving")}
             />
           )}
         </TabsContent>

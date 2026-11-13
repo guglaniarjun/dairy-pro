@@ -1,3 +1,5 @@
+import { farmDay } from "@shared/care";
+import { reportingRange } from "@shared/farm-overview";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
@@ -72,9 +74,13 @@ function CategoryBreakdown({ items, colorClass, onCategoryClick }: { items: [str
 }
 
 export default function FinancesPage() {
-  const [periodFilter, setPeriodFilter] = useState<string>("month");
+
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const search = useSearch();
+  const requestedPeriod = new URLSearchParams(search).get("period") || "month";
+  const urlPeriod = ["week", "month", "quarter", "year"].includes(requestedPeriod) ? requestedPeriod : "month";
+  const [periodFilter, setPeriodFilter] = useState(urlPeriod);
+  useEffect(() => { setPeriodFilter(urlPeriod); setCategoryFilter(null); }, [urlPeriod]);
 
   const rawTab = new URLSearchParams(search).get("tab") || "transactions";
   const urlTab = VALID_TABS.includes(rawTab as any) ? rawTab : "transactions";
@@ -91,19 +97,11 @@ export default function FinancesPage() {
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
   const { data: finance } = useQuery<any>({ queryKey: ["/api/finance/analytics"] });
 
-  const now = new Date();
-  const startDate = periodFilter === "week"
-    ? new Date(now.getTime() - 7 * 86400000)
-    : periodFilter === "month"
-    ? startOfMonth(now)
-    : periodFilter === "quarter"
-    ? startOfMonth(subMonths(now, 2))
-    : new Date(now.getFullYear(), 0, 1);
-
+  const { data: preferences } = useQuery<any>({ queryKey: ["/api/operations/preferences"] });
+  const { data: milkEntries = [] } = useQuery<any[]>({ queryKey: ["/api/milk"] });
+  const range = reportingRange(periodFilter, farmDay(preferences?.timezone));
   const filterByPeriod = (d: any[]) =>
-    d.filter((item: any) => {
-      try { return new Date(item.date) >= startDate; } catch { return true; }
-    });
+    d.filter((item: any) => item.date >= range.from && item.date <= range.to);
 
   const periodExpenses = filterByPeriod(expenses);
   const periodIncomes = filterByPeriod(incomes);
@@ -113,10 +111,10 @@ export default function FinancesPage() {
   const netProfit = totalIncome - totalExpense;
   const milkSalesTotal = filterByPeriod(milkSales).reduce((s: number, ms: any) => s + parseFloat(ms.totalAmount || 0), 0);
   const feedCostTotal = filterByPeriod(feedRecords).reduce((s: number, f: any) => s + parseFloat(f.totalCost || 0), 0);
-  const monthMilk = stats?.monthMilk || 0;
-  const costPerKg = monthMilk > 0 ? totalExpense / monthMilk : null;
+  const periodMilk = filterByPeriod(milkEntries).reduce((n: number, m: any) => n + Number(m.quantity || 0), 0);
+  const costPerLitre = periodMilk > 0 ? totalExpense / periodMilk : null;
 
-  const periodLabel = periodFilter === "week" ? "This Week" :
+  const periodLabel = periodFilter === "week" ? "Last 7 Days" :
     periodFilter === "month" ? "This Month" :
     periodFilter === "quarter" ? "This Quarter" : "This Year";
 
@@ -151,6 +149,7 @@ export default function FinancesPage() {
     setCategoryFilter(null);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
+    url.searchParams.set("period", periodFilter);
     window.history.replaceState({}, "", url.toString());
   };
 
@@ -162,7 +161,7 @@ export default function FinancesPage() {
           <h1 className="text-2xl font-bold">Finances</h1>
           <p className="text-muted-foreground text-sm">Track income, expenses and profitability</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/sales"><Button variant="outline" size="sm">Sales & payments</Button></Link>
           <Link href="/finances/expense/new">
             <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-add-expense">
@@ -184,7 +183,7 @@ export default function FinancesPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="week">This Week</SelectItem>
+            <SelectItem value="week">Last 7 Days</SelectItem>
             <SelectItem value="month">This Month</SelectItem>
             <SelectItem value="quarter">This Quarter</SelectItem>
             <SelectItem value="year">This Year</SelectItem>
@@ -200,40 +199,40 @@ export default function FinancesPage() {
           value={INR(totalIncome)}
           sub={periodLabel}
           color="green"
-          href="/finances?tab=income"
+          href={`/finances?tab=income&period=${periodFilter}`}
         />
         <KPICard
           label="Total Expenses"
           value={INR(totalExpense)}
           sub={periodLabel}
           color="red"
-          href="/finances?tab=expenses"
+          href={`/finances?tab=expenses&period=${periodFilter}`}
         />
         <KPICard
           label="Net Profit"
           value={`${netProfit >= 0 ? "+" : "-"}${INR(netProfit)}`}
           sub={totalIncome > 0 ? `${((netProfit / totalIncome) * 100).toFixed(1)}% margin` : ""}
           color={netProfit >= 0 ? "blue" : "orange"}
-          href="/finances?tab=analysis"
+          href={`/finances?tab=analysis&period=${periodFilter}`}
         />
         <KPICard
           label="Milk Sales"
           value={INR(milkSalesTotal)}
           sub="Milk revenue"
           color="purple"
-          href="/finances?tab=income"
+          href={`/finances?tab=income&period=${periodFilter}`}
         />
         <KPICard
           label="Feed Cost"
           value={INR(feedCostTotal)}
           sub="Feed expenses"
           color="amber"
-          href="/finances?tab=expenses"
+          href={`/finances?tab=expenses&period=${periodFilter}`}
         />
-        {costPerKg !== null ? (
-          <KPICard label="Cost/kg Milk" value={`₹${costPerKg.toFixed(2)}`} sub={`${monthMilk.toFixed(0)}L produced`} color="blue" href="/finances?tab=analysis" />
+        {costPerLitre !== null ? (
+          <KPICard label="Cost/litre Milk" value={`₹${costPerLitre.toFixed(2)}`} sub={`${periodMilk.toFixed(0)}L produced`} color="blue" href={`/finances?tab=analysis&period=${periodFilter}`} />
         ) : (
-          <KPICard label="Cost/kg Milk" value="—" sub="No milk data" color="blue" />
+          <KPICard label="Cost/litre Milk" value="—" sub="No milk data" color="blue" />
         )}
       </div>
 
@@ -261,7 +260,7 @@ export default function FinancesPage() {
           <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base">Recent Transactions — {periodLabel}</CardTitle>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleTabChange("income")}>Income Only</Button>
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleTabChange("expenses")}>Expenses Only</Button>
               </div>
@@ -346,8 +345,8 @@ export default function FinancesPage() {
                     <p className="text-xs text-muted-foreground">Net P&L</p>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-muted/40">
-                    <p className="text-xl font-bold">{costPerKg ? `₹${costPerKg.toFixed(2)}` : "—"}</p>
-                    <p className="text-xs text-muted-foreground">Cost/kg Milk</p>
+                    <p className="text-xl font-bold">{costPerLitre != null ? `₹${costPerLitre.toFixed(2)}` : "—"}</p>
+                    <p className="text-xs text-muted-foreground">Cost/litre Milk</p>
                   </div>
                 </div>
               </CardContent>

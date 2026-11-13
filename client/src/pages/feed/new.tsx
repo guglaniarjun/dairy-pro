@@ -1,3 +1,4 @@
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -61,6 +62,8 @@ export default function RecordFeedingPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const createMutation = useMutation({
     mutationFn: async (data: FeedFormValues) => {
@@ -134,7 +137,7 @@ export default function RecordFeedingPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Session *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-session">
                             <SelectValue placeholder="Select session" />
@@ -158,7 +161,7 @@ export default function RecordFeedingPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cattle (leave blank for all/herd)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-cattle">
                           <SelectValue placeholder="All Cattle / Herd" />
@@ -183,7 +186,7 @@ export default function RecordFeedingPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Feed Item *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-feed-item">
                           <SelectValue placeholder="Select feed item" />

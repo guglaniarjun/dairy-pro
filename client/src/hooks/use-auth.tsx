@@ -2,6 +2,7 @@ import { rememberSession, rememberedSession } from "@/lib/offline-cache";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, ReactNode } from "react";
 import type { User } from "@shared/models/auth";
+import { isAndroid, FarmSync } from '@/lib/native';
 
 interface AuthContextType {
   user: User | null | undefined;
@@ -38,6 +39,13 @@ async function fetchUser(): Promise<User | null> {
 }
 
 async function logout(): Promise<void> {
+  if(isAndroid) {
+    try { await fetch('/api/auth/logout',{method:'POST',credentials:'include'}); } catch {}
+    await FarmSync.logout();
+    rememberSession(null);
+    window.location.href='/login';
+    return;
+  }
   rememberSession(null);
   window.location.href = "/api/logout";
 }

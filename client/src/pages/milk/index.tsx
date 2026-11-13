@@ -1,3 +1,5 @@
+import { reportingRange } from "@shared/farm-overview";
+import { cattleAction } from "@/hooks/use-cattle-context";
 import { farmDay, addDays } from "@shared/care";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -65,7 +67,7 @@ export default function MilkRecordsPage() {
 
   const getCattleName = (cattleId: string) => {
     const cow = cattle?.find((c) => c.id === cattleId);
-    return cow?.name || cow?.tagNumber || "Unknown";
+    return cow ? [cow.tagNumber, cow.name].filter(Boolean).join(" · ") : "Unknown";
   };
 
   const { data: preferences } = useQuery<any>({
@@ -98,6 +100,11 @@ export default function MilkRecordsPage() {
       return matchesSearch && matchesSession && matchesCattle;
 
     const filterDate = getDateRange();
+    if (dateFilter === "30days") return matchesSearch && matchesSession && matchesCattle && entry.date >= addDays(today, -29) && entry.date <= today;
+    if (["month", "quarter", "year"].includes(dateFilter)) {
+      const range = reportingRange(dateFilter, today);
+      return matchesSearch && matchesSession && matchesCattle && entry.date >= range.from && entry.date <= range.to;
+    }
     if (dateFilter === "week") {
       return (
         matchesSearch &&
@@ -131,14 +138,14 @@ export default function MilkRecordsPage() {
     cattleFilter !== "all" ? cattle?.find((c) => c.id === cattleFilter) : null;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Milk Records</h1>
           <p className="text-muted-foreground">Track daily milk production</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={() => window.location.assign("/milk/bulk")}
@@ -156,7 +163,7 @@ export default function MilkRecordsPage() {
             <Download className="w-4 h-4" />
             Export
           </Button>
-          <Link href="/milk/new">
+          <Link href={cattleAction("/milk/new", cattleFilter)}>
             <Button className="gap-2" data-testid="button-add-milk">
               <Plus className="w-4 h-4" />
               Record Milk
@@ -167,7 +174,7 @@ export default function MilkRecordsPage() {
 
       {/* Cattle filter banner */}
       {filteredCow && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-sm border border-blue-200 dark:border-blue-800">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-sm border border-blue-200 dark:border-blue-800">
           <Link href={`/cattle/${filteredCow.id}`}>
             <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs">
               <ArrowLeft className="w-3 h-3" />{" "}
@@ -291,7 +298,7 @@ export default function MilkRecordsPage() {
             data-testid="input-search-milk"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Select value={dateFilter} onValueChange={setDateFilter}>
             <SelectTrigger
               className="w-[140px]"
@@ -303,7 +310,11 @@ export default function MilkRecordsPage() {
             <SelectContent>
               <SelectItem value="today">Today</SelectItem>
               <SelectItem value="yesterday">Yesterday</SelectItem>
-              <SelectItem value="week">Last 7 Days</SelectItem>
+              <SelectItem value="30days">Last 30 days</SelectItem>
+                  <SelectItem value="month">This month</SelectItem>
+              <SelectItem value="quarter">This quarter</SelectItem>
+              <SelectItem value="year">This year</SelectItem>
+                  <SelectItem value="week">Last 7 Days</SelectItem>
               <SelectItem value="all">All Time</SelectItem>
             </SelectContent>
           </Select>
@@ -385,7 +396,7 @@ export default function MilkRecordsPage() {
                   ? "Try adjusting your filters"
                   : "Start recording milk production"}
               </p>
-              <Link href="/milk/new">
+              <Link href={cattleAction("/milk/new", cattleFilter)}>
                 <Button className="gap-2" data-testid="button-add-first-milk">
                   <Plus className="w-4 h-4" />
                   Record First Entry

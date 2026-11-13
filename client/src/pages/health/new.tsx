@@ -1,3 +1,4 @@
+import { useCattleContext } from "@/hooks/use-cattle-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -64,6 +65,8 @@ export default function HealthNewPage() {
       notes: "",
     },
   });
+  useCattleContext(form);
+
 
   const createMutation = useMutation({
     mutationFn: async (data: HealthFormValues) => {
@@ -109,7 +112,7 @@ export default function HealthNewPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cattle *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-cattle">
                           <SelectValue placeholder="Select cattle" />
@@ -135,7 +138,7 @@ export default function HealthNewPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Event Type *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-event-type">
                             <SelectValue />
@@ -159,7 +162,7 @@ export default function HealthNewPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Severity *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-severity">
                             <SelectValue />
@@ -268,7 +271,7 @@ export default function HealthNewPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Status *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger data-testid="select-status">
                             <SelectValue />

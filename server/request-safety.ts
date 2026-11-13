@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { vaccineIdentity } from "@shared/farm-overview";
 import crypto from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db, transactionContext } from "./db";
@@ -229,6 +230,22 @@ export async function validateFarmRequest(req: any) {
         409,
       );
   }
+  if (req.path === "/api/breeding/inseminations") {
+    const animal = await owned(s.cattle, tenant, body.cattleId);
+    if (animal.gender !== "female" || animal.status !== "active") fail("Choose an active female animal");
+    if (animal.reproductiveStatus === "pregnant" || animal.expectedCalvingDate)
+      fail("This animal is pregnant. Record the actual pregnancy outcome before a new service; add old information as a historical note.", 409);
+    const latest = (await rows(s.inseminations, tenant)).filter(v => v.cattleId === animal.id).sort((a,b) => b.date.localeCompare(a.date))[0];
+    if (latest && body.date < latest.date) fail("This service predates the current cycle. Record it as a historical note.", 409);
+  }
+  if (req.path === "/api/cattle-transactions") {
+    const animal = await owned(s.cattle, tenant, body.cattleId);
+    if (!["sale", "purchase"].includes(body.type)) fail("Choose sale or purchase");
+    positive.parse(body.amount);
+    if (body.type === "sale" && animal.status !== "active") fail("Only active animals can be sold", 409);
+    if (body.type === "sale" && animal.meatWithholdUntil && new Date(animal.meatWithholdUntil) > new Date(body.date))
+      fail("Meat withdrawal is active. Review the withdrawal record before recording this exit.", 409);
+  }
   if (req.path === "/api/milk-sales") {
     positive.parse(body.quantity);
     positive.parse(body.pricePerLiter);
@@ -275,6 +292,7 @@ export async function validateFarmRequest(req: any) {
   if (/^\/api\/cattle-transactions\/[^/]+\/payments$/.test(req.path)) {
     positive.parse(body.amount);
     const tx = await owned(s.cattleTransactions, tenant, parts[2]);
+    if(tx.paymentStatus === 'voided')fail('This transaction was reversed and cannot receive payments',409);
     const paid = (await rows(s.cattlePayments, tenant))
       .filter((p) => p.transactionId === tx.id)
       .reduce((n, p) => n + Number(p.amount), 0);
@@ -295,7 +313,7 @@ export async function validateFarmRequest(req: any) {
     body.status === "completed" &&
     before
   ) {
-    if (before.supplies?.length || before.protocolId || before.batchId)
+    if (before.supplies?.length || before.protocolId || before.batchId || before.evidenceRequired || before.sourceKey?.startsWith("pregnancy:"))
       fail(
         "Complete this care task from Care & Work so supplies and evidence are recorded",
       );
@@ -317,7 +335,7 @@ async function lifecycle(req: any, result: any, before: any) {
     actor = req.user.id,
     body = req.body || {},
     cfg = await settings(tenant),
-    date = body.date || body.testDate || farmDay(cfg.timezone);
+    date = body.date || body.testDate || (body.detectedAt ? farmDay(cfg.timezone, new Date(body.detectedAt)) : farmDay(cfg.timezone));
   if (req.path.startsWith("/api/operations") || !result?.id) return;
   if (
     /^\/api\/cattle\/[^/]+$/.test(req.path) &&
@@ -474,24 +492,26 @@ async function lifecycle(req: any, result: any, before: any) {
             })
             .where(eq(s.tasks.id, t.id));
   }
-  if (req.path === "/api/vaccinations" && body.nextDueDate) {
+  if (req.path === "/api/vaccinations") {
+    const records = await rows(s.vaccinations, tenant);
+    const superseded = records.filter(v => v.cattleId === body.cattleId && vaccineIdentity(v) === vaccineIdentity(body) && v.date <= body.date);
     for (const t of await rows(s.tasks, tenant))
       if (
         t.cattleId === body.cattleId &&
-        t.sourceKey?.startsWith(`vaccine:${body.vaccineId}:`) &&
+        superseded.some(v => t.sourceKey?.endsWith(`:${v.id}`)) &&
         !finishedTask(t.status)
       )
         await db
           .update(s.tasks)
           .set({ status: "cancelled", reason: "Superseded by recorded dose" })
           .where(eq(s.tasks.id, t.id));
-    await makeTask(tenant, {
+    if (body.nextDueDate) await makeTask(tenant, {
       cattleId: body.cattleId,
-      title: "Vaccination / deworming follow-up",
+      title: `Vaccination: ${body.vaccineName}`,
       description: body.notes,
       type: "health",
       dueDate: body.nextDueDate,
-      sourceKey: `vaccine:${body.vaccineId}:${result.id}`,
+      sourceKey: `vaccine:${vaccineIdentity(body)}:${result.id}`,
       evidenceRequired: true,
     });
   }
@@ -508,6 +528,14 @@ async function lifecycle(req: any, result: any, before: any) {
     });
     await triggerProtocols(tenant, animal, "heat", date, result.id);
   }
+  if (req.path === "/api/health" && body.status !== "resolved") {
+    await makeTask(tenant, { cattleId: body.cattleId, title: `Health review: ${body.description || body.eventType}`,
+      type: "health", priority: body.severity === "critical" ? "urgent" : "high", dueDate: date,
+      sourceKey: `health:${result.id}`, evidenceRequired: true });
+  }
+  if (req.path.startsWith("/api/health/") && body.status === "resolved")
+    for (const task of await rows(s.tasks, tenant)) if (task.sourceKey === `health:${result.id}` && !finishedTask(task.status))
+      await db.update(s.tasks).set({ status: "completed", completedAt: result.resolvedAt || new Date(), completedBy: actor, evidence: { notes: "Health issue resolved" } }).where(eq(s.tasks.id, task.id));
   if (
     req.path.startsWith("/api/tasks/") &&
     body.status === "completed" &&

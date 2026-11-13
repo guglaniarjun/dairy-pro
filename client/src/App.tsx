@@ -87,6 +87,7 @@ function LoadingSpinner() {
 }
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const sidebarStyle = {
     "--sidebar-width": "15.5rem",
     "--sidebar-width-icon": "3rem",
@@ -94,9 +95,9 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-dvh w-full">
         <AppSidebar />
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-col flex-1 overflow-hidden">
           <header className="flex items-center justify-between px-3 py-2 border-b border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
             <SidebarTrigger
               data-testid="button-sidebar-toggle"
@@ -107,6 +108,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             </div>
           </header>
           <main className="flex-1 overflow-auto pb-20 md:pb-0">
+            {isAndroid && <OfflineStatus user={user} automatic />}
             {children}
           </main>
         </div>
@@ -199,3 +201,5 @@ function App() {
 }
 
 export default App;
+import { OfflineStatus } from '@/lib/offline';
+import { isAndroid } from '@/lib/native';

@@ -14,10 +14,15 @@
     "demo": "cross-env LOCAL_DEMO=true NODE_ENV=development WHATSAPP_WEB_ENABLED=false tsx script/local-demo.ts",
     "db:migrate": "tsx script/migrate.ts",
     "backup": "tsx script/backup.ts backup",
-    "backup:restore-check": "tsx script/backup.ts restore-check"
+    "backup:restore-check": "tsx script/backup.ts restore-check",
+    "android:build": "node script/build-android.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.975.0",
+    "@capacitor/android": "8.6.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/network": "8.0.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@octokit/rest": "^21.1.1",
@@ -101,6 +106,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.2",
     "@electric-sql/pglite": "^0.5.8",
     "@replit/vite-plugin-cartographer": "^0.4.4",
     "@replit/vite-plugin-dev-banner": "^0.1.1",

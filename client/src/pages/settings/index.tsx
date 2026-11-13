@@ -402,8 +402,8 @@ function BreedingTab() {
               <Input type="number" value={form.pregnancyTestDays || 30} onChange={e => setForm((p: any) => ({ ...p, pregnancyTestDays: Number(e.target.value) }))} />
               <p className="text-xs text-muted-foreground">Default: 30 days after insemination</p>
             </Field>
-            <Field label="Heifer First AI Age (months)">
-              <Input type="number" value={form.heiferInseminationAgeMonths || 18} onChange={e => setForm((p: any) => ({ ...p, heiferInseminationAgeMonths: Number(e.target.value) }))} />
+            <Field label="Heifer First AI Review Age (days)">
+              <Input type="number" value={form.heiferInseminationAgeDays || 365} onChange={e => setForm((p: any) => ({ ...p, heiferInseminationAgeDays: Number(e.target.value) }))} />
               <p className="text-xs text-muted-foreground">Minimum age for first insemination</p>
             </Field>
           </div>
@@ -420,7 +420,7 @@ function BreedingTab() {
 const RULE_TYPES = [
   ["birth_followup", "Birth & calf follow-up"], ["death", "Death recorded"],
   ["milk_drop", "Milk production drop"], ["heat_due", "Heat due"],
-  ["pregnancy_test_due", "Pregnancy test due"], ["vaccination_due", "Vaccination due"],
+  ["care_tasks", "Care tasks: dry-off, delivery, health and farm work"], ["pregnancy_test_due", "Pregnancy test due"], ["vaccination_due", "Vaccination due"],
   ["low_stock", "Low inventory"], ["cattle_parameter", "Cattle parameter"],
 ] as const;
 
