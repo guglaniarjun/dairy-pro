@@ -10,11 +10,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  Field,
   Panel,
   InputField,
   SelectField,
   control,
 } from "@/components/farm-forms";
+import { useToast } from "@/hooks/use-toast";
 import { farmDay } from "@shared/care";
 import { cents, decimal, lineTotal, modeOptions } from "@shared/sales";
 import { SalesGrid as Grid } from "./sales-grid";
@@ -422,12 +424,114 @@ function Payments({ data, date }: any) {
   );
 }
 
+function CorrectSale({
+  sale,
+  data,
+  onSaved,
+}: {
+  sale: any;
+  data: any;
+  onSaved: () => void;
+}) {
+  const write = useSalesWrite({ onlineOnly: true });
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const values = Object.fromEntries(new FormData(e.currentTarget));
+        if (
+          await write.save(
+            `/api/sales/entries/${sale.id}`,
+            { ...values, version: sale.version },
+            "PATCH",
+          )
+        ) {
+          onSaved();
+        }
+      }}
+    >
+      <fieldset disabled={write.busy} className="space-y-4">
+        <InputField
+          label="Sale date"
+          name="date"
+          type="date"
+          defaultValue={sale.date}
+          max={farmDay()}
+          required
+        />
+        <SelectField
+          label="Customer"
+          name="customerId"
+          defaultValue={sale.customerId}
+          required
+          options={data.customers
+            .filter((c: any) => c.active || c.id === sale.customerId)
+            .map((c: any) => ({ value: c.id, label: c.name }))}
+        />
+        <SelectField
+          label="Item"
+          name="productId"
+          defaultValue={sale.productId}
+          required
+          options={data.products
+            .filter((p: any) => p.active || p.id === sale.productId)
+            .map((p: any) => ({ value: p.id, label: `${p.name} (${p.unit})` }))}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <InputField
+            label="Quantity"
+            name="quantity"
+            type="number"
+            step="0.01"
+            min="0.01"
+            max="100000"
+            defaultValue={sale.quantity}
+            required
+          />
+          <InputField
+            label="Rate per unit (₹)"
+            name="rate"
+            type="number"
+            step="0.01"
+            min="0.01"
+            max="100000"
+            defaultValue={sale.rate}
+            required
+          />
+        </div>
+        <InputField
+          label="Sale notes"
+          name="notes"
+          defaultValue={sale.notes || ""}
+          maxLength={1000}
+        />
+        <Field label="Reason for correction">
+          <textarea
+            className={control}
+            name="reason"
+            rows={2}
+            required
+            maxLength={1000}
+          />
+        </Field>
+        {write.message}
+        <Button type="submit">
+          {write.busy ? "Saving…" : "Save correction"}
+        </Button>
+      </fieldset>
+    </form>
+  );
+}
+
 export default function SalesPage() {
   const [date, setDate] = useState(farmDay()),
     [tab, setTab] = useState(
       new URLSearchParams(location.search).get("tab") || "daily",
     ),
-    [addCustomer, setAddCustomer] = useState(false);
+    [addCustomer, setAddCustomer] = useState(false),
+    [editingSale, setEditingSale] = useState<any>(null);
+  const { toast } = useToast();
   const query = useSales(date);
   if (!query.canView)
     return (
@@ -590,11 +694,34 @@ export default function SalesPage() {
                     title={`Sales register — ${date}`}
                     description="Saved sales update income, stock and the daily report automatically."
                   >
-                    <SalesTable entries={data.entries} />
+                    <SalesTable
+                      entries={data.entries}
+                      onEdit={query.canEdit && !data.offline ? setEditingSale : undefined}
+                    />
                   </Panel>
                 </TabsContent>
               </Tabs>
             </>
+          )}
+          {query.canEdit && editingSale && (
+            <Dialog open onOpenChange={(open) => !open && setEditingSale(null)}>
+              <DialogContent className="max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Edit saved sale</DialogTitle>
+                  <DialogDescription>
+                    Posted payments stay on their original customer account and receipt date.
+                  </DialogDescription>
+                </DialogHeader>
+                <CorrectSale
+                  sale={editingSale}
+                  data={data}
+                  onSaved={() => {
+                    setEditingSale(null);
+                    toast({ title: "Sale corrected" });
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
           )}
           <Dialog open={addCustomer} onOpenChange={setAddCustomer}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

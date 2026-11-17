@@ -119,6 +119,22 @@ export const salesBatchSchema = z.object({
   source: z.enum(["daily", "individual"]),
   entries: z.array(saleSchema).min(1).max(1000),
 });
+export const saleCorrectionSchema = z.object({
+  date: daySchema,
+  customerId: z.string().min(1),
+  productId: z.string().min(1),
+  quantity,
+  rate,
+  notes: z.string().trim().max(1000),
+  reason: z.string().trim().min(1, "Enter a correction reason").max(1000),
+  version: z.string().regex(/^[a-f0-9]{64}$/),
+}).refine(
+  (sale) => {
+    const total = lineTotal(sale.quantity, sale.rate);
+    return total >= 1 && total <= 10000000000;
+  },
+  "Sale total must be between ₹0.01 and ₹100,000,000",
+);
 export const stockReceiptSchema = z.object({
   productId: z.string().min(1),
   date: daySchema,

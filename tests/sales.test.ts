@@ -17,6 +17,8 @@ import { reportWorkbook } from "../server/report-export";
 const date = addDays(farmDay(), -3);
 let engine: any,
   owner: any,
+  admin: any,
+  accountant: any,
   other: any,
   worker: any,
   tenant: any,
@@ -78,10 +80,21 @@ before(async () => {
   owner = request.agent(app);
   other = request.agent(app);
   worker = request.agent(app);
+  admin = request.agent(app);
+  accountant = request.agent(app);
+  for (const role of ["admin", "accountant"]) {
+    const [member] = await db.insert(s.users).values({
+      email: `sales-${role}@test.local`,
+      passwordHash: hash,
+    }).returning();
+    await db.insert(s.tenantMembers).values({ tenantId: tenant.id, userId: member.id, role });
+  }
   for (const [agent, email] of [
     [owner, user.email],
     [other, u2.email],
     [worker, u3.email],
+    [admin, "sales-admin@test.local"],
+    [accountant, "sales-accountant@test.local"],
   ])
     ok(
       await agent
@@ -848,4 +861,131 @@ test("payment terms handle month boundaries and overdue amounts exclude advances
   const cleared = customerAccount([sale], [receipt], "2026-10-09");
   assert.equal(cleared.advance, "50.00");
   assert.equal(cleared.overdue, "0.00");
+});
+
+test("only farm owners and admins can correct posted sales and update their linked records", async () => {
+  const day = addDays(date, -30);
+  const nextDay = addDays(day, 1);
+  const [cow] = await rows(s.cattle, tenant.id);
+  await db.insert(s.milkEntries).values({
+    tenantId: tenant.id,
+    cattleId: cow.id,
+    date: day,
+    session: "morning",
+    quantity: "10",
+  });
+  const first = await post("/api/sales/customers", { name: "Original buyer" });
+  const second = await post("/api/sales/customers", {
+    name: "Corrected buyer",
+  });
+  const product = await post("/api/sales/products", {
+    name: "Test cheese",
+    unit: "kg",
+    defaultRate: 100,
+  });
+  await post("/api/sales/stock", {
+    productId: product.id,
+    date: nextDay,
+    quantity: 5,
+    kind: "opening",
+    notes: "Test inventory",
+  });
+  const {
+    entries: [original],
+  } = await post("/api/sales/entries", {
+    date: day,
+    source: "daily",
+    entries: [line(first, milk, "8", { reference: "ORIGINAL" })],
+  });
+  const path = `/api/sales/entries/${original.id}`;
+  const receipts = await rows(s.salesPayments, tenant.id);
+  const receipt = receipts.find((r) => r.saleId === original.id);
+  const state = await overview(day);
+  const correction = {
+    date: day,
+    customerId: first.id,
+    productId: milk.id,
+    quantity: "9",
+    rate: "60",
+    notes: "",
+    reason: "Corrected the recorded volume",
+    version: state.entries[0].version,
+  };
+  ok(await accountant.patch(path).send(correction), 403);
+  ok(await other.patch(path).send(correction), 404);
+  ok(await admin.patch(path).send({ ...correction, reason: " " }), 400);
+  const corrected = ok(
+    await admin
+      .patch(path)
+      .set("Idempotency-Key", "sale-edit")
+      .send(correction),
+  );
+  assert.deepEqual(
+    ok(
+      await admin
+        .patch(path)
+        .set("Idempotency-Key", "sale-edit")
+        .send(correction),
+    ),
+    corrected,
+  );
+  ok(await admin.patch(path).send(correction), 409);
+  assert.equal(corrected.sale.milkSaleId, original.milkSaleId);
+  const afterMilk = await overview(day);
+  assert.equal(afterMilk.entries[0].outstanding, "60.00");
+  assert.equal(afterMilk.products.find((p: any) => p.id === milk.id).stock, 1);
+  assert.equal((await buildDailyReport(tenant.id, day)).milk.sold, 9);
+
+  const move = {
+    ...correction,
+    date: nextDay,
+    customerId: second.id,
+    productId: product.id,
+    rate: "100",
+    version: afterMilk.entries[0].version,
+    reason: "Corrected buyer, item and delivery date",
+  };
+  ok(await owner.patch(path).send(move), 409);
+  assert.equal((await overview(day)).entries[0].quantity, "9.00");
+  const moved = ok(await owner.patch(path).send({ ...move, quantity: "3" }));
+  assert.equal(moved.id, original.id);
+  assert.equal(moved.sale.milkSaleId, null);
+  assert.equal((await buildDailyReport(tenant.id, day)).milk.sold, 0);
+  const afterMove = await overview(nextDay);
+  assert.equal(afterMove.entries[0].outstanding, "300.00");
+  assert.equal(
+    afterMove.products.find((p: any) => p.id === product.id).stock,
+    2,
+  );
+  ok(
+    await owner
+      .patch(path)
+      .send({ ...move, version: afterMove.entries[0].version }),
+    409,
+  );
+  assert.equal(
+    (await overview(nextDay)).products.find((p: any) => p.id === product.id)
+      .stock,
+    2,
+  );
+  assert.equal(
+    afterMove.customers.find((c: any) => c.id === first.id).advance,
+    "480.00",
+  );
+  const storedReceipt = (await rows(s.salesPayments, tenant.id)).find(
+    (r) => r.id === receipt.id,
+  );
+  assert.deepEqual(storedReceipt, { ...receipt, saleId: null });
+  const incomes = (await rows(s.incomes, tenant.id)).filter(
+    (r) => r.referenceId === original.id,
+  );
+  assert.equal(incomes.length, 1);
+  assert.deepEqual([incomes[0].date, incomes[0].amount], [nextDay, "300.00"]);
+  const edits = (await rows(s.auditLogs, tenant.id)).filter(
+    (r) => r.entityType === path,
+  );
+  assert.equal(edits.length, 2);
+  const moveAudit = edits.find((r) => r.newData.reason === move.reason);
+  assert.equal(moveAudit.oldData.quantity, "9.00");
+  assert.equal(moveAudit.newData.sale.quantity, "3.00");
 });

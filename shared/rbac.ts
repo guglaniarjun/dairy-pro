@@ -59,6 +59,10 @@ export const roleLabels: Record<TenantRole, string> = {
   viewer: "Viewer",
 };
 
+export function canEditSavedSales(role: string | null | undefined) {
+  return role === "owner" || role === "admin";
+}
+
 export function effectivePermissions(role: string, overrides?: string[] | null): TenantPermission[] {
   if (role === "owner" || role === "admin") return allTenantPermissions;
   if (overrides?.length) return overrides.filter((item): item is TenantPermission => allTenantPermissions.includes(item as TenantPermission));

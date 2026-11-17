@@ -6,6 +6,7 @@ import {
   saveCustomer,
   saveProduct,
   saveSales,
+  correctSale,
   receiveProduct,
   collectPayment,
   salesOverview,
@@ -89,6 +90,12 @@ export function registerSales(
     auth,
     tenant,
     wrap((r) => saveSales(r.tenantId, r.user.id, r.body)),
+  );
+  app.patch(
+    "/api/sales/entries/:id",
+    auth,
+    tenant,
+    wrap((r) => correctSale(r.tenantId, r.user.id, r.params.id, r.body)),
   );
   app.post(
     "/api/sales/stock",

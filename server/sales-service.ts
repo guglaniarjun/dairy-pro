@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import * as s from "@shared/schema";
 import {
@@ -9,6 +9,7 @@ import {
   customerSchema,
   productSchema,
   salesBatchSchema,
+  saleCorrectionSchema,
   stockReceiptSchema,
   paymentSchema,
   paymentDueDate,
@@ -90,7 +91,7 @@ export async function saveProduct(tenant: string, body: unknown, id?: string) {
         .returning();
   return result;
 }
-export async function milkAvailable(tenant: string, date: string) {
+export async function milkAvailable(tenant: string, date: string, excludedSaleId?: string | null) {
   const [milk, sales, events] = await Promise.all([
     rows(s.milkEntries, tenant),
     rows(s.milkSales, tenant),
@@ -100,7 +101,7 @@ export async function milkAvailable(tenant: string, date: string) {
     .filter((m) => m.date === date && m.destination !== "discarded")
     .reduce((n, m) => n + cents(m.quantity), 0);
   const sold = sales
-    .filter((m) => m.date === date)
+    .filter((m) => m.date === date && m.id !== excludedSaleId)
     .reduce((n, m) => n + cents(m.quantity), 0);
   const uses = events.filter(
     (e) => e.date === date && e.type === "milk_disposition",
@@ -124,9 +125,10 @@ async function takeStock(
   quantity: number,
   saleId: string,
   actor: string,
+  excludedMilkSaleId?: string | null,
 ) {
   if (product.isMilk) {
-    if (cents(await milkAvailable(tenant, date)) < cents(quantity))
+    if (cents(await milkAvailable(tenant, date, excludedMilkSaleId)) < cents(quantity))
       fail(
         `Insufficient saleable milk on ${date}. Record production or explained opening stock first.`,
         409,
@@ -304,6 +306,217 @@ export async function saveSales(tenant: string, actor: string, body: unknown) {
     entries: saved.map((sale) => current.find((s) => s.id === sale.id)),
   };
 }
+
+type DairySale = typeof s.dairySales.$inferSelect;
+
+function saleVersion(sale: DairySale) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify([
+        sale.date,
+        sale.customerId,
+        sale.productId,
+        sale.quantity,
+        sale.rate,
+        sale.notes,
+      ]),
+    )
+    .digest("hex");
+}
+
+export async function correctSale(
+  tenant: string,
+  actor: string,
+  id: string,
+  body: unknown,
+) {
+  const data = saleCorrectionSchema.parse(body);
+  const old = (await owned(s.dairySales, tenant, id)) as DairySale;
+  if (data.version !== saleVersion(old))
+    fail(
+      "This sale changed. Close the editor, refresh Sales, and review the latest entry.",
+      409,
+    );
+  if (data.date > farmDay((await settings(tenant)).timezone))
+    fail("Sales cannot be future dated");
+
+  const customer = await owned(s.salesCustomers, tenant, data.customerId);
+  const product = await owned(s.salesProducts, tenant, data.productId);
+  if (
+    (!customer.active && customer.id !== old.customerId) ||
+    (!product.active && product.id !== old.productId)
+  )
+    fail("Choose an active customer and item");
+
+  const customerOrDateChanged =
+    customer.id !== old.customerId || data.date !== old.date;
+  const entryKey =
+    old.source === "daily" && customerOrDateChanged
+      ? `daily:${data.date}:${customer.id}`
+      : old.entryKey;
+  if (
+    entryKey !== old.entryKey &&
+    (await rows(s.dairySales, tenant)).some(
+      (sale) => sale.entryKey === entryKey,
+    )
+  )
+    fail(`${customer.name} already has a daily entry for ${data.date}.`, 409);
+
+  const quantity = decimal(cents(data.quantity));
+  const rate = decimal(cents(data.rate));
+  const totalAmount = decimal(lineTotal(quantity, rate));
+  const customerName =
+    customer.id === old.customerId ? old.customerName : customer.name;
+  const productName =
+    product.id === old.productId ? old.productName : product.name;
+  const unit = product.id === old.productId ? old.unit : product.unit;
+  if (
+    data.date !== old.date ||
+    product.id !== old.productId ||
+    quantity !== old.quantity
+  ) {
+    await db
+      .delete(s.productStock)
+      .where(
+        and(
+          eq(s.productStock.tenantId, tenant),
+          eq(s.productStock.saleId, id),
+          eq(s.productStock.kind, "sale"),
+        ),
+      );
+    await takeStock(
+      tenant,
+      product,
+      data.date,
+      data.quantity,
+      id,
+      actor,
+      old.milkSaleId,
+    );
+  }
+
+  let milkSaleId: string | null = old.milkSaleId;
+  if (product.isMilk) {
+    const milkValues = {
+      date: data.date,
+      buyerName: customerName,
+      quantity,
+      pricePerLiter: rate,
+      totalAmount,
+      notes: data.notes,
+    };
+    if (milkSaleId) {
+      await db
+        .update(s.milkSales)
+        .set(milkValues)
+        .where(
+          and(eq(s.milkSales.tenantId, tenant), eq(s.milkSales.id, milkSaleId)),
+        );
+    } else {
+      const [milkSale] = await db
+        .insert(s.milkSales)
+        .values({ ...milkValues, tenantId: tenant })
+        .returning();
+      milkSaleId = milkSale.id;
+    }
+  } else if (milkSaleId) {
+    await db
+      .delete(s.milkSales)
+      .where(
+        and(eq(s.milkSales.tenantId, tenant), eq(s.milkSales.id, milkSaleId)),
+      );
+    milkSaleId = null;
+  }
+
+  // Preserve posted receipts on their original customer and receipt date.
+  const detachedReceipts = customerOrDateChanged
+    ? await db
+        .update(s.salesPayments)
+        .set({ saleId: null })
+        .where(
+          and(
+            eq(s.salesPayments.tenantId, tenant),
+            eq(s.salesPayments.saleId, id),
+          ),
+        )
+        .returning({ id: s.salesPayments.id })
+    : [];
+  const receivedAmount = customerOrDateChanged ? "0.00" : old.receivedAmount;
+  const saleFilter = and(
+    eq(s.dairySales.tenantId, tenant),
+    eq(s.dairySales.id, id),
+  );
+  await db
+    .update(s.dairySales)
+    .set({
+      entryKey,
+      date: data.date,
+      customerId: customer.id,
+      customerName,
+      productId: product.id,
+      productName,
+      unit,
+      quantity,
+      rate,
+      totalAmount,
+      receivedAmount,
+      dueDate: customerOrDateChanged
+        ? paymentDueDate(data.date, customer.paymentTerm, customer.paymentDays)
+        : old.dueDate,
+      milkSaleId,
+      notes: data.notes,
+    })
+    .where(saleFilter);
+
+  if (customer.id !== old.customerId)
+    await reconcileAccount(tenant, old.customerId);
+  const account = await reconcileAccount(tenant, customer.id);
+  const settled = account.entries.find((sale) => sale.id === id)!;
+  const paymentType = cents(settled.outstanding) > 0 ? "credit" : "cash";
+  const paymentMode =
+    cents(receivedAmount) > 0
+      ? old.paymentMode
+      : cents(settled.advanceApplied) === cents(totalAmount)
+        ? "advance"
+        : "credit";
+  const [sale] = await db
+    .update(s.dairySales)
+    .set({ paymentType, paymentMode })
+    .where(saleFilter)
+    .returning();
+
+  const income = {
+    headId: await incomeHead(product.isMilk),
+    date: data.date,
+    amount: totalAmount,
+    customerName,
+    description: `${productName} — ${data.quantity} ${unit} × ₹${data.rate}`,
+    paymentMethod: paymentMode,
+  };
+  const updated = await db
+    .update(s.incomes)
+    .set(income)
+    .where(
+      and(
+        eq(s.incomes.tenantId, tenant),
+        eq(s.incomes.referenceType, "dairy_sale"),
+        eq(s.incomes.referenceId, id),
+      ),
+    )
+    .returning({ id: s.incomes.id });
+  if (!updated.length) {
+    await db.insert(s.incomes).values({
+      ...income,
+      tenantId: tenant,
+      referenceType: "dairy_sale",
+      referenceId: id,
+      recordedBy: actor,
+    });
+  }
+  return { id, sale, reason: data.reason, detachedReceipts };
+}
+
 export async function receiveProduct(
   tenant: string,
   actor: string,
@@ -413,7 +626,7 @@ export async function salesOverview(tenant: string, date: string) {
   const [products, customers, sales, payments, movements] = await Promise.all([
     rows(s.salesProducts, tenant),
     rows(s.salesCustomers, tenant),
-    rows(s.dairySales, tenant),
+    db.select().from(s.dairySales).where(eq(s.dairySales.tenantId, tenant)),
     rows(s.salesPayments, tenant),
     rows(s.productStock, tenant),
   ]);
@@ -450,7 +663,10 @@ export async function salesOverview(tenant: string, date: string) {
             .reduce((n, m) => n + cents(m.quantity), 0) / 100,
     })),
     customers: customerRows.sort((a, b) => a.name.localeCompare(b.name)),
-    entries: asOfSales.filter((s) => s.date === date),
+    entries: asOfSales.filter((s) => s.date === date).map((sale) => ({
+      ...sale,
+      version: saleVersion(sale),
+    })),
     outstandingSales: asOfSales.filter((s) => cents(s.outstanding) > 0),
     payments: payments
       .filter((p) => p.date === date)

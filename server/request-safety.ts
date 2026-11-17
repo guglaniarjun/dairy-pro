@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db, transactionContext } from "./db";
 import * as s from "@shared/schema";
+import { canEditSavedSales } from "@shared/rbac";
 import {
   addDays,
   farmDay,
@@ -53,11 +54,17 @@ const bodyRefs: Record<string, any> = {
   lotId: s.stockLots,
   protocolId: s.careProtocols,
 };
+const isSaleCorrection = (req: Request) =>
+  req.method === "PATCH" && /^\/api\/sales\/entries\/[^/]+\/?$/i.test(req.path);
+
 export async function validateFarmRequest(req: any) {
   const tenant = req.tenantId;
   const body = req.body || {};
   const parts = req.path.split("/").filter(Boolean);
   let before: any = null;
+  if (isSaleCorrection(req)) {
+    before = await owned(s.dairySales, tenant, decodeURIComponent(parts[3]));
+  }
   if (
     roots[parts[1]] &&
     parts[2] &&
@@ -576,6 +583,12 @@ export async function safeTenantRequest(
   next: NextFunction,
 ) {
   const originalJson = res.json.bind(res);
+  if (isSaleCorrection(req)) {
+    if (!canEditSavedSales(req.tenantRole))
+      return res.status(403).json({ error: "Only farm owners and admins can edit saved sales" });
+    if (!req.is("application/json"))
+      return res.status(415).json({ error: "Send the sale correction as JSON" });
+  }
   if (req.get("X-Farm-ID") && req.get("X-Farm-ID") !== req.tenantId)
     return res.status(409).json({
       error:

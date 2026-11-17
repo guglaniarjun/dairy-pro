@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isAndroid } from '@/lib/native';
 import { farmDay } from "@shared/care";
+import { canEditSavedSales } from "@shared/rbac";
 import { cents, decimal, paymentLabel } from "@shared/sales";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/farm-forms";
@@ -29,10 +30,11 @@ export function useSales(date = farmDay()) {
     queryKey: [`/api/sales?date=${date}`],
     enabled: canView,
   });
-  return { ...query, canView, canManage };
+  const canEdit = canEditSavedSales((user as any)?.tenantRole);
+  return { ...query, canView, canManage, canEdit };
 }
 // Retain the same key after a lost response; editing the payload creates a new operation.
-export function useSalesWrite() {
+export function useSalesWrite({ onlineOnly = false } = {}) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
@@ -55,7 +57,7 @@ export function useSalesWrite() {
     if (retry.current.signature !== signature)
       retry.current = { signature, key: crypto.randomUUID() };
     try {
-      const response = isAndroid ? await apiRequest(method,url,data) : await fetch(url, {
+      const response = isAndroid && !onlineOnly ? await apiRequest(method,url,data) : await fetch(url, {
         method,
         credentials: "include",
         headers: {
@@ -123,7 +125,13 @@ export function SalesSetup({ onSetup }: { onSetup?: () => void }) {
     </Panel>
   );
 }
-export function SalesTable({ entries = [] }: { entries?: any[] }) {
+export function SalesTable({
+  entries = [],
+  onEdit,
+}: {
+  entries?: any[];
+  onEdit?: (sale: any) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm text-left">
@@ -146,6 +154,7 @@ export function SalesTable({ entries = [] }: { entries?: any[] }) {
                 {h}
               </th>
             ))}
+            {onEdit && <th className="p-3">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -173,6 +182,15 @@ export function SalesTable({ entries = [] }: { entries?: any[] }) {
                 {Number(s.outstanding) > 0 ? s.dueDate || s.date : "—"}
               </td>
               <td className="p-3">{paymentLabel(s.paymentMode)}</td>
+              {onEdit && (
+                <td className="p-3">
+                  {s.version && (
+                    <Button variant="outline" size="sm" onClick={() => onEdit(s)}>
+                      Edit
+                    </Button>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

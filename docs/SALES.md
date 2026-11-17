@@ -27,7 +27,9 @@ Example: three paid ₹100 sales leave zero; the next three unpaid ₹100 sales 
 
 Each sale creates one income entry for its full value, including credit sales. Receipts reduce dues or increase advance and do not create another income. Milk sales also update the existing milk-sales ledger, milk dashboard totals and animal revenue allocation. Non-milk sales deduct finished-product stock. Daily Report and its PDF/Excel exports include sales, receipts, customer balances, product stock and stock movements. Reports for earlier dates exclude later payments; archived revisions retain their original snapshot. Existing manually entered income is not converted or matched automatically; do not re-enter those historical sales without reconciling the old income.
 
-Milk availability uses that day's saleable production and explained opening stock, less sales and other uses. It excludes discarded milk. Milk does not automatically carry over to the following day. Other product stock carries forward by dated movements; backdated sales cannot make a later balance negative. Stock is tracked by item and date; finished-product expiry/lot allocation and sale returns/corrections are not part of this module.
+Milk availability uses that day's saleable production and explained opening stock, less sales and other uses. It excludes discarded milk. Milk does not automatically carry over to the following day. Other product stock carries forward by dated movements; backdated sales cannot make a later balance negative. Stock is tracked by item and date.
+
+Farm owners and admins can select **Edit** in **Sales → Sales register** to correct a saved sale's date, customer, item, quantity, rate or notes. A reason is required and the audit trail records the change. Stock, income, customer balances and live reports reflect the correction. Posted receipts retain their original customer, date and amount. If the sale's customer or date changes, its receipts remain on the original customer account as separate payments.
 
 ## Deployment and verification
 
