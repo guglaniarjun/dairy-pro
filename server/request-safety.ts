@@ -585,7 +585,7 @@ export async function safeTenantRequest(
   const originalJson = res.json.bind(res);
   if (isSaleCorrection(req)) {
     if (!canEditSavedSales(req.tenantRole))
-      return res.status(403).json({ error: "Only farm owners and admins can edit saved sales" });
+      return res.status(403).json({ error: "Admin access is required to edit saved sales" });
     if (!req.is("application/json"))
       return res.status(415).json({ error: "Send the sale correction as JSON" });
   }

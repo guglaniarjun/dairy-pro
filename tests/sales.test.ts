@@ -18,6 +18,7 @@ const date = addDays(farmDay(), -3);
 let engine: any,
   owner: any,
   admin: any,
+  superAdmin: any,
   accountant: any,
   other: any,
   worker: any,
@@ -48,6 +49,7 @@ const line = (customer: any, product: any, quantity = "1", extras = {}) => ({
 before(async () => {
   process.env.SESSION_SECRET = "sales-isolated-test-session-secret";
   process.env.WHATSAPP_WEB_ENABLED = "false";
+  process.env.SUPER_ADMIN_EMAILS = "sales-platform-admin@test.local";
   ({ engine } = await isolatedDatabase());
   const app = express();
   app.use(express.json());
@@ -82,6 +84,11 @@ before(async () => {
   worker = request.agent(app);
   admin = request.agent(app);
   accountant = request.agent(app);
+  superAdmin = request.agent(app);
+  await db.insert(s.users).values({
+    email: "sales-platform-admin@test.local",
+    passwordHash: hash,
+  });
   for (const role of ["admin", "accountant"]) {
     const [member] = await db.insert(s.users).values({
       email: `sales-${role}@test.local`,
@@ -95,6 +102,7 @@ before(async () => {
     [worker, u3.email],
     [admin, "sales-admin@test.local"],
     [accountant, "sales-accountant@test.local"],
+    [superAdmin, "sales-platform-admin@test.local"],
   ])
     ok(
       await agent
@@ -863,7 +871,7 @@ test("payment terms handle month boundaries and overdue amounts exclude advances
   assert.equal(cleared.overdue, "0.00");
 });
 
-test("only farm owners and admins can correct posted sales and update their linked records", async () => {
+test("only administrators can correct posted sales and update their linked records", async () => {
   const day = addDays(date, -30);
   const nextDay = addDays(day, 1);
   const [cow] = await rows(s.cattle, tenant.id);
@@ -947,7 +955,8 @@ test("only farm owners and admins can correct posted sales and update their link
   };
   ok(await owner.patch(path).send(move), 409);
   assert.equal((await overview(day)).entries[0].quantity, "9.00");
-  const moved = ok(await owner.patch(path).send({ ...move, quantity: "3" }));
+  ok(await superAdmin.post(`/api/admin/tenants/${tenant.id}/access`).send({}));
+  const moved = ok(await superAdmin.patch(path).send({ ...move, quantity: "3" }));
   assert.equal(moved.id, original.id);
   assert.equal(moved.sale.milkSaleId, null);
   assert.equal((await buildDailyReport(tenant.id, day)).milk.sold, 0);

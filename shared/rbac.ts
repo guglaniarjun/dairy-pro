@@ -60,7 +60,7 @@ export const roleLabels: Record<TenantRole, string> = {
 };
 
 export function canEditSavedSales(role: string | null | undefined) {
-  return role === "owner" || role === "admin";
+  return role === "owner" || role === "admin" || role === "super_admin";
 }
 
 export function effectivePermissions(role: string, overrides?: string[] | null): TenantPermission[] {

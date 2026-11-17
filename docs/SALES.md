@@ -29,7 +29,7 @@ Each sale creates one income entry for its full value, including credit sales. R
 
 Milk availability uses that day's saleable production and explained opening stock, less sales and other uses. It excludes discarded milk. Milk does not automatically carry over to the following day. Other product stock carries forward by dated movements; backdated sales cannot make a later balance negative. Stock is tracked by item and date.
 
-Farm owners and admins can select **Edit** in **Sales → Sales register** to correct a saved sale's date, customer, item, quantity, rate or notes. A reason is required and the audit trail records the change. Stock, income, customer balances and live reports reflect the correction. Posted receipts retain their original customer, date and amount. If the sale's customer or date changes, its receipts remain on the original customer account as separate payments.
+Farm owners, farm admins and Super Admins working inside a selected farm can select **Edit** in **Sales → Sales register** to correct a saved sale's date, customer, item, quantity, rate or notes. A reason is required and the audit trail records the change. Stock, income, customer balances and live reports reflect the correction. Posted receipts retain their original customer, date and amount. If the sale's customer or date changes, its receipts remain on the original customer account as separate payments.
 
 ## Deployment and verification
 
