@@ -788,14 +788,15 @@ export function registerOperations(
   );
   get("/daily-report/export", "reports.view", async (req: any, res: any) => {
     const report = await reportForRequest(req);
-    const filename = report.briefing ? `${report.briefing.period}-report-${report.briefing.date}` : `daily-report-${report.date}`;
+    const layout = z.enum(["brief", "full"]).parse(req.query.layout || "brief");
+    const filename = (report.briefing ? `${report.briefing.period}-report-${report.briefing.date}` : `daily-report-${report.date}`) + (report.briefing && layout === "full" ? "-full-details" : "");
     if (req.query.format === "pdf") {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
         `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${filename}.pdf"`,
       );
-      res.send(await reportPdf(report));
+      res.send(await reportPdf(report, { layout }));
     } else {
       res.setHeader(
         "Content-Type",

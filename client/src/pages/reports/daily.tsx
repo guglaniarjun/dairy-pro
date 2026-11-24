@@ -104,16 +104,17 @@ export default function DailyReportPage() {
             Download {period === "daily" ? "daily" : period} PDF
           </Button>
         </a>
-        <a href={exportUrl("xlsx")}>
+        {period === "daily" && <a href={exportUrl("xlsx")}>
           <Button variant="outline" disabled={!r}>
             Excel
           </Button>
-        </a>
+        </a>}
         <Button asChild variant="outline"><a href={`${exportUrl("pdf")}&inline=1`} target="_blank" rel="noopener">Open print layout</a></Button>
+        {period !== "daily" && <Button asChild variant="outline"><a href={`${exportUrl("pdf")}&layout=full&inline=1`} target="_blank" rel="noopener">Print full details</a></Button>}
       </div>
       <p className="text-sm text-muted-foreground">
         {period === "daily" ? `Original daily report for ${coveredDate}.` : `${period === "morning" ? "Morning" : "Evening"} briefing on ${date}: farm figures for ${coveredDate}, with work for ${date}.`}
-        {period !== "daily" && " Print the PDF for the farm overview, milk by animal, medicines and work to do."}
+        {period !== "daily" && " Use the short print layout for the daily briefing. Full details include every task instruction and individual bill reminder."}
       </p>
       {!can("reports.view") && (
         <p role="alert">Your role does not have report access.</p>

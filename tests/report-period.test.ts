@@ -136,3 +136,15 @@ test("single and batch task completion preserve explicit medicine administration
     assert.equal(med.administeredAt, null); assert.equal(med.dosage, null); assert.equal(med.route, null);
   }
 });
+
+test("PDF exports default to the short briefing and offer explicit full details", async () => {
+  const f = await farm(), client = api(f.id);
+  const base = "/api/operations/daily-report/export?format=pdf&period=morning&date=2026-11-24";
+  const brief = await client.get(base);
+  assert.equal(brief.status, 200);
+  assert.match(brief.headers["content-disposition"], /morning-report-2026-11-24\.pdf/);
+  const full = await client.get(base + "&layout=full");
+  assert.equal(full.status, 200);
+  assert.match(full.headers["content-disposition"], /morning-report-2026-11-24-full-details\.pdf/);
+  assert.equal((await client.get(base + "&layout=unknown")).status, 400);
+});

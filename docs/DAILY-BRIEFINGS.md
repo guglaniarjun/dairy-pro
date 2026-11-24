@@ -1,6 +1,6 @@
 # Morning and evening print reports
 
-Open **Daily farm report**, choose **Morning** or **Evening**, and select the date the report is to be read. Use **Open print layout** or **Download PDF**. Print on A4 portrait at actual size.
+Open **Daily farm report**, choose **Morning** or **Evening**, and select the date the report is to be read. Use **Open print layout** or **Download PDF** for the short briefing. **Print full details** separately includes every task instruction and individual bill reminder. Print on A4 portrait at actual size.
 
 | Report read on | Farm figures covered | Work shown |
 | --- | --- | --- |
@@ -13,9 +13,9 @@ The morning report also includes a separate update of today's morning milk and m
 
 **Page 1: farm overview and milk by animal.** Milk produced, milk sold, dairy sales and money collected are followed by herd counts, urgent-work and milk-sale warnings. Dairy sales include other dairy products, when entered, as well as milk. The full cattle table shows each recorded session, the total, the usual evening yield and any unusual reduction or missing record. The milk check compares opening stock, production, sales, discarded milk and recorded uses or closing stock.
 
-**Page 2: care, work and customers.** Open farm work includes the animal, instructions, person responsible, due date/time and urgent or overdue status. Actual medicine records include the medicine, amount, route, when/by whom it was given and recorded milk-sale restriction. Customer activities and accounts follow, then recorded expenses and stock warnings.
+**Page 2: care, work and customers.** The short briefing groups related farm work and customer collection reminders, rather than repeating every unpaid bill. It retains the customer account rows, urgent work, dated actual medicine administrations and recorded milk-sale restrictions. Use full details for the individual instructions and bill due dates.
 
-The report has two main pages. If there are more animals, instructions or customer rows than can be printed legibly, it adds clearly labelled continuation pages with repeated headings. It never silently drops records to force two sheets.
+The short briefing is designed for two main pages. Large herds or unusually many critical records can still require labelled continuations; critical medicine/urgent records and cattle/account rows must remain readable. The separate full-detail report uses as many pages as needed and does not drop instructions, bill reminders or other rows to force two sheets.
 
 ## Milk comparison settings
 

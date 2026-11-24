@@ -1,10 +1,11 @@
 import PDFDocument from "pdfkit";
 import { dailyBrief } from "@shared/daily-brief";
 import { printableBriefingPdf } from "./briefing-report-pdf";
+import { compactBriefingPdf } from "./briefing-overview-pdf";
 
 /** Compact, readable columns. Extra pages are used only when needed to preserve all rows. */
-export async function compactReportPdf(report: any): Promise<Buffer> {
-  if (report.briefing?.period) return printableBriefingPdf(report);
+export async function compactReportPdf(report: any, options: { layout?: "brief" | "full" } = {}): Promise<Buffer> {
+  if (report.briefing?.period) return options.layout === "full" ? printableBriefingPdf(report) : compactBriefingPdf(report);
   const b = dailyBrief(report);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
