@@ -70,4 +70,15 @@ Relevant checks: `npm run check`, `npm test`, `npm run build`. The briefing test
 - Tested the report selector, correct covered dates and both PDF downloads in headless Edge against an isolated demo. Customer activity creation, editing, owner/time/priority selection, completion and cancellation passed without JavaScript page errors.
 - Customer links were checked against the actual `/customers` route. Closed activities show their original due date rather than an active overdue warning.
 - The build still reports its existing PostCSS and client bundle-size warnings; it completes successfully.
-- Production deployment, production database migration and real outbound messaging were not performed for this release.
+- At this local verification stage, production deployment, production database migration and real outbound messaging had not been performed.
+
+## Production verification, 24 November 2026
+
+- Application release: `c6fc0fde590e1a1c73a3b0774da5fcfdd25ab174`, including the morning/evening report and customer activity migrations from `e8e9475f1e91b1625c6c13b1bf63970abe8eaeb0`.
+- Deployed through the existing guarded SSH process. Created and verified a PostgreSQL backup before migration. Existing cattle, milk, clinical, breeding, sales, receipt and customer record hashes matched before and after the schema rollout.
+- Preserved the production owner-login files and hooks. Production type checking and builds passed; the DairyFlow PM2 application and public HTTPS route were healthy after restart.
+- All **111 automated tests** passed. Additional regression cases cover busy customer accounts, repeated collection reminders, current-morning-only medicine, severe health records, urgent work, manual customer deadlines and large-herd continuations.
+- Downloaded the morning and evening PDFs through authenticated public HTTPS after deployment: **two A4 pages each**. Rendered and visually checked all four pages. The morning report covered 23 November and the evening report covered 24 November. Account rows and cattle rows were retained; repeated bill reminders were grouped by customer.
+- Verified the separate full-detail exports, customer activities, customer accounts and an existing customer ledger. Legacy archive compatibility and period mismatch handling passed in isolated integration tests; there were no existing live archives available for that check.
+- Temporary technical verification sessions were deleted and cleanup was confirmed. No synthetic business transactions or outbound test messages were created in production.
+- Deployment does not create a report schedule. Use the schedule controls on Daily farm report to enable automatic generation at the chosen farm-local morning/evening times and configure recipients if delivery is wanted.
