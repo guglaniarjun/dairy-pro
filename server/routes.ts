@@ -1656,6 +1656,7 @@ export async function registerRoutes(
       res.json({
         currency: "INR", currencySymbol: "₹", timezone: "Asia/Kolkata",
         milkingSessions: 2, session1Name: "Morning", session2Name: "Evening",
+        milkDropAlertPercent: "20", milkDropAlertMinLitres: "1", milkDropLookbackDays: 7, milkDropMinRecords: 5,
         heatIntervalDays: 21, gestationDays: 280, dryPeriodDays: 60, pregnancyTestDays: 30,
         ...settings,
         farmName: settings?.farmName?.trim() || tenant?.name || "My Dairy Farm",
@@ -1674,6 +1675,16 @@ export async function registerRoutes(
       delete profile.heiferInseminationAgeMonths;
       for (const key of ["heatIntervalDays", "gestationDays", "dryPeriodDays", "pregnancyTestDays", "heiferInseminationAgeDays"]) {
         if (profile[key] != null && (!Number.isInteger(Number(profile[key])) || Number(profile[key]) < 1 || Number(profile[key]) > 3650)) return res.status(400).json({ error: "Enter a valid interval in days" });
+      }
+      for (const [key, minimum, maximum] of [["milkDropAlertPercent", 0.01, 100], ["milkDropAlertMinLitres", 0, 1000]] as const) {
+        if (profile[key] != null && (!Number.isFinite(Number(profile[key])) || Number(profile[key]) < minimum || Number(profile[key]) > maximum)) return res.status(400).json({ error: `Enter a valid ${key === "milkDropAlertPercent" ? "milk reduction percentage" : "minimum milk reduction in litres"}` });
+      }
+      for (const key of ["milkDropLookbackDays", "milkDropMinRecords"] as const) {
+        if (profile[key] != null && (!Number.isInteger(Number(profile[key])) || Number(profile[key]) < 1 || Number(profile[key]) > 90)) return res.status(400).json({ error: "Milk comparison days and minimum records must be whole numbers from 1 to 90" });
+      }
+      if (profile.milkDropLookbackDays != null || profile.milkDropMinRecords != null) {
+        const previous = await storage.getFarmSettings(req.tenantId!);
+        if (Number(profile.milkDropMinRecords ?? previous?.milkDropMinRecords ?? 5) > Number(profile.milkDropLookbackDays ?? previous?.milkDropLookbackDays ?? 7)) return res.status(400).json({ error: "Minimum earlier records cannot exceed the comparison days" });
       }
       const settings = await storage.upsertFarmSettings({
         ...profile,

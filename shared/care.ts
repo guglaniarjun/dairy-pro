@@ -10,6 +10,19 @@ export const daySchema = z
   );
 export const positive = z.coerce.number().finite().positive().max(100000000);
 export const nonnegative = z.coerce.number().finite().min(0).max(100000000);
+const optionalAdministrationText = (limit: number) => z.preprocess(
+  value => typeof value === "string" ? value.trim() || undefined : value,
+  z.string().max(limit).optional(),
+);
+/** Explicit actual-administration details; missing fields remain unknown. */
+export const administrationSchema = z.object({
+  medicineName: optionalAdministrationText(240),
+  dosage: optionalAdministrationText(160),
+  route: optionalAdministrationText(100),
+  administeredBy: optionalAdministrationText(160),
+  administrationTime: z.preprocess(value => value === "" ? undefined : value,
+    z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a farm-local time in HH:mm format").optional()),
+}).strict();
 export function addDays(day: string, count: number) {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + count);

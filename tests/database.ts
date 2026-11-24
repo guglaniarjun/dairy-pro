@@ -19,6 +19,8 @@ export async function isolatedDatabase(dataDir?: string) {
   await engine.exec(
     await fs.readFile("migrations/0002_peaceful_venom.sql", "utf8"),
   );
+  for (const file of ["migrations/0003_morning_evening_reports.sql", "migrations/0004_customer_activities.sql"])
+    await engine.exec(await fs.readFile(file, "utf8"));
   const database = drizzle(engine, { schema });
   useIsolatedDatabase(database);
   return { engine, database };

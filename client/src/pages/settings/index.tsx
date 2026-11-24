@@ -346,9 +346,19 @@ function MilkingTab() {
                 <Input value={form.session3Name || "Night"} onChange={e => setForm((p: any) => ({ ...p, session3Name: e.target.value }))} />
               </Field>
             )}
-            <Field label="Milk Drop Alert Threshold (%)">
-              <Input type="number" value={form.milkDropAlertPercent || 20} onChange={e => setForm((p: any) => ({ ...p, milkDropAlertPercent: Number(e.target.value) }))} />
-              <p className="text-xs text-muted-foreground">Alert when daily milk drops by this %</p>
+            <Field label="Unusual milk reduction (%)">
+              <Input type="number" min="0.01" max="100" step="0.01" value={form.milkDropAlertPercent ?? 20} onChange={e => setForm((p: any) => ({ ...p, milkDropAlertPercent: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">The printable reports compare each animal with her own earlier milkings at the same time of day. Both the percentage and litre limits must be met.</p>
+            </Field>
+            <Field label="Minimum reduction (litres)">
+              <Input type="number" min="0" max="1000" step="0.01" value={form.milkDropAlertMinLitres ?? 1} onChange={e => setForm((p: any) => ({ ...p, milkDropAlertMinLitres: Number(e.target.value) }))} />
+            </Field>
+            <Field label="Earlier days to compare">
+              <Input type="number" min="1" max="90" value={form.milkDropLookbackDays ?? 7} onChange={e => setForm((p: any) => ({ ...p, milkDropLookbackDays: Number(e.target.value) }))} />
+            </Field>
+            <Field label="Minimum earlier records needed">
+              <Input type="number" min="1" max={form.milkDropLookbackDays ?? 7} value={form.milkDropMinRecords ?? 5} onChange={e => setForm((p: any) => ({ ...p, milkDropMinRecords: Number(e.target.value) }))} />
+              <p className="text-xs text-muted-foreground">If there are too few earlier records, the report says so instead of marking an animal's yield as normal.</p>
             </Field>
           </div>
           <div className="space-y-3">

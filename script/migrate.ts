@@ -22,6 +22,10 @@ async function main() {
       await fs.readFile("migrations/0002_peaceful_venom.sql", "utf8"),
     );
     console.log("Applied customer accounts and payment terms migration");
+    for (const file of ["migrations/0003_morning_evening_reports.sql", "migrations/0004_customer_activities.sql"]) {
+      await client.query(await fs.readFile(file, "utf8"));
+      console.log(`Applied ${file}`);
+    }
   } finally {
     await client.query(
       "select pg_advisory_unlock(hashtext('dairyflow-schema'))",

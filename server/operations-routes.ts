@@ -15,6 +15,7 @@ import {
   supplySchema,
   finishedTask,
   lotExpiry,
+  administrationSchema,
 } from "@shared/care";
 import {
   rows,
@@ -41,6 +42,7 @@ import { reportPdf, reportWorkbook } from "./report-export";
 import { operationCatalog } from '@shared/operation-catalog';
 import { reconcileCare } from './care-reconciliation';
 import { salesOverview } from './sales-service';
+import { coveredReportDate, matchesReportIdentity, type ReportPeriod } from '@shared/report-period';
 
 export function registerOperations(
   app: Express,
@@ -384,6 +386,7 @@ export function registerOperations(
   post("/batches/:id/complete", "tasks.manage", async (req: any, res: any) => {
     await owned(s.workBatches, req.tenantId, req.params.id);
     const ids = z.array(z.string()).min(1).parse(req.body.taskIds);
+    const administration = administrationSchema.parse(req.body.administration || {});
     const done = [];
     for (const id of new Set(ids)) {
       const t = await owned(s.tasks, req.tenantId, id);
@@ -392,7 +395,7 @@ export function registerOperations(
         await completeTask(
           req.tenantId,
           id,
-          { evidence: req.body.evidence, date: req.body.date },
+          { evidence: req.body.evidence, date: req.body.date, administration },
           req.user.id,
         ),
       );
@@ -749,42 +752,48 @@ export function registerOperations(
       fail("This correction leaves sales and milk allocations above available milk. Reconcile those records or enter explained opening stock first.", 409);
     res.json(entry);
   });
-  const reportForRequest=async(req:any)=>{
-    if(req.query.id)return (await owned(s.dailyReports,req.tenantId,String(req.query.id))).snapshot;
-    const today=farmDay((await settings(req.tenantId)).timezone), date=daySchema.parse(req.query.date||today);
-    if(date<today&&req.query.live!=='1'){
-      const saved=(await rows(s.dailyReports,req.tenantId)).filter(r=>r.date===date).sort((a,b)=>b.revision-a.revision)[0];
-      if(saved)return {...saved.snapshot,reportId:saved.id};
+  const reportPeriod = z.enum(["daily", "morning", "evening"]);
+  const reportForRequest = async (req: any) => {
+    const today = farmDay((await settings(req.tenantId)).timezone);
+    const date = daySchema.parse(req.query.date || today);
+    const period: ReportPeriod = reportPeriod.parse(req.query.period || "daily");
+    if (req.query.id) {
+      const saved = await owned(s.dailyReports, req.tenantId, String(req.query.id));
+      if ((req.query.date || req.query.period) && !matchesReportIdentity(saved, date, period))
+        fail("This saved revision belongs to a different report date or period. Select its matching report.", 409);
+      return { ...saved.snapshot, reportId: saved.id };
     }
-    return buildDailyReport(req.tenantId,date);
+    if (req.query.live !== "1" && (period !== "daily" || date < today)) {
+      const saved = (await rows(s.dailyReports, req.tenantId))
+        .filter(r => matchesReportIdentity(r, date, period))
+        .sort((a, b) => b.revision - a.revision)[0];
+      if (saved) return { ...saved.snapshot, reportId: saved.id };
+    }
+    return buildDailyReport(req.tenantId, coveredReportDate(date, period), undefined, false,
+      period === "daily" ? undefined : { period, briefingDate: date });
   };
   get('/daily-report','reports.view',async(req:any,res:any)=>res.json(await reportForRequest(req)));
-  post("/daily-report", "reports.view", async (req: any, res: any) =>
-    res
-      .status(201)
-      .json(
-        await buildDailyReport(
-          req.tenantId,
-          daySchema.parse(req.body.date),
-          req.user.id,
-          true,
-        ),
-      ),
-  );
+  post("/daily-report", "reports.view", async (req: any, res: any) => {
+    const period = reportPeriod.parse(req.body.period || "daily");
+    const date = daySchema.parse(req.body.date);
+    res.status(201).json(await buildDailyReport(req.tenantId, coveredReportDate(date, period), req.user.id, true,
+      period === "daily" ? undefined : { period, briefingDate: date }));
+  });
   get("/report-archive", "reports.view", async (req: any, res: any) =>
     res.json(
       (await rows(s.dailyReports, req.tenantId))
-        .map(({ snapshot, ...r }) => r)
+        .map(({ snapshot, ...r }) => ({ ...r, period: r.period || snapshot.briefing?.period || "daily", briefingDate: r.briefingDate || snapshot.briefing?.date || null }))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     ),
   );
   get("/daily-report/export", "reports.view", async (req: any, res: any) => {
     const report = await reportForRequest(req);
+    const filename = report.briefing ? `${report.briefing.period}-report-${report.briefing.date}` : `daily-report-${report.date}`;
     if (req.query.format === "pdf") {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `${req.query.inline === "1" ? "inline" : "attachment"}; filename="daily-report-${report.date}.pdf"`,
+        `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${filename}.pdf"`,
       );
       res.send(await reportPdf(report));
     } else {
@@ -794,7 +803,7 @@ export function registerOperations(
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="daily-report-${report.date}.xlsx"`,
+        `attachment; filename="${filename}.xlsx"`,
       );
       res.send(await reportWorkbook(report));
     }
@@ -803,17 +812,35 @@ export function registerOperations(
     res.json((await rows(s.reportSchedules, req.tenantId))[0] || null),
   );
   post("/report-schedule", "settings.manage", async (req: any, res: any) => {
+    const existing = (await rows(s.reportSchedules, req.tenantId))[0];
+    const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
     const input = z
       .object({
-        cutoff: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        mode: z.enum(["legacy", "briefings"]).optional(),
+        cutoff: time.optional(),
+        morningTime: time.optional(),
+        eveningTime: time.optional(),
         status: z.enum(["active", "paused"]),
         recipients: z.array(z.string().regex(/^\+?[1-9]\d{7,14}$/)).default([]),
       })
       .parse(req.body);
+    const values = {
+      ...input,
+      mode: input.mode || existing?.mode || "legacy",
+      cutoff: input.cutoff || existing?.cutoff || "23:00",
+      morningTime: input.morningTime || existing?.morningTime || "07:30",
+      eveningTime: input.eveningTime || existing?.eveningTime || "19:30",
+      briefingStartDate: existing?.briefingStartDate || null,
+    };
+    if (values.mode === "briefings") {
+      if (values.morningTime >= values.eveningTime) fail("Choose a morning time earlier than the evening time.");
+      // Opting an existing farm into two briefings starts today, not at the old schedule's creation date.
+      values.briefingStartDate ||= farmDay((await settings(req.tenantId)).timezone);
+    }
     const [row] = await db
       .insert(s.reportSchedules)
-      .values({ tenantId: req.tenantId, ...input })
-      .onConflictDoUpdate({ target: s.reportSchedules.tenantId, set: input })
+      .values({ tenantId: req.tenantId, ...values })
+      .onConflictDoUpdate({ target: s.reportSchedules.tenantId, set: values })
       .returning();
     res.json(row);
   });

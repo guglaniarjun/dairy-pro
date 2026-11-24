@@ -23,6 +23,7 @@ import {
 } from "./care-service";
 import { farmDay, addDays, finishedTask } from "@shared/care";
 import { queueWhatsappMessage } from "./notification-engine";
+import { coveredReportDate, dueReportDates } from "@shared/report-period";
 export async function evaluateCare(tenantId: string, now = new Date()) {
   return db.transaction((tx) =>
     transactionContext.run(tx, async () => {
@@ -91,6 +92,28 @@ export async function evaluateCare(tenantId: string, now = new Date()) {
         minute: "2-digit",
         hourCycle: "h23",
       }).format(now);
+      if (schedule.mode === "briefings") {
+        const start = schedule.briefingStartDate || farmDay(cfg.timezone, new Date(schedule.createdAt));
+        for (const period of ["morning", "evening"] as const) {
+          const cutoff = period === "morning" ? schedule.morningTime : schedule.eveningTime;
+          const last = period === "morning" ? schedule.morningLastDate : schedule.eveningLastDate;
+          for (const day of dueReportDates(start, last, today, time, cutoff)) {
+            const report = await buildDailyReport(tenantId, coveredReportDate(day, period), "scheduler", true, {
+              period, briefingDate: day, generatedAt: now,
+            });
+            await db.update(reportSchedules)
+              .set(period === "morning" ? { morningLastDate: day } : { eveningLastDate: day })
+              .where(eq(reportSchedules.id, schedule.id));
+            for (const phone of schedule.recipients)
+              await queueWhatsappMessage(
+                tenantId, phone,
+                `${period === "morning" ? "Morning" : "Evening"} farm report ${day} (figures for ${report.date}): milk ${report.milk.produced} L; ${report.tasks.filter((t: any) => !finishedTask(t.status) && t.dueDate <= day).length} outstanding actions. Complete report: ${process.env.PUBLIC_APP_URL || ""}/daily-report?date=${day}&period=${period}&archive=${report.reportId}`,
+                "daily_report",
+              );
+          }
+        }
+        return;
+      }
       const through = time >= schedule.cutoff ? today : addDays(today, -1);
       let day = schedule.lastDate
         ? addDays(schedule.lastDate, 1)

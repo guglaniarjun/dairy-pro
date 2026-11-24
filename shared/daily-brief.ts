@@ -5,6 +5,7 @@ const sum = (rows: any[], key: string) =>
   Math.round(rows.reduce((n, r) => n + Number(r[key] || 0), 0) * 1000) / 1000;
 const words = (v: any) => String(v || "").replaceAll("_", " ");
 export function dailyBrief(report: any) {
+  const actionDate = report.briefing?.actionDate || report.date;
   const animals = report.animals || [],
     entries = report.entries || [],
     events = report.events || [];
@@ -136,12 +137,14 @@ export function dailyBrief(report: any) {
       .filter(
         (a: any) =>
           a.milkWithholdUntil &&
-          String(a.milkWithholdUntil).slice(0, 10) >= report.date,
+          (/^\d{4}-\d{2}-\d{2}$/.test(String(a.milkWithholdUntil))
+            ? String(a.milkWithholdUntil) >= actionDate
+            : new Date(a.milkWithholdUntil).valueOf() > new Date(report.generatedAt).valueOf()),
       )
       .map((a: any) => ({
         id: `withdrawal-${a.id}`,
         cattleId: a.id,
-        date: report.date,
+        date: actionDate,
         text: `${a.tagNumber}: Withhold milk through ${String(a.milkWithholdUntil).slice(0, 10)}`,
       })),
   ];
@@ -169,6 +172,8 @@ export function dailyBrief(report: any) {
                 : report.date)
             : t.dueDate,
         status: t.status,
+        priority: t.priority || "medium",
+        dueTime: t.dueTime || null,
         assignedTo: t.assignedToName || t.assignedTo || "Unassigned",
         instructions: [
           t.description,
@@ -196,7 +201,7 @@ export function dailyBrief(report: any) {
       countdown:
         a.status === "completed"
           ? "Completed"
-          : countdown(a.dueDate, report.date),
+          : countdown(a.dueDate, actionDate),
     }))
     .sort(
       (a: any, b: any) =>

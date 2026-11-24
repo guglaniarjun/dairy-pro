@@ -1,0 +1,25 @@
+CREATE TABLE IF NOT EXISTS customer_activities (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id varchar NOT NULL REFERENCES tenants(id),
+  customer_id varchar NOT NULL REFERENCES sales_customers(id),
+  kind text NOT NULL DEFAULT 'follow_up' CHECK (kind IN ('delivery_change', 'collection', 'follow_up')),
+  title text NOT NULL,
+  instructions text NOT NULL DEFAULT '',
+  due_date date NOT NULL,
+  due_time text,
+  priority text NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+  assigned_to varchar,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+  revision integer NOT NULL DEFAULT 1,
+  created_by varchar NOT NULL,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_by varchar NOT NULL,
+  updated_at timestamp NOT NULL DEFAULT now(),
+  completed_at timestamp,
+  completed_by varchar,
+  completion_notes text,
+  cancelled_at timestamp,
+  cancelled_by varchar,
+  cancellation_reason text
+);
+CREATE INDEX IF NOT EXISTS customer_activities_due_idx ON customer_activities(tenant_id, customer_id, due_date);

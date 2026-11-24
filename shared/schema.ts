@@ -785,6 +785,9 @@ export const farmSettings = pgTable("farm_settings", {
   fatMandatory: boolean("fat_mandatory").notNull().default(false),
   snfMandatory: boolean("snf_mandatory").notNull().default(false),
   milkDropAlertPercent: decimal("milk_drop_alert_percent", { precision: 5, scale: 2 }).default("20"),
+  milkDropAlertMinLitres: decimal("milk_drop_alert_min_litres", { precision: 6, scale: 2 }).notNull().default("1"),
+  milkDropLookbackDays: integer("milk_drop_lookback_days").notNull().default(7),
+  milkDropMinRecords: integer("milk_drop_min_records").notNull().default(5),
   // Breeding / Reproduction
   heatIntervalDays: integer("heat_interval_days").notNull().default(21),
   gestationDays: integer("gestation_days").notNull().default(280),

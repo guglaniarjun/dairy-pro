@@ -1529,3 +1529,22 @@ test("audit: historical reports default to a saved revision and explicit rebuild
  const rebuilt=ok(await owner.get('/api/operations/daily-report?date='+date+'&live=1'));
  assert.equal(rebuilt.revision,null);
 });
+
+test("milk comparison settings validate percentage, litres and history together through the farm API", async () => {
+  const previous = ok(await owner.get("/api/farm-settings"));
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropAlertPercent: 0 })).status, 400);
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropAlertPercent: 101 })).status, 400);
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropAlertMinLitres: -1 })).status, 400);
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropLookbackDays: 7, milkDropMinRecords: 8 })).status, 400);
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropLookbackDays: 7.5 })).status, 400);
+  const saved = ok(await owner.put("/api/farm-settings").send({ milkDropAlertPercent: "25", milkDropAlertMinLitres: "1.5", milkDropLookbackDays: 10, milkDropMinRecords: 6 }));
+  assert.equal(Number(saved.milkDropAlertPercent), 25);
+  assert.equal(Number(saved.milkDropAlertMinLitres), 1.5);
+  assert.equal(saved.milkDropLookbackDays, 10); assert.equal(saved.milkDropMinRecords, 6);
+  // Partial updates must also respect the already-saved counterpart.
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropLookbackDays: 5 })).status, 400);
+  assert.equal((await owner.put("/api/farm-settings").send({ milkDropMinRecords: 11 })).status, 400);
+  const loaded = ok(await owner.get("/api/farm-settings"));
+  assert.equal(loaded.milkDropLookbackDays, 10); assert.equal(loaded.milkDropMinRecords, 6);
+  ok(await owner.put("/api/farm-settings").send({ milkDropAlertPercent: previous.milkDropAlertPercent, milkDropAlertMinLitres: previous.milkDropAlertMinLitres, milkDropLookbackDays: previous.milkDropLookbackDays, milkDropMinRecords: previous.milkDropMinRecords }));
+});

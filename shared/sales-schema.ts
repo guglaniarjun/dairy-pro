@@ -53,6 +53,42 @@ export const salesCustomers = pgTable(
   },
   (t) => [index("sales_customers_tenant_idx").on(t.tenantId)],
 );
+export const customerActivities = pgTable(
+  "customer_activities",
+  {
+    id: id(),
+    tenantId: tenant(),
+    customerId: varchar("customer_id")
+      .notNull()
+      .references(() => salesCustomers.id),
+    kind: text("kind").notNull().default("follow_up"),
+    title: text("title").notNull(),
+    instructions: text("instructions").notNull().default(""),
+    dueDate: date("due_date").notNull(),
+    dueTime: text("due_time"),
+    priority: text("priority").notNull().default("medium"),
+    assignedTo: varchar("assigned_to"),
+    status: text("status").notNull().default("pending"),
+    revision: integer("revision").notNull().default(1),
+    createdBy: varchar("created_by").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedBy: varchar("updated_by").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+    completedBy: varchar("completed_by"),
+    completionNotes: text("completion_notes"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledBy: varchar("cancelled_by"),
+    cancellationReason: text("cancellation_reason"),
+  },
+  (t) => [
+    index("customer_activities_due_idx").on(
+      t.tenantId,
+      t.customerId,
+      t.dueDate,
+    ),
+  ],
+);
 export const dairySales = pgTable(
   "dairy_sales",
   {

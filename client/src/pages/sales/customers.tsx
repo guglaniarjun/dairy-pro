@@ -11,6 +11,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { CustomerForm } from "./customer-form";
+import { CustomerActivities } from "./customer-activities";
 import { paymentLabel } from "@shared/sales";
 import {
   AccountBalance,
@@ -64,6 +65,23 @@ export default function CustomersPage() {
         </div>
       </div>
       {!data.products.length && query.canManage && <SalesSetup />}
+      {selected && (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span>
+            Showing activities for{" "}
+            {data.customers.find((c: any) => c.id === selected)?.name ||
+              "selected customer"}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setSelected("")}>
+            Show all customers
+          </Button>
+        </div>
+      )}
+      <CustomerActivities
+        customers={data.customers}
+        canManage={query.canManage}
+        selectedCustomer={selected}
+      />
       <Panel title={`${data.customers.length} customers`}>
         <InputField
           label="Find customer"

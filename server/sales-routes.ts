@@ -11,6 +11,10 @@ import {
   collectPayment,
   salesOverview,
   customerLedger,
+  customerActivitiesOverview,
+  customerActivityPeople,
+  saveCustomerActivity,
+  closeCustomerActivity,
 } from "./sales-service";
 export function registerSales(
   app: Express,
@@ -23,21 +27,78 @@ export function registerSales(
       try {
         res.status(req.method === "POST" ? 201 : 200).json(await fn(req));
       } catch (e: any) {
-        res
-          .status(e.status || (e.name === "ZodError" ? 400 : 500))
-          .json({
-            error:
-              e.name === "ZodError"
-                ? e.issues
-                    .map((i: any) => `${i.path.join(".")}: ${i.message}`)
-                    .join("; ")
-                : e.status
-                  ? e.message
-                  : "Unable to save sales data",
-          });
+        res.status(e.status || (e.name === "ZodError" ? 400 : 500)).json({
+          error:
+            e.name === "ZodError"
+              ? e.issues
+                  .map((i: any) => `${i.path.join(".")}: ${i.message}`)
+                  .join("; ")
+              : e.status
+                ? e.message
+                : "Unable to save sales data",
+        });
         if (!e.status && e.name !== "ZodError") console.error(e);
       }
     };
+  app.get(
+    "/api/sales/customer-activities",
+    auth,
+    tenant,
+    wrap(async (r) => {
+      const timezone = (await settings(r.tenantId)).timezone;
+      const date = r.query.date || farmDay(timezone);
+      return {
+        date,
+        timezone,
+        activities: await customerActivitiesOverview(
+          r.tenantId,
+          date,
+          r.query.customerId,
+          r.query.history === "all",
+        ),
+        people: await customerActivityPeople(r.tenantId),
+      };
+    }),
+  );
+  app.post(
+    "/api/sales/customer-activities",
+    auth,
+    tenant,
+    wrap((r) => saveCustomerActivity(r.tenantId, r.user.id, r.body)),
+  );
+  app.patch(
+    "/api/sales/customer-activities/:id",
+    auth,
+    tenant,
+    wrap((r) =>
+      saveCustomerActivity(r.tenantId, r.user.id, r.body, r.params.id),
+    ),
+  );
+  app.post(
+    "/api/sales/customer-activities/:id/complete",
+    auth,
+    tenant,
+    wrap((r) =>
+      closeCustomerActivity(r.tenantId, r.user.id, r.params.id, r.body),
+    ),
+  );
+  app.post(
+    "/api/sales/customer-activities/:id/cancel",
+    auth,
+    tenant,
+    wrap((r) =>
+      closeCustomerActivity(r.tenantId, r.user.id, r.params.id, r.body, true),
+    ),
+  );
+  // Preserve the cancelled row and its reason rather than erasing customer history.
+  app.delete(
+    "/api/sales/customer-activities/:id",
+    auth,
+    tenant,
+    wrap((r) =>
+      closeCustomerActivity(r.tenantId, r.user.id, r.params.id, r.body, true),
+    ),
+  );
   app.get(
     "/api/sales",
     auth,

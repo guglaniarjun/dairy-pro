@@ -29,6 +29,24 @@ const opts = (rows: any[], label: string) =>
   rows.map((r) => ({ value: r.id, label: r[label] }));
 const numSupplies = (rows: any[]) =>
   rows.map((r) => ({ ...r, quantity: Number(r.quantity) }));
+const administrationValues = (d: Record<string, any>) => Object.fromEntries(
+  ["medicineName", "dosage", "route", "administeredBy", "administrationTime"]
+    .filter(key => typeof d[key] === "string" && d[key].trim())
+    .map(key => [key, d[key].trim()]),
+);
+function AdministrationFields() {
+  return <details className="rounded-lg border p-3">
+    <summary className="cursor-pointer text-sm font-medium">Medicines actually given: optional details</summary>
+    <p className="text-xs text-muted-foreground my-2">Enter the actual administration. Leave unknown details blank; prescription instructions stay separate.</p>
+    <div className="grid sm:grid-cols-2 gap-3">
+      <InputField label="Medicine actually given" name="medicineName" />
+      <InputField label="Dose given, including unit" name="dosage" />
+      <InputField label="Route used" name="route" />
+      <InputField label="Given by (actual person's name)" name="administeredBy" />
+      <InputField label="Time given (farm local time)" name="administrationTime" type="time" />
+    </div>
+  </details>;
+}
 function eventAction(task:any) {
   if(!task?.cattleId)return null;
   const query=`cattleId=${encodeURIComponent(task.cattleId)}`;
@@ -345,6 +363,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                           children.some((t: any) => t.id === id),
                         ),
                         date: today,
+                        administration: administrationValues(d),
                       });
                       setChecked([]);
                       return result;
@@ -355,6 +374,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                       name="evidence"
                       required
                     />
+                    <AdministrationFields />
                   </EntryForm>
                 )}
               </div>
@@ -368,7 +388,7 @@ function Work({ work, animals, today, people, save, can }: any) {
         )}
       </Panel>
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selected?.title}</DialogTitle>
           </DialogHeader>
@@ -386,6 +406,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                       evidence: d.reason,
                       date: today,
                       revision: selected.revision,
+                      administration: administrationValues(d),
                     },
                     "POST",
                     true,
@@ -421,6 +442,7 @@ function Work({ work, animals, today, people, save, can }: any) {
                 ].filter(status=>status!=='completed'||!eventAction(selected))}
               />
               <InputField label="Evidence or reason" name="reason" required />
+              {(selected.clinical || selected.type === "health") && <AdministrationFields />}
               <InputField
                 label="New due date (for postponement)"
                 name="dueDate"
@@ -480,6 +502,11 @@ function Events({ animals, today, items, save, can }: any) {
               "reproductiveStatus",
               "healthStatus",
               "status",
+               "medicineName",
+               "dosage",
+               "route",
+               "administeredBy",
+               "administrationTime",
             ])
               if (d[k]) details[k] = d[k];
             for (const k of [
@@ -630,6 +657,7 @@ function Events({ animals, today, items, save, can }: any) {
                 name="instructions"
                 required
               />
+              <AdministrationFields />
               <Supplies items={items} value={supplies} onChange={setSupplies} />
               <div className="grid sm:grid-cols-3 gap-2">
                 <InputField

@@ -17,6 +17,7 @@ import {
 import { customerAccount } from "@shared/customer-account";
 import { daySchema, farmDay } from "@shared/care";
 import { rows, owned, fail, recordEvent, settings } from "./care-service";
+export { customerActivitiesOverview, customerActivityPeople, saveCustomerActivity, closeCustomerActivity } from "./customer-activity-service";
 
 // Called inside safeTenantRequest's farm lock and transaction. Never partially save a batch.
 export async function setupSales(tenant: string) {

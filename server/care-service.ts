@@ -53,7 +53,9 @@ import {
   eventSchema,
   isLactating,
   farmMidnight,
+  administrationSchema,
 } from "@shared/care";
+import type { DailyBriefingOptions } from "@shared/daily-briefing";
 export class FarmError extends Error {
   constructor(
     message: string,
@@ -537,6 +539,7 @@ export async function completeTask(
     fail("Completion evidence is required");
   const cfg = await settings(tenantId);
   const date = daySchema.parse(input.date || farmDay(cfg.timezone));
+  const administration = administrationSchema.parse(input.administration || {});
   if (task.sourceKey?.endsWith(":calving"))
     fail("Record the calving or pregnancy loss from Animal care before closing this task", 409);
   if (task.sourceKey?.startsWith("service:") && task.sourceKey.endsWith(":test"))
@@ -609,7 +612,7 @@ export async function completeTask(
       status: "completed",
       completedAt: new Date(),
       completedBy: actor,
-      evidence: { notes: input.evidence || "", date, ...supply },
+      evidence: { notes: input.evidence || "", date, ...supply, administration },
       updatedAt: new Date(),
       revision: sql`${tasks.revision}+1`,
     })
@@ -625,6 +628,7 @@ export async function completeTask(
       ...supply,
       clinical: task.clinical,
       evidence: input.evidence,
+      administration,
     },
     task.cattleId,
     actor,
@@ -668,7 +672,11 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
   let animal = await owned(cattle, tenantId, input.cattleId);
   if (animal.mergedIntoId || animal.status !== "active")
     fail("Choose an active animal");
-  const detail = input.details;
+  const medical = ["treatment", "vaccination", "deworming"].includes(input.type);
+  const administration = medical ? administrationSchema.parse(Object.fromEntries(
+    ["medicineName", "dosage", "route", "administeredBy", "administrationTime"].filter(k => input.details[k] != null).map(k => [k, input.details[k]]),
+  )) : {};
+  const detail: Record<string, any> = { ...input.details, ...administration };
   const cfg = await settings(tenantId);
   const today = farmDay(cfg.timezone);
   if (input.type !== "expected_calving" && input.date > today)
@@ -922,10 +930,11 @@ export async function animalEvent(tenantId: string, raw: any, actor?: string) {
       });
     if (input.type === "vaccination") {
       if (!detail.vaccineName?.trim()) fail("Enter the vaccine name so its history and next dose can be tracked");
-      await db.insert(vaccinations).values({ tenantId, cattleId: animal.id, vaccineId: detail.vaccineId || null,
+      const [vaccination] = await db.insert(vaccinations).values({ tenantId, cattleId: animal.id, vaccineId: detail.vaccineId || null,
         vaccineName: detail.vaccineName.trim(), date: input.date, notes: detail.instructions,
         nextDueDate: detail.nextDueDate || (detail.repeatAfterDays ? addDays(input.date, Number(detail.repeatAfterDays)) : null),
-        administeredBy: actor });
+        administeredBy: detail.administeredBy || null }).returning();
+      await db.update(farmEvents).set({ payload: { ...event.payload, ...used, vaccinationId: vaccination.id } }).where(eq(farmEvents.id, event.id));
     }
   }
   await db.update(cattle).set(patch).where(eq(cattle.id, animal.id));
@@ -1091,10 +1100,17 @@ export async function buildDailyReport(
   date: string,
   actor?: string,
   save = false,
+  options: DailyBriefingOptions = {},
 ) {
   daySchema.parse(date);
   const cfg = await settings(tenantId);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = (options.generatedAt || new Date()).toISOString();
+  const briefingDate = daySchema.parse(options.briefingDate || (options.period === "morning" ? addDays(date, 1) : date));
+  if (options.period && date !== (options.period === "morning" ? addDays(briefingDate, -1) : briefingDate))
+    fail("Briefing activity date does not match the morning/evening delivery date");
+  const actionDate = options.period ? briefingDate : date;
+  const archivePeriod = options.period || "daily";
+  const knownByCutoff = (r: any) => !r.createdAt || new Date(r.createdAt).valueOf() <= new Date(generatedAt).valueOf();
   const [
     animals,
     events,
@@ -1114,15 +1130,15 @@ export async function buildDailyReport(
     rows(milkEntries, tenantId),
     rows(milkSales, tenantId),
     rows(auditLogs, tenantId),
-    stockForecast(tenantId, date),
+    stockForecast(tenantId, actionDate),
     rows(incomes, tenantId),
     rows(expenses, tenantId),
   ]);
   const onDay = (v: any) => v && farmDay(cfg.timezone, new Date(v)) === date;
   const todayEvents = events.filter(
-    (e) => e.date === date || onDay(e.createdAt),
+    (e) => knownByCutoff(e) && (e.date === date || onDay(e.createdAt)),
   );
-  const todayMilk = milk.filter((m) => m.date === date);
+  const todayMilk = milk.filter((m) => m.date === date && knownByCutoff(m));
   const staff = await db
     .select({
       id: users.id,
@@ -1134,7 +1150,7 @@ export async function buildDailyReport(
     records.forEach((r) => {
       if (r.cattleId)
         r.animalTag = animals.find((a) => a.id === r.cattleId)?.tagNumber;
-      for (const key of ["recordedBy", "completedBy", "assignedTo", "userId"])
+      for (const key of ["recordedBy", "completedBy", "assignedTo", "administeredBy", "userId"])
         if (r[key]) {
           const person = staff.find((u) => u.id === r[key]);
           r[`${key}Name`] = person
@@ -1147,7 +1163,7 @@ export async function buildDailyReport(
   describe(todayEvents);
   describe(work);
   describe(audit);
-  const todaySales = sales.filter((s) => s.date === date);
+  const todaySales = sales.filter((s) => s.date === date && knownByCutoff(s));
   const produced = todayMilk.reduce((s, r) => s + Number(r.quantity), 0);
   const discardedAtMilking = todayMilk
     .filter((m) => m.destination === "discarded")
@@ -1164,8 +1180,8 @@ export async function buildDailyReport(
     .reduce((n, e) => n + Number(e.payload.quantity || 0), 0);
   const relevant = work.filter(
     (t) =>
-      ((!finishedTask(t.status) &&
-        (!t.dueDate || t.dueDate <= addDays(date, 30))) ||
+       knownByCutoff(t) && ((!finishedTask(t.status) &&
+        (!t.dueDate || t.dueDate <= addDays(actionDate, 30))) ||
         ((t.evidence as any)?.date ? (t.evidence as any).date === date : onDay(t.completedAt)) ||
         onDay(t.updatedAt)) &&
       (!t.cattleId ||
@@ -1186,16 +1202,17 @@ export async function buildDailyReport(
     ["animal_payment", cattlePayments, "date"],
   ] as const)
     for (const r of await rows(table, tenantId))
-      if (
+      if (knownByCutoff(r) && (
         (key === "detectedAt"
           ? farmDay(cfg.timezone, new Date(r[key]))
           : String(r[key]).slice(0, 10)) === date ||
         onDay(r.createdAt)
-      )
+      ))
         legacy.push({ type: label, ...r });
   const healthRecords = await rows(healthEvents, tenantId);
-  for (const treatment of await rows(treatments, tenantId))
-    if (treatment.date === date || onDay(treatment.createdAt))
+  const treatmentRecords = await rows(treatments, tenantId);
+  for (const treatment of treatmentRecords)
+    if (knownByCutoff(treatment) && (treatment.date === date || onDay(treatment.createdAt)))
       legacy.push({
         type: "treatment",
         ...treatment,
@@ -1245,7 +1262,7 @@ export async function buildDailyReport(
     births,
     observations,
     cfg,
-    date,
+    actionDate,
   );
   const reminders: any[] = [];
   const remind = (
@@ -1320,7 +1337,7 @@ export async function buildDailyReport(
       c,
       "date",
       "Record expected calving date",
-      date,
+      actionDate,
       "Pregnant animal has no expected date; dry-off and calving dates cannot be calculated.",
       `/care?tab=events&type=expected_calving&cattleId=${c.id}`,
       (t) => t.sourceKey === `missing-expected:${c.id}`,
@@ -1329,15 +1346,15 @@ export async function buildDailyReport(
     const applicable = plans.filter(
       (plan) =>
         plan.status === "approved" &&
-        plan.startDate <= date &&
-        (!plan.endDate || plan.endDate >= date) &&
+        plan.startDate <= actionDate &&
+        (!plan.endDate || plan.endDate >= actionDate) &&
         (plan.cattleId === p.cattleId ||
           (!plan.cattleId &&
             groups.some(
               (g) =>
                 g.id === plan.groupId &&
                 (g.kind === "dynamic"
-                  ? matchesAnimal(p.cow, g.criteria, date)
+                  ? matchesAnimal(p.cow, g.criteria, actionDate)
                   : g.cattleIds?.includes(p.cattleId)),
             ))),
     );
@@ -1366,7 +1383,7 @@ export async function buildDailyReport(
       `/care?tab=diets&cattleId=${p.cattleId}`,
     );
   }
-  for (const v of currentVaccinations(vaccineRecords, animals, date)) {
+  for (const v of currentVaccinations(vaccineRecords, animals, actionDate)) {
     const cow = animals.find((a) => a.id === v.cattleId);
     remind(
       cow,
@@ -1381,6 +1398,31 @@ export async function buildDailyReport(
     .select()
     .from(tenants)
     .where(eq(tenants.id, tenantId));
+  const medicationRecords = [
+    ...treatmentRecords.map(t => ({ ...t, type: "treatment", cattleId: healthRecords.find(h => h.id === t.healthEventId)?.cattleId })),
+    ...vaccineRecords.map(v => ({ ...v, type: "vaccination" })),
+  ].filter(r => knownByCutoff(r) && (r.date === date || r.date === actionDate));
+  describe(medicationRecords);
+  const medicationEvents = events.filter(e => knownByCutoff(e) && (e.date === date || e.date === actionDate));
+  describe(medicationEvents);
+  const medicationTasks = work.filter(t => t.status === "completed" && knownByCutoff(t) &&
+    [date, actionDate].includes(t.evidence?.date || (t.completedAt ? farmDay(cfg.timezone, new Date(t.completedAt)) : "")));
+  const snapshotAnimals = animals.filter(a => !a.mergedIntoId && knownByCutoff(a)).map(a => {
+    const holds: Date[] = [];
+    if (a.milkWithholdUntil) holds.push(new Date(a.milkWithholdUntil));
+    const healthIds = new Set(healthRecords.filter(h => h.cattleId === a.id).map(h => h.id));
+    for (const t of treatmentRecords.filter(t => healthIds.has(t.healthEventId) && t.date <= actionDate && knownByCutoff(t))) {
+      const through = t.withdrawalEndsAt || (Number(t.withdrawalDays) > 0 ? addDays(t.date, Number(t.withdrawalDays)) : null);
+      if (through) holds.push(farmMidnight(addDays(String(through).slice(0, 10), 1), cfg.timezone));
+    }
+    for (const e of events.filter(e => e.cattleId === a.id && e.date <= actionDate && knownByCutoff(e) &&
+      ["treatment", "vaccination", "deworming", "task_completed"].includes(e.type))) {
+      const days = Number(e.payload?.milkWithdrawalDays ?? e.payload?.clinical?.milkWithdrawalDays ?? 0);
+      if (days > 0) holds.push(farmMidnight(addDays(e.date, days + 1), cfg.timezone));
+    }
+    const until = holds.filter(d => Number.isFinite(d.valueOf())).sort((a, b) => b.valueOf() - a.valueOf())[0];
+    return { ...a, ...(until ? { milkWithholdUntil: until.toISOString() } : {}) };
+  });
   const report: any = {
     date,
     timezone: cfg.timezone,
@@ -1388,15 +1430,26 @@ export async function buildDailyReport(
     cutoff: generatedAt,
     revision: null,
     farmName: farm?.name || "DairyFlow",
+    ...(options.period ? { briefing: { period: options.period, date: briefingDate, actionDate, coveredDate: date, generatedAt } } : {}),
+    medicationRecords,
+    medicationEvents,
+    medicationTasks,
     reminders,
     activeHealth: healthRecords.filter(
       (h) =>
-        h.date <= date &&
+        knownByCutoff(h) && h.date <= (options.period ? actionDate : date) &&
         (h.status !== "resolved" ||
           (h.resolvedAt &&
-            farmDay(cfg.timezone, new Date(h.resolvedAt)) >= date)),
+            (options.period ? new Date(h.resolvedAt).valueOf() > new Date(generatedAt).valueOf() : farmDay(cfg.timezone, new Date(h.resolvedAt)) >= date))),
     ),
     milk: {
+      history: milk.filter(m => knownByCutoff(m) && m.date >= addDays(date, -Number(cfg.milkDropLookbackDays || 7)) && m.date < date),
+      comparisonRules: { lookbackDays: Number(cfg.milkDropLookbackDays || 7), minRecords: Number(cfg.milkDropMinRecords || 5),
+        dropPercent: Number(cfg.milkDropAlertPercent ?? 20), minDropLitres: Number(cfg.milkDropAlertMinLitres ?? 1) },
+      currentMorning: milk.filter(m => knownByCutoff(m) && m.date === briefingDate && m.session === "morning"),
+      previousClosing: events.filter(e => knownByCutoff(e) && e.date === addDays(date, -1) && e.type === "milk_disposition" && e.payload?.kind === "closing_stock")
+        .reduce((n, e) => n + Number(e.payload.quantity || 0), 0),
+      previousClosingKnown: events.some(e => knownByCutoff(e) && e.date === addDays(date, -1) && e.type === "milk_disposition" && e.payload?.kind === "closing_stock"),
       sessions: [
         "morning",
         "evening",
@@ -1415,7 +1468,7 @@ export async function buildDailyReport(
       entries: todayMilk,
       sales: todaySales,
       dispositions: disposition,
-      missing: animals
+      missing: snapshotAnimals
         .filter(isLactating)
         .map((a) => ({
           id: a.id,
@@ -1462,8 +1515,7 @@ export async function buildDailyReport(
       costs: (await rows(cattleCosts, tenantId)).filter((r) => r.date === date),
     },
     audit: audit.filter((a) => onDay(a.createdAt)),
-    animals: animals
-      .filter((a) => !a.mergedIntoId)
+    animals: snapshotAnimals
       .map((a) => ({
         ...a,
         events: todayEvents.filter((e) => e.cattleId === a.id),
@@ -1476,9 +1528,10 @@ export async function buildDailyReport(
           !todayMilk.some((e) => e.cattleId === a.id),
       })),
   };
+  report.customerActivities = await (await import("./sales-service")).customerActivitiesOverview(tenantId, actionDate);
   if (save) {
     const prior = (await rows(dailyReports, tenantId)).filter(
-      (r) => r.date === date,
+      (r) => r.date === date && (r.period || "daily") === archivePeriod,
     );
     report.revision = Math.max(0, ...prior.map((r) => r.revision)) + 1;
     const [saved] = await db
@@ -1486,6 +1539,8 @@ export async function buildDailyReport(
       .values({
         tenantId,
         date,
+        period: archivePeriod,
+        briefingDate: options.period ? briefingDate : null,
         revision: report.revision,
         snapshot: report,
         generatedBy: actor,
